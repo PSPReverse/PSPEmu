@@ -1,0 +1,4 @@
+[submodule "unicorn"]
+	path = unicorn
+	url = https://github.com/AlexanderEichner/unicorn
+	branch = mmio
