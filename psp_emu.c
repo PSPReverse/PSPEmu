@@ -11,31 +11,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define _1K          (1024)
-#define _4K          (4096)
-#define _256K        (256 * _1K)
-#define _1M          (1024 * _1K)
-#define _16M         (16 * _1M)
-#define _32M         (32 * _1M)
-#define _64M         (64 * _1M)
-
-#define PAGE_SIZE    _4K
-
-#define NIL_X86PADDR (~0ULL)
-
-/** Returns the number of elements from a static array. */
-#define ELEMENTS(a_Array) (sizeof(a_Array)/sizeof(a_Array[0]))
-
-typedef struct SEVREQPLATFORMSTATUS
-{
-    uint8_t             u8VerMaj;
-    uint8_t             u8VerMin;
-    uint8_t             u8State;
-    uint8_t             u8OwnerFlags;
-    uint32_t            u32CfgFlags;
-    uint32_t            u32GstCnt;
-} SEVREQPLATFORMSTATUS;
-typedef SEVREQPLATFORMSTATUS *PSEVREQPLATFORMSTATUS;
+#define IN_PSP_EMULATOR
+#include <psp-fw/svc_id.h>
+#include <sev/sev.h>
 
 typedef struct PSPCCPREQSVC0X38
 {
@@ -123,15 +101,6 @@ typedef struct PSPCORE
     /** Cached temporary x86 mappings. */
     PSPX86MEMCACHEDMAPPING  aX86Mappings[8];
 } PSPCORE;
-
-typedef struct SEVCMDBUF
-{
-    uint32_t idCmd;
-    uint32_t PhysX86AddrCmdBufLow;
-    uint32_t PhysX86AddrCmdBufHigh;
-} SEVCMDBUF;
-typedef SEVCMDBUF *PSEVCMDBUF;
-
 
 static const int registers[] = { UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2, UC_ARM_REG_R3,
                                  UC_ARM_REG_R4, UC_ARM_REG_R5, UC_ARM_REG_R6, UC_ARM_REG_R7,
