@@ -2,6 +2,3 @@
 	path = unicorn
 	url = https://github.com/AlexanderEichner/unicorn
 	branch = mmio
-[submodule "psp-include"]
-	path = psp-include
-	url = https://github.com/PSPReverse/psp-include
