@@ -33,14 +33,14 @@ static void pspEmuMmioDevRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
 {
     PPSPMMIODEV pDev = (PPSPMMIODEV)pvUser;
 
-    pDev->pReg->pfnMmioRead(pDev, uPspAddr - pDev->MmioStart, cbRead, pvDst);
+    pDev->pReg->pfnMmioRead(pDev, uPspAddr, cbRead, pvDst);
 }
 
 static void pspEmuMmioDevWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser)
 {
     PPSPMMIODEV pDev = (PPSPMMIODEV)pvUser;
 
-    pDev->pReg->pfnMmioWrite(pDev, uPspAddr - pDev->MmioStart, cbWrite, pvSrc);
+    pDev->pReg->pfnMmioWrite(pDev, uPspAddr, cbWrite, pvSrc);
 }
 
 
