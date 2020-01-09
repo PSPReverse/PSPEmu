@@ -44,7 +44,7 @@ typedef void (FNPSPCOREMMIOREAD)(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead,
 typedef FNPSPCOREMMIOREAD *PFNPSPCOREMMIOREAD;
 
 /** MMIO write handler. */
-typedef void (FNPSPCOREMMIOWRITE)(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvDst, void *pvUser);
+typedef void (FNPSPCOREMMIOWRITE)(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser);
 /** MMIO write handler pointer. */
 typedef FNPSPCOREMMIOWRITE *PFNPSPCOREMMIOWRITE;
 
