@@ -26,6 +26,7 @@
 
 #include <psp-core.h>
 #include <psp-flash.h>
+#include <psp-devs.h>
 
 
 /**
@@ -59,6 +60,41 @@ static struct option g_aOptions[] =
     {0, 0, 0, 0}
 };
 
+
+
+/**
+ * Dumps the PSP core register state.
+ *
+ * @returns nothing.
+ * @param   hCore                   The PSP core handle to dump the register state from.
+ */
+static void pspEmuCoreStateDump(PSPCORE hCore)
+{
+    PSPCOREREG enmReg = PSPCOREREG_R0;
+    uint32_t au32Reg[PSPCOREREG_PC + 1];
+
+    while (enmReg <= PSPCOREREG_PC)
+    {
+        PSPEmuCoreQueryReg(hCore, enmReg, &au32Reg[enmReg]);
+        enmReg++;
+    }
+
+    printf( "R0 > 0x%08x | R1 > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
+            "R4 > 0x%08x | R5 > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
+            "R8 > 0x%08x | R9 > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
+            "R12> 0x%08x | SP > 0x%08x | LR > 0x%08x | PC > 0x%08x\n",
+            au32Reg[PSPCOREREG_R0], au32Reg[PSPCOREREG_R1], au32Reg[PSPCOREREG_R2], au32Reg[PSPCOREREG_R3],
+            au32Reg[PSPCOREREG_R4], au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6], au32Reg[PSPCOREREG_R7],
+            au32Reg[PSPCOREREG_R8], au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
+            au32Reg[PSPCOREREG_R12], au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR], au32Reg[PSPCOREREG_PC]);
+}
+
+
+static void pspEmuTraceOnChipBl(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
+{
+    printf(">>> Tracing instruction at %#x, instruction size = 0x%x\n", uPspAddr, cbInsn);
+    pspEmuCoreStateDump(hCore);
+}
 
 /**
  * Parses the command line arguments and creates the emulator config.
@@ -174,12 +210,29 @@ int main(int argc, char *argv[])
                     {
                         case PSPCOREMODE_SYSTEM_ON_CHIP_BL:
                         {
+#if 1 /* Testing */
+                            PPSPMMIODEV pDev = NULL;
+                            PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceOnChipBl, NULL);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegUnk0x01005000, 0x01005000, &pDev);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegUnk0x01005000, 0x01025000, &pDev);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegUnk0x0125a000, 0x0125a000, &pDev);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegUnk0x03200000, 0x03200000, &pDev);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegUnk0x03210000, 0x03210000, &pDev);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegUnk0x03220000, 0x03220000, &pDev);
+                            PSPEmuMmioDevCreate(hCore, &g_MmioDevRegUnk0x03260000, 0x03260000, &pDev);
+#endif
+
                             rc = PSPEmuCoreExecSetStartAddr(hCore, 0xffff0000);
                             if (!rc)
                             {
                                 rc = PSPEmuCoreExecRun(hCore, 0, 0);
                                 if (rc)
+                                {
                                     fprintf(stderr, "Emulation runloop failed with %d\n", rc);
+                                    pspEmuCoreStateDump(hCore);
+                                }
                             }
                             else
                                 fprintf(stderr, "Setting the execution start address failed with %d\n", rc);

@@ -410,7 +410,7 @@ int PSPEmuCoreSetReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t uVal)
 {
     PPSPCOREINT pThis = hCore;
 
-    uint32_t uTmp = uVal;
+    uint64_t uTmp = uVal;
     uc_err rcUc = uc_reg_write(pThis->pUcEngine, pspEmuCoreReg2Uc(enmReg), &uTmp);
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
@@ -419,7 +419,9 @@ int PSPEmuCoreQueryReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t *puVal)
 {
     PPSPCOREINT pThis = hCore;
 
-    uc_err rcUc = uc_reg_read(pThis->pUcEngine, pspEmuCoreReg2Uc(enmReg), puVal);
+    uint64_t uTmp;
+    uc_err rcUc = uc_reg_read(pThis->pUcEngine, pspEmuCoreReg2Uc(enmReg), &uTmp);
+    *puVal = (uint32_t)uTmp;
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
