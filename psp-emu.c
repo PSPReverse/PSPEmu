@@ -24,7 +24,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <common/cdefs.h>
+
 #include <psp-core.h>
+#include <psp-disasm.h>
 #include <psp-flash.h>
 #include <psp-devs.h>
 
@@ -87,6 +90,18 @@ static void pspEmuCoreStateDump(PSPCORE hCore)
             au32Reg[PSPCOREREG_R4], au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6], au32Reg[PSPCOREREG_R7],
             au32Reg[PSPCOREREG_R8], au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
             au32Reg[PSPCOREREG_R12], au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR], au32Reg[PSPCOREREG_PC]);
+
+    /* Dump a few instructions. */ /** @todo Thumb */
+    uint8_t abInsn[5 * sizeof(uint32_t)];
+    char achBuf[_1K];
+    int rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_PC], &abInsn[0], sizeof(abInsn));
+    if (!rc)
+    {
+        rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC]);
+        if (!rc)
+            printf("Disasm:\n"
+                   "%s", &achBuf[0]);
+    }
 }
 
 

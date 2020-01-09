@@ -5,3 +5,6 @@
 [submodule "psp-includes"]
 	path = psp-includes
 	url = https://github.com/PSPReverse/psp-includes
+[submodule "capstone"]
+	path = capstone
+	url = https://github.com/aquynh/capstone
