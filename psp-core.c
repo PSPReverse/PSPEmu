@@ -101,6 +101,31 @@ typedef const PSPCORETRACEHOOK *PCPSPCORETRACEHOOK;
 
 
 /**
+ * A single MMIO region registration.
+ */
+typedef struct PSPCOREMMIOREGION
+{
+    /** Next MMIO region in the list. */
+    struct PSPCOREMMIOREGION *pNext;
+    /** Start PSP address. */
+    PSPADDR                  PspAddrStart;
+    /** Size of the MMIO region. */
+    size_t                   cbMmio;
+    /** PSP core the region belongs to. */
+    PPSPCOREINT              pPspCore;
+    /** MMIO read handler. */
+    PFNPSPCOREMMIOREAD       pfnRead;
+    /** MMIO write handler. */
+    PFNPSPCOREMMIOWRITE      pfnWrite;
+    /** Opaque user data to pass to the read/write callbacks. */
+    void                     *pvUser;
+} PSPCOREMMIOREGION;
+/** Pointer to a trace hook. */
+typedef PSPCOREMMIOREGION *PPSPCOREMMIOREGION;
+/** Pointer to a const trace hook. */
+typedef const PSPCOREMMIOREGION *PCPSPCOREMMIOREGION;
+
+/**
  * A single PSP core executing.
  */
 typedef struct PSPCOREINT
@@ -122,6 +147,8 @@ typedef struct PSPCOREINT
 
     /** Head of registered trace hooks. */
     PPSPCORETRACEHOOK       pTraceHooksHead;
+    /** Head of MMIO regions. */
+    PPSPCOREMMIOREGION      pMmioRegionsHead;
 
     /** The x86 mapping for the privileged DRAM region where the SEV app state is saved. */
     PSPX86MEMCACHEDMAPPING  X86MappingPrivState;
@@ -200,6 +227,83 @@ static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32
     pHook->pfnTrace(pHook->pPspCore, (PSPADDR)uAddr, cbInsn, pHook->pvUser);
 }
 
+
+/**
+ * Unicorn MMIO read wrapper.
+ *
+ * @returns Data read.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   pvUser                  Opaque user data.
+ * @param   uAddr                   MMIO address read.
+ * @param   cbInsn                  Size of the read (1, 2, 4 or 8 bytes).
+ */
+static uint64_t pspEmuCoreMmioRead(struct uc_struct* pUcEngine, void *pvUser, uint64_t uAddr, unsigned cb)
+{
+    PCPSPCOREMMIOREGION pRegion = (PCPSPCOREMMIOREGION)pvUser;
+    PSPDATUM ValRead;
+    uint64_t uValRet = 0;
+
+    pRegion->pfnRead(pRegion->pPspCore, (PSPADDR)uAddr, cb, &ValRead, pRegion->pvUser);
+    switch (cb)
+    {
+        case 1:
+            uValRet = ValRead.u8;
+            break;
+        case 2:
+            uValRet = ValRead.u16;
+            break;
+        case 4:
+            uValRet = ValRead.u32;
+            break;
+        case 8:
+            uValRet = ValRead.u64;
+            break;
+        default:
+            /** @todo assert() */
+            uc_emu_stop(pUcEngine);
+    }
+
+    return uValRet;
+}
+
+
+/**
+ * Unicorn MMIO write wrapper.
+ *
+ * @returns nothing.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   pvUser                  Opaque user data.
+ * @param   uAddr                   MMIO address written.
+ * @param   uVal                    Value written.
+ * @param   cbInsn                  Size of the write (1, 2, 4 or 8 bytes).
+ */
+static void pspEmuCoreMmioWrite(struct uc_struct* pUcEngine, void *pvUser, uint64_t uAddr, uint64_t uVal, unsigned cb)
+{
+    PCPSPCOREMMIOREGION pRegion = (PCPSPCOREMMIOREGION)pvUser;
+    PSPDATUM ValWrite;
+
+    switch (cb)
+    {
+        case 1:
+            ValWrite.u8 = (uint8_t)uVal;
+            break;
+        case 2:
+            ValWrite.u16 = (uint16_t)uVal;
+            break;
+        case 4:
+            ValWrite.u32 = (uint32_t)uVal;
+            break;
+        case 8:
+            ValWrite.u64 = uVal;
+            break;
+        default:
+            /** @todo assert() */
+            uc_emu_stop(pUcEngine);
+    }
+    pRegion->pfnWrite(pRegion->pPspCore, (PSPADDR)uAddr, cb, &ValWrite, pRegion->pvUser);
+}
+
+
 int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
 {
     int rc = 0;
@@ -209,10 +313,11 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
     {
         uc_err err;
 
-        pThis->pTraceHooksHead = NULL;
-        pThis->enmMode         = enmMode;
-        pThis->cbSram          = _256K;
-        pThis->pvSram          = calloc(1, pThis->cbSram);
+        pThis->pTraceHooksHead  = NULL;
+        pThis->pMmioRegionsHead = NULL;
+        pThis->enmMode          = enmMode;
+        pThis->cbSram           = _256K;
+        pThis->pvSram           = calloc(1, pThis->cbSram);
         if (pThis->pvSram)
         {
             /* Initialize unicorn engine in ARM mode. */
@@ -396,6 +501,74 @@ int PSPEmuCoreTraceDeregister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPsp
             pThis->pTraceHooksHead = pCur->pNext;
 
         uc_err rcUc = uc_hook_del(pThis->pUcEngine, pCur->hUcHook);
+        /** @todo assert(rcUc == UC_ERR_OK) */
+        free(pCur);
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+int PSPEmuCoreMmioRegister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMmio,
+                           PFNPSPCOREMMIOREAD pfnRead, PFNPSPCOREMMIOWRITE pfnWrite,
+                           void *pvUser)
+{
+    PPSPCOREINT pThis = hCore;
+    int rc = 0;
+
+    /* Try to register a new hook. */
+    PPSPCOREMMIOREGION pRegion = (PPSPCOREMMIOREGION)calloc(1, sizeof(*pRegion));
+    if (pRegion)
+    {
+        pRegion->PspAddrStart = uPspAddrMmioStart;
+        pRegion->cbMmio       = cbMmio;
+        pRegion->pPspCore     = pThis;
+        pRegion->pfnRead      = pfnRead;
+        pRegion->pfnWrite     = pfnWrite;
+        pRegion->pvUser       = pvUser;
+
+        uc_err rcUc = uc_mmio_map(pThis->pUcEngine, uPspAddrMmioStart, cbMmio,
+                                  pspEmuCoreMmioRead, pspEmuCoreMmioWrite, pRegion);
+        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        if (!rc)
+        {
+            pRegion->pNext = pThis->pMmioRegionsHead;
+            pThis->pMmioRegionsHead = pRegion;
+        }
+        else
+            free(pRegion);
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMmio)
+{
+    PPSPCOREINT pThis = hCore;
+    int rc = 0;
+
+    /* Search for the right hook and deregister. */
+    PPSPCOREMMIOREGION pPrev = NULL;
+    PPSPCOREMMIOREGION pCur = pThis->pMmioRegionsHead;
+    while (   pCur
+           && (   pCur->PspAddrStart != uPspAddrMmioStart
+               || pCur->cbMmio != cbMmio))
+    {
+        pPrev = pCur;
+        pCur = pCur->pNext;
+    }
+
+    if (pCur)
+    {
+        if (pPrev)
+            pPrev->pNext = pCur->pNext;
+        else
+            pThis->pMmioRegionsHead = pCur->pNext;
+
+        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, uPspAddrMmioStart, cbMmio);
         /** @todo assert(rcUc == UC_ERR_OK) */
         free(pCur);
     }

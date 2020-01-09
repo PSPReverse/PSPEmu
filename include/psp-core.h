@@ -38,6 +38,16 @@ typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, 
 /** Trace hook handler pointer. */
 typedef FNPSPCORETRACE *PFNPSPCORETRACE;
 
+/** MMIO read handler. */
+typedef void (FNPSPCOREMMIOREAD)(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser);
+/** MMIO read handler pointer. */
+typedef FNPSPCOREMMIOREAD *PFNPSPCOREMMIOREAD;
+
+/** MMIO write handler. */
+typedef void (FNPSPCOREMMIOWRITE)(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvDst, void *pvUser);
+/** MMIO write handler pointer. */
+typedef FNPSPCOREMMIOWRITE *PFNPSPCOREMMIOWRITE;
+
 
 /**
  * Core emulation mode.
@@ -227,5 +237,30 @@ int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAd
  * @param   uPspAddrEnd             End address of the region to deregister the trace hook (must match the address during registration).
  */
 int PSPEmuCoreTraceDeregister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd);
+
+/**
+ * Register a new MMIO region with the given read/write handlers.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   uPspAddrMmioStart       The start address of the MMIO region.
+ * @param   cbMmio                  Size of the MMIO region in bytes.
+ * @param   pfnRead                 Read handler.
+ * @param   pfnWrite                Write handler.
+ * @param   pvUser                  Opaque user data.
+ */
+int PSPEmuCoreMmioRegister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMmio,
+                           PFNPSPCOREMMIOREAD pfnRead, PFNPSPCOREMMIOWRITE pfnWrite,
+                           void *pvUser);
+
+/**
+ * Deregisters a previously registered MMIO region.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   uPspAddrMmioStart       The start address of the MMIO region.
+ * @param   cbMmio                  Size of the MMIO region in bytes.
+ */
+int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMmio);
 
 #endif /* __psp_core_h */

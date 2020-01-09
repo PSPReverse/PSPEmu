@@ -9,11 +9,12 @@ find_library(m REQUIRED)
 
 pkg_check_modules(PC_LIBPSPPROXY REQUIRED IMPORTED_TARGET libpspproxy)
 
-add_executable(PSPEmu psp-emu.c psp-core.c psp-svc.c psp-flash.c)
+add_executable(PSPEmu psp-emu.c psp-core.c psp-svc.c psp-flash.c psp-mmio-dev.c)
 
 target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/include"
                            "${PROJECT_SOURCE_DIR}/psp-includes"
+                           "${PROJECT_SOURCE_DIR}/unicorn/include"
                            "${LIBPSPPROXY_INCLUDE_DIRS}"
                            )
 
