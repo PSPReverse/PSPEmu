@@ -75,6 +75,32 @@ typedef struct PSPX86MEMCACHEDMAPPING
 typedef PSPX86MEMCACHEDMAPPING *PPSPX86MEMCACHEDMAPPING;
 
 /**
+ * A single trace hook.
+ */
+typedef struct PSPCORETRACEHOOK
+{
+    /** Next trace hook in the list. */
+    struct PSPCORETRACEHOOK *pNext;
+    /** Start PSP address. */
+    PSPADDR                 PspAddrStart;
+    /** End PSP address. */
+    PSPADDR                 PspAddrEnd;
+    /** PSP core the hook belongs to. */
+    PPSPCOREINT             pPspCore;
+    /** The trace callback to execute. */
+    PFNPSPCORETRACE         pfnTrace;
+    /** Opaque user data to pass to the callback. */
+    void                    *pvUser;
+    /** The unicorn hook handle. */
+    uc_hook                 hUcHook;
+} PSPCORETRACEHOOK;
+/** Pointer to a trace hook. */
+typedef PSPCORETRACEHOOK *PPSPCORETRACEHOOK;
+/** Pointer to a const trace hook. */
+typedef const PSPCORETRACEHOOK *PCPSPCORETRACEHOOK;
+
+
+/**
  * A single PSP core executing.
  */
 typedef struct PSPCOREINT
@@ -93,6 +119,10 @@ typedef struct PSPCOREINT
     PSPSVC                  hSvcState;
     /** The next address to execute instructions from. */
     PSPADDR                 PspAddrExecNext;
+
+    /** Head of registered trace hooks. */
+    PPSPCORETRACEHOOK       pTraceHooksHead;
+
     /** The x86 mapping for the privileged DRAM region where the SEV app state is saved. */
     PSPX86MEMCACHEDMAPPING  X86MappingPrivState;
     /** Size of the state region. */
@@ -154,6 +184,22 @@ static int pspEmuCoreErrConvertFromUcErr(uc_err rcUc)
 }
 
 
+/**
+ * The trace hook wrapper called by unicorn.
+ *
+ * @returns nothing.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   uAddr                   The address of the instruction triggering the hook.
+ * @param   cbInsn                  Size of the instruction.
+ * @param   pvUser                  Opaque user data.
+ */
+static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32_t cbInsn, void *pvUser)
+{
+    PCPSPCORETRACEHOOK pHook = (PCPSPCORETRACEHOOK)pvUser;
+
+    pHook->pfnTrace(pHook->pPspCore, (PSPADDR)uAddr, cbInsn, pHook->pvUser);
+}
+
 int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
 {
     int rc = 0;
@@ -163,9 +209,10 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
     {
         uc_err err;
 
-        pThis->enmMode = enmMode;
-        pThis->cbSram  = _256K;
-        pThis->pvSram  = calloc(1, pThis->cbSram);
+        pThis->pTraceHooksHead = NULL;
+        pThis->enmMode         = enmMode;
+        pThis->cbSram          = _256K;
+        pThis->pvSram          = calloc(1, pThis->cbSram);
         if (pThis->pvSram)
         {
             /* Initialize unicorn engine in ARM mode. */
@@ -290,5 +337,71 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
 int PSPEmuCoreExecStop(PSPCORE hCore)
 {
     return -1; /** @todo */
+}
+
+int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd, PFNPSPCORETRACE pfnTrace, void *pvUser)
+{
+    PPSPCOREINT pThis = hCore;
+    int rc = 0;
+
+    /* Try to register a new hook. */
+    PPSPCORETRACEHOOK pHook = (PPSPCORETRACEHOOK)calloc(1, sizeof(*pHook));
+    if (pHook)
+    {
+        pHook->PspAddrStart = uPspAddrStart;
+        pHook->PspAddrEnd   = uPspAddrEnd;
+        pHook->pPspCore     = pThis;
+        pHook->pfnTrace     = pfnTrace;
+        pHook->pvUser       = pvUser;
+
+        uc_err rcUc = uc_hook_add(pThis->pUcEngine, &pHook->hUcHook, UC_HOOK_CODE,
+                                  (void *)(uintptr_t)pspEmuCoreUcHookWrapper, pHook,
+                                  uPspAddrStart, uPspAddrEnd);
+        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        if (!rc)
+        {
+            pHook->pNext = pThis->pTraceHooksHead;
+            pThis->pTraceHooksHead = pHook;
+        }
+        else
+            free(pHook);
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+int PSPEmuCoreTraceDeregister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd)
+{
+    PPSPCOREINT pThis = hCore;
+    int rc = 0;
+
+    /* Search for the right hook and deregister. */
+    PPSPCORETRACEHOOK pPrev = NULL;
+    PPSPCORETRACEHOOK pCur = pThis->pTraceHooksHead;
+    while (   pCur
+           && (   pCur->PspAddrStart != uPspAddrStart
+               || pCur->PspAddrEnd != uPspAddrEnd))
+    {
+        pPrev = pCur;
+        pCur = pCur->pNext;
+    }
+
+    if (pCur)
+    {
+        if (pPrev)
+            pPrev->pNext = pCur->pNext;
+        else
+            pThis->pTraceHooksHead = pCur->pNext;
+
+        uc_err rcUc = uc_hook_del(pThis->pUcEngine, pCur->hUcHook);
+        /** @todo assert(rcUc == UC_ERR_OK) */
+        free(pCur);
+    }
+    else
+        rc = -1;
+
+    return rc;
 }
 

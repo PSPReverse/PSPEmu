@@ -33,6 +33,12 @@ typedef struct PSPCOREINT *PSPCORE;
 typedef PSPCORE *PPSPCORE;
 
 
+/** Trace hook handler. */
+typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser);
+/** Trace hook handler pointer. */
+typedef FNPSPCORETRACE *PFNPSPCORETRACE;
+
+
 /**
  * Core emulation mode.
  */
@@ -199,5 +205,27 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec);
  * @param   hCore                   The PSP core handle.
  */
 int PSPEmuCoreExecStop(PSPCORE hCore);
+
+/**
+ * Registers a new trace callback triggered whenever an instruction in the given range is executed.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   uPspAddrStart           Start address of the region to trace.
+ * @param   uPspAddrEnd             End address of the region to trace (inclusive).
+ * @param   pfnTrace                The trace callback to execute.
+ * @param   pvUser                  Opaque user data passed to the trace callback.
+ */
+int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd, PFNPSPCORETRACE pfnTrace, void *pvUser);
+
+/**
+ * Deregisters a previously registered trace hook.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   uPspAddrStart           Start address of the region deregister the trace hook (must match the address during registration).
+ * @param   uPspAddrEnd             End address of the region to deregister the trace hook (must match the address during registration).
+ */
+int PSPEmuCoreTraceDeregister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd);
 
 #endif /* __psp_core_h */
