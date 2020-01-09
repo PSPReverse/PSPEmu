@@ -19,7 +19,10 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
-#include <psp-svc.h>
+#include <unicorn/unicorn.h>
+
+#include <common/types.h>
+#include <common/cdefs.h>
 
 #define IN_PSP_EMULATOR
 #include <psp-core.h>
@@ -39,9 +42,9 @@ typedef union PSPDATUM
 typedef PSPDATUM *PPSPDATUM;
 
 /** Pointer to a PSP core instance. */
-typedef struct PSPCORE *PPSPCORE;
+typedef struct PSPCOREINT *PPSPCOREINT;
 /** Pointer to a const PSP core instance. */
-typedef const struct PSPCORE *PCPSPCORE;
+typedef const struct PSPCOREINT *PCPSPCOREINT;
 
 /**
  * Cached x86 memory mapping
@@ -49,7 +52,7 @@ typedef const struct PSPCORE *PCPSPCORE;
 typedef struct PSPX86MEMCACHEDMAPPING
 {
     /** Pointer to the owning PSP core instance. */
-    PCPSPCORE           pPspCore;
+    PCPSPCOREINT        pPspCore;
     /** X86 Mapped base address, NIL_X86PADDR if mapping is not used. */
     X86PADDR            PhysX86AddrBase;
     /** 4K aligned base address of the mapping (for unicorn). */
@@ -87,7 +90,7 @@ typedef struct PSPCOREINT
     /** The CCD ID. */
     uint32_t                idCcd;
     /** The supervisor emulation instance if app emulation is used. */
-    PSPSVCSTATE             hSvcState;
+    PSPSVC                  hSvcState;
     /** The next address to execute instructions from. */
     PSPADDR                 PspAddrExecNext;
     /** The x86 mapping for the privileged DRAM region where the SEV app state is saved. */
@@ -97,8 +100,6 @@ typedef struct PSPCOREINT
     /** Cached temporary x86 mappings. */
     PSPX86MEMCACHEDMAPPING  aX86Mappings[8];
 } PSPCOREINT;
-/** Pointer to a single PSP core instance. */
-typedef PSPCOREINT *PPSPCOREINT;
 
 
 /**
@@ -156,7 +157,7 @@ static int pspEmuCoreErrConvertFromUcErr(uc_err rcUc)
 int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
 {
     int rc = 0;
-    PPSPCORE pThis = (PPSPCORE)calloc(1, sizeof(*pThis));
+    PPSPCOREINT pThis = (PPSPCOREINT)calloc(1, sizeof(*pThis));
 
     if (pThis)
     {
@@ -173,7 +174,7 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
             {
                 if (!rc)
                 {
-                    uc_mem_map_ptr(pPspCore->pUcEngine, 0x0, pThis->cbSram, UC_PROT_READ | UC_PROT_WRITE, pThis->pvSram);
+                    uc_mem_map_ptr(pThis->pUcEngine, 0x0, pThis->cbSram, UC_PROT_ALL, pThis->pvSram);
                     *phCore = pThis;
                     return 0;
                 }
@@ -183,18 +184,18 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
             else
             {
                 printf("not ok - Failed on uc_open() with error: %s\n", uc_strerror(err));
-                rc = EINVAL;
+                rc = -1;
             }
 
             free(pThis->pvSram);
         }
         else
-            rc = ENOMEM;
+            rc = -1;
 
         free(pThis);
     }
     else
-        rc = ENOMEM;
+        rc = -1;
 
     return rc;
 }
@@ -245,7 +246,15 @@ int PSPEmuCoreMemAddRegion(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
     return -1; /** @todo */
 }
 
-int PSPEmuCoreSetReg(PSPCORE hCore, PSPREG enmReg, uint32_t uVal)
+int PSPEmuCoreSetOnChipBl(PSPCORE hCore, void *pvOnChipBl, size_t cbOnChipBl)
+{
+    PPSPCOREINT pThis = hCore;
+
+    uc_err rcUc = uc_mem_map_ptr(pThis->pUcEngine, 0xffff0000, cbOnChipBl, UC_PROT_READ | UC_PROT_EXEC, pvOnChipBl);
+    return pspEmuCoreErrConvertFromUcErr(rcUc);
+}
+
+int PSPEmuCoreSetReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t uVal)
 {
     PPSPCOREINT pThis = hCore;
 

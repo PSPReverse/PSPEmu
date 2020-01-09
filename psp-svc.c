@@ -19,18 +19,27 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
-#include <psp-svc.h>
+
+#include <stdio.h>
+#include <stdlib.h>
 
 #define IN_PSP_EMULATOR
+#include <common/types.h>
+#include <common/cdefs.h>
+
 #include <psp-fw/svc_id.h>
 #include <psp-fw/err.h>
 #include <sev/sev.h>
 
+#include <psp-svc.h>
 #include <psp-core.h>
 #include <libpspproxy.h>
 
+/** Pointer to the emulated supervirsor firmware state. */
+typedef struct PSPSVCINT *PPSPSVCINT;
+
 /** Syscall handler. */
-typedef int (*FNPSPSVCHANDLER)(PSPSVCINT pThis, uint32_t idxSyscall);
+typedef int (FNPSPSVCHANDLER)(PPSPSVCINT pThis, uint32_t idxSyscall);
 /** Syscall handler pointer. */
 typedef FNPSPSVCHANDLER *PFNPSPSVCHANDLER;
 
@@ -43,33 +52,33 @@ typedef struct PSPSVCINT
     PSPCORE                 hPspCore;
     /** The PSP proxy to forward requests to. */
     PSPPROXYCTX             hProxyCtx;
+    /** Size of the state region. */
+    uint32_t                cbStateRegion;
 } PSPSVCINT;
-/** Pointer to the emulated supervirsor firmware state. */
-typedef PSPSVCINT *PPSPSVCINT;
 
 
-static int pspEmuSvcAppExit(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcAppInit(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcSmnMapEx(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcSmnMap(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcSmnUnmap(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcDbgLog(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcX86MemMap(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcX86MemUnmap(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcX86CopyToPsp(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcX86CopyFromPsp(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcX86MemMapEx(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcSmuMsg(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvc0x32Unk(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvc0x33Unk(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvc0x35Unk(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvc0x36Unk(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvc0x38Unk(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcRng(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcQuerySaveStateRegion(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvc0x41Unk(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvc0x42Unk(PSPSVCINT pThis, uint32_t idxSyscall);
-static int pspEmuSvcQuerySmmRegion(PSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcAppExit(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcAppInit(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcSmnMapEx(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcSmnMap(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcSmnUnmap(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcDbgLog(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcX86MemMap(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcX86MemUnmap(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcX86CopyToPsp(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcX86CopyFromPsp(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcX86MemMapEx(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcSmuMsg(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvc0x32Unk(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvc0x33Unk(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvc0x35Unk(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvc0x36Unk(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvc0x38Unk(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcRng(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcQuerySaveStateRegion(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvc0x41Unk(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvc0x42Unk(PPSPSVCINT pThis, uint32_t idxSyscall);
+static int pspEmuSvcQuerySmmRegion(PPSPSVCINT pThis, uint32_t idxSyscall);
 
 
 /**
@@ -152,7 +161,7 @@ static PFNPSPSVCHANDLER g_apfnSyscalls[] =
     pspEmuSvcQuerySmmRegion                           /**< 0x48: */
 };
 
-static int pspEmuSvcAppExit(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcAppExit(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
     (void)idxSyscall;
 
@@ -162,15 +171,17 @@ static int pspEmuSvcAppExit(PSPSVCINT pThis, uint32_t idxSyscall)
     int rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, SVC_GET_STATE_BUFFER, pThis->cbStateRegion, 0, 0, 0, &PspAddrStateRegion);
     if (rc)
         printf("Mapping memory region state failed with %d\n", rc);
+#if 0
     rc = PSPProxyCtxPspMemWrite(pThis->hProxyCtx, PspAddrStateRegion, pThis->X86MappingPrivState.pvMapping, pThis->cbStateRegion);
     if (rc)
         printf("Syncing SEV state to privileged DRAM failed with %d\n", rc);
+#endif
 
     return 0;
 }
 
 
-static int pspEmuSvcAppInit(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcAppInit(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
     (void)idxSyscall;
 
@@ -197,7 +208,7 @@ static int pspEmuSvcAppInit(PSPSVCINT pThis, uint32_t idxSyscall)
     return rc;
 }
 
-static int pspEmuSvcSmnMapEx(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcSmnMapEx(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t uSmnAddr = 0;
@@ -215,12 +226,12 @@ static int pspEmuSvcSmnMapEx(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcSmnMap(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcSmnMap(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 
 }
 
-static int pspEmuSvcSmnUnmap(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcSmnUnmap(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t uAddr = 0;
@@ -237,7 +248,7 @@ static int pspEmuSvcSmnUnmap(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcDbgLog(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcDbgLog(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     /* Log the string. */
@@ -251,13 +262,13 @@ static int pspEmuSvcDbgLog(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcX86MemMap(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcX86MemMap(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
 #endif
 }
 
-static int pspEmuSvcX86MemUnmap(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcX86MemUnmap(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t uAddr = 0;
@@ -308,19 +319,19 @@ static int pspEmuSvcX86MemUnmap(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcX86CopyToPsp(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcX86CopyToPsp(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
 #endif
 }
 
-static int pspEmuSvcX86CopyFromPsp(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcX86CopyFromPsp(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
 #endif
 }
 
-static int pspEmuSvcX86MemMapEx(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcX86MemMapEx(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t uPhysX86AddrLow = 0;
@@ -385,7 +396,7 @@ static int pspEmuSvcX86MemMapEx(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcSmuMsg(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcSmuMsg(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t idMsg = 0;
@@ -419,7 +430,7 @@ static int pspEmuSvcSmuMsg(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvc0x32Unk(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvc0x32Unk(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     PSPADDR  PspAddrUnk = 0;
@@ -453,7 +464,7 @@ static int pspEmuSvc0x32Unk(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvc0x33Unk(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvc0x33Unk(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t PspAddrUnk = 0;
@@ -513,7 +524,7 @@ static int pspEmuSvc0x33Unk(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcPlatformReset(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcPlatformReset(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t uArgUnk = 0;
@@ -529,7 +540,7 @@ static int pspEmuSvcPlatformReset(PSPSVCINT pThis, uint32_t idxSyscall)
 }
 
 
-static int pspEmuSvc0x35Unk(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvc0x35Unk(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t au32Req[8];
@@ -609,7 +620,7 @@ static int pspEmuSvc0x35Unk(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvc0x36Unk(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvc0x36Unk(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t au32Req[13];
@@ -701,7 +712,7 @@ static int pspEmuSvc0x36Unk(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcInvalidateMemory(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcInvalidateMemory(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t uInvOp = 0;
@@ -723,7 +734,7 @@ static int pspEmuSvcInvalidateMemory(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvc0x38Unk(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvc0x38Unk(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     PSPADDR PspAddrReq;
@@ -822,7 +833,7 @@ static int pspEmuSvc0x38Unk(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcRng(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcRng(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     PSPADDR PspAddrBuf = 0;
@@ -855,7 +866,7 @@ static int pspEmuSvcRng(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcQuerySaveStateRegion(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcQuerySaveStateRegion(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t uStateRegionAddr = 0;
@@ -892,7 +903,7 @@ static int pspEmuSvcQuerySaveStateRegion(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvc0x41Unk(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvc0x41Unk(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     PSPADDR PspAddrReq = 0;
@@ -1029,7 +1040,7 @@ static int pspEmuSvc0x41Unk(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvc0x42Unk(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvc0x42Unk(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     PSPADDR PspAddrBufUnk = 0;
@@ -1064,7 +1075,7 @@ static int pspEmuSvc0x42Unk(PSPSVCINT pThis, uint32_t idxSyscall)
 #endif
 }
 
-static int pspEmuSvcQuerySmmRegion(PSPSVCINT pThis, uint32_t idxSyscall)
+static int pspEmuSvcQuerySmmRegion(PPSPSVCINT pThis, uint32_t idxSyscall)
 {
 #if 0
     uint32_t UsrPtrSmmRegionStart = 0;
@@ -1092,7 +1103,7 @@ static int pspEmuSvcQuerySmmRegion(PSPSVCINT pThis, uint32_t idxSyscall)
 int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore)
 {
     int rc = 0;
-    PPSPSVCINT pThis = (PPSPSVCINT)malloc(*pThis);
+    PPSPSVCINT pThis = (PPSPSVCINT)malloc(sizeof(*pThis));
 
     if (pThis != NULL)
     {

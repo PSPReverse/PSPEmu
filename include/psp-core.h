@@ -22,6 +22,8 @@
 #ifndef __psp_core_h
 #define __psp_core_h
 
+#include <common/types.h>
+
 #include <stdint.h>
 #include <stddef.h>
 
@@ -142,6 +144,16 @@ int PSPEmuCoreMemRead(PSPCORE hCore, PSPADDR AddrPspRead, void *pvDst, size_t cb
 int PSPEmuCoreMemAddRegion(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion);
 
 /**
+ * Initializes the on chip bootloader ROM region with the given data.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   pvOnChipBl              The on chip bootloader memory.
+ * @param   cbOnChipBl              Size of the on chip bootloader.
+ */
+int PSPEmuCoreSetOnChipBl(PSPCORE hCore, void *pvOnChipBl, size_t cbOnChipBl);
+
+/**
  * Sets a specific register to a given value.
  *
  * @returns Status code.
@@ -149,7 +161,7 @@ int PSPEmuCoreMemAddRegion(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion);
  * @param   enmReg                  The register to set.
  * @param   uVal                    The value to set the register to.
  */
-int PSPEmuCoreSetReg(PSPCORE hCore, PSPREG enmReg, uint32_t uVal);
+int PSPEmuCoreSetReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t uVal);
 
 /**
  * Queries the value of a specific register.
