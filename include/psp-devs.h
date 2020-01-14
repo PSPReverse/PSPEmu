@@ -27,13 +27,7 @@
 #include <psp-mmio-dev.h>
 
 extern const PSPMMIODEVREG g_MmioDevRegCcpV5;
-extern const PSPMMIODEVREG g_MmioDevRegUnk0x01005000;
-extern const PSPMMIODEVREG g_MmioDevRegUnk0x0125a000;
 extern const PSPMMIODEVREG g_MmioDevRegUnk0x03010000;
-extern const PSPMMIODEVREG g_MmioDevRegUnk0x03200000;
-extern const PSPMMIODEVREG g_MmioDevRegUnk0x03210000;
-extern const PSPMMIODEVREG g_MmioDevRegUnk0x03220000;
-extern const PSPMMIODEVREG g_MmioDevRegUnk0x03260000;
 
 #endif /* __psp_devs_h */
 

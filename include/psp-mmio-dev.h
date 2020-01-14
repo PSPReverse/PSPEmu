@@ -31,6 +31,11 @@ typedef const struct PSPMMIODEVREG *PCPSPMMIODEVREG;
 /** Pointer to a PSP MMIO device registration record. */
 typedef struct PSPMMIODEVREG *PPSPMMIODEVREG;
 
+/** PSP MMIO Manager handle. */
+typedef struct PSPMMIOMINT *PSPMMIOM;
+/** Pointer to a PSP MMIO Manager handle. */
+typedef PSPMMIOM *PPSPMMIOM;
+
 
 /**
  * PSP MMIO device instance.
@@ -41,8 +46,8 @@ typedef struct PSPMMIODEV
     struct PSPMMIODEV       *pNext;
     /** Pointer to the device registration record. */
     PCPSPMMIODEVREG         pReg;
-    /** The PSP core the device is attached to. */
-    PSPCORE                 hPspCore;
+    /** The MMIO manager the device is attached to. */
+    PSPMMIOM                hMmioMgr;
     /** Start MMIO address for the device. */
     PSPADDR                 MmioStart;
     /** Instance data - variable in size. */
@@ -97,16 +102,33 @@ typedef struct PSPMMIODEVREG
 
 
 /**
+ * Initializes the MMIO manager returning a handle.
+ *
+ * @returns Status code.
+ * @param   phMmioMgr               Where to store the MMIO manager handle on success.
+ * @param   hPspCore                The PSP core handle the MMIO manager belongs to.
+ */
+int PSPEmuMmioMgrCreate(PPSPMMIOM phMmioMgr, PSPCORE hPspCore);
+
+/**
+ * Destroys the MMIO manager including all attached devices.
+ *
+ * @returns Status code.
+ * @param   hMmioMgr                The MMIO manager handle.
+ */
+int PSPEmuMmioMgrDestroy(PSPMMIOM hMmioMgr);
+
+/**
  * Creates a new device instance of the given device registration record, iniitalizes it and
  * registers the MMIO handlers with the given PSP core.
  *
  * @returns Status code.
- * @param   hPspCore                The PSP core handle.
+ * @param   hMmioMgr                The MMIO manager handle.
  * @param   pDevReg                 The device template to use.
  * @param   PspAddrMmioStart        The start MMIO address the device is behind.
  * @param   ppMmioDev               Where to store the MMIO device on success.
  */
-int PSPEmuMmioDevCreate(PSPCORE hPspCore, PCPSPMMIODEVREG pDevReg, PSPADDR PspAddrMmioStart, PPSPMMIODEV *ppMmioDev);
+int PSPEmuMmioDevCreate(PSPMMIOM hMmioMgr, PCPSPMMIODEVREG pDevReg, PSPADDR PspAddrMmioStart, PPSPMMIODEV *ppMmioDev);
 
 /**
  * Destroys the given MMIO device instance.

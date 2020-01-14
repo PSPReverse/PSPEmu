@@ -21,51 +21,198 @@
  */
 
 #include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 #include <common/types.h>
+#include <common/cdefs.h>
 
 #define IN_PSP_EMULATOR
 #include <psp-mmio-dev.h>
 
 
-
-static void pspEmuMmioDevRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
+/**
+ * The internal MMIO manager state.
+ */
+typedef struct PSPMMIOMINT
 {
-    PPSPMMIODEV pDev = (PPSPMMIODEV)pvUser;
+    /** The head of list of devices attached to the MMIO space (@todo AVL tree?). */
+    PPSPMMIODEV                 pDevsHead;
+    /** Lowest MMIO address assigned to a device (for faster lookup). */
+    PSPADDR                     PspAddrMmioDevLowest;
+    /** Highes MMIO address assigned to a device (inclusive). */
+    PSPADDR                     PspAddrMmioDevHighest;
+    /** The PSP core handle this MMIO manager is assigned to. */
+    PSPCORE                     hPspCore;
+} PSPMMIOMINT;
+/** Pointer to the internal MMIO manager state. */
+typedef PSPMMIOMINT *PPSPMMIOMINT;
 
-    pDev->pReg->pfnMmioRead(pDev, uPspAddr, cbRead, pvDst);
+
+/**
+ * Finds the device assigned to the given MMIO address or NULL if there is nothing assigned.
+ *
+ * @returns Pointer to the device assigned to the MMIO address or NULL if none was found.
+ * @param   pThis                   The PSP MMIO manager.
+ * @param   PspAddrMmio             The absolute MMIO address to look for.
+ */
+static PPSPMMIODEV pspEmuMmioMgrFindDev(PPSPMMIOMINT pThis, PSPADDR PspAddrMmio)
+{
+    if (   PspAddrMmio < pThis->PspAddrMmioDevLowest
+        || PspAddrMmio > pThis->PspAddrMmioDevHighest)
+        return NULL;
+
+    /* Slow path. */
+    PPSPMMIODEV pCur = pThis->pDevsHead;
+    while (pCur)
+    {
+        if (   PspAddrMmio >= pCur->MmioStart
+            && PspAddrMmio < pCur->MmioStart + pCur->pReg->cbMmio)
+            return pCur;
+
+        pCur = pCur->pNext;
+    }
+
+    return NULL;
 }
 
-static void pspEmuMmioDevWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser)
+static void pspEmuMmioMgrRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
 {
-    PPSPMMIODEV pDev = (PPSPMMIODEV)pvUser;
+    PPSPMMIOMINT pThis = (PPSPMMIOMINT)pvUser;
 
-    pDev->pReg->pfnMmioWrite(pDev, uPspAddr, cbWrite, pvSrc);
+    uPspAddr += 0x01000000; /* The address contains the offset from the beginning of the registered range */
+    PPSPMMIODEV pDev = pspEmuMmioMgrFindDev(pThis, uPspAddr);
+    if (pDev)
+        pDev->pReg->pfnMmioRead(pDev, uPspAddr - pDev->MmioStart, cbRead, pvDst);
+    else
+    {
+        /* Unassigned read, log and return 0. */
+        printf("MMIO: Unassigned read at %#08x (%zu bytes) -> returning 0\n", uPspAddr, cbRead);
+        memset(pvDst, 0, cbRead);
+    }
+}
+
+static void pspEmuMmioMgrWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser)
+{
+    PPSPMMIOMINT pThis = (PPSPMMIOMINT)pvUser;
+
+    uPspAddr += 0x01000000; /* The address contains the offset from the beginning of the registered range */
+
+    PPSPMMIODEV pDev = pspEmuMmioMgrFindDev(pThis, uPspAddr);
+    if (pDev)
+        pDev->pReg->pfnMmioWrite(pDev, uPspAddr - pDev->MmioStart, cbWrite, pvSrc);
+    else
+    {
+        /* Unassigned read, log and return 0. */
+        printf("MMIO: Unassigned write at %#08x (%zu bytes) -> ignoring\n", uPspAddr, cbWrite);
+        switch (cbWrite)
+        {
+            case 1:
+                printf("MMIO:    u8Val=%#x\n", *(uint8_t *)pvSrc);
+                break;
+            case 2:
+                printf("MMIO:    u16Val=%#x\n", *(uint16_t *)pvSrc);
+                break;
+            case 4:
+                printf("MMIO:    u32Val=%#x\n", *(uint32_t *)pvSrc);
+                break;
+            case 8:
+                printf("MMIO:    u64Val=%#llx\n", *(uint64_t *)pvSrc);
+                break;
+            default:
+                printf("MMIO:    Invalid write size!\n");
+        }
+    }
 }
 
 
-int PSPEmuMmioDevCreate(PSPCORE hPspCore, PCPSPMMIODEVREG pDevReg, PSPADDR PspAddrMmioStart, PPSPMMIODEV *ppMmioDev)
+int PSPEmuMmioMgrCreate(PPSPMMIOM phMmioMgr, PSPCORE hPspCore)
 {
     int rc = 0;
+    PPSPMMIOMINT pThis = calloc(1, sizeof(*pThis));
+
+    if (pThis)
+    {
+        pThis->pDevsHead             = NULL;
+        pThis->PspAddrMmioDevLowest  = 0xffffffff;
+        pThis->PspAddrMmioDevHighest = 0x00000000;
+        pThis->hPspCore              = hPspCore;
+
+        rc = PSPEmuCoreMmioRegister(hPspCore, 0x01000000, 0x44000000,
+                                    pspEmuMmioMgrRead, pspEmuMmioMgrWrite,
+                                    pThis);
+        if (!rc)
+        {
+            *phMmioMgr = pThis;
+            return 0;
+        }
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+int PSPEmuMmioMgrDestroy(PSPMMIOM hMmioMgr)
+{
+    PPSPMMIOMINT pThis = hMmioMgr;
+
+    int rc = PSPEmuCoreMmioDeregister(pThis->hPspCore, 0x01000000, 0xffffffff - 64 * _1K - 0x01000000);
+    /** @todo Free  devices. */
+    free(pThis);
+    return rc;
+}
+
+int PSPEmuMmioDevCreate(PSPMMIOM hMmioMgr, PCPSPMMIODEVREG pDevReg, PSPADDR PspAddrMmioStart, PPSPMMIODEV *ppMmioDev)
+{
+    int rc = 0;
+    PPSPMMIOMINT pThis = hMmioMgr;
     PPSPMMIODEV pDev = (PPSPMMIODEV)calloc(1, sizeof(*pDev) + pDevReg->cbInstance);
     if (pDev)
     {
-        pDev->pReg     = pDevReg;
-        pDev->hPspCore = hPspCore;
+        pDev->pReg      = pDevReg;
+        pDev->hMmioMgr  = hMmioMgr;
         pDev->MmioStart = PspAddrMmioStart;
 
-        /* Initialize the device instance and register with the PSP core if successful. */
+        /* Initialize the device instance and add to the list of known devices. */
         rc = pDev->pReg->pfnInit(pDev);
         if (!rc)
         {
-            rc = PSPEmuCoreMmioRegister(hPspCore, PspAddrMmioStart, pDevReg->cbMmio,
-                                        pspEmuMmioDevRead, pspEmuMmioDevWrite,
-                                        pDev);
-            if (!rc)
+            PPSPMMIODEV pPrev = NULL;
+            PPSPMMIODEV pCur = pThis->pDevsHead;
+
+            /* Search where to insert the new device, sorted by starting MMIO address. */
+            while (pCur)
             {
+                if (pCur->MmioStart > PspAddrMmioStart)
+                    break;
+                pPrev = pCur;
+                pCur = pCur->pNext;
+            }
+
+            /* Do some sanity checks, the new MMIO range must not overlap with the previous and current device. */
+            if (   (   !pPrev
+                    || pPrev->MmioStart + pPrev->pReg->cbMmio <= PspAddrMmioStart)
+                && (   !pCur
+                    || PspAddrMmioStart + pDevReg->cbMmio <= pCur->MmioStart))
+            {
+                pDev->pNext = pCur;
+                if (pPrev)
+                    pPrev->pNext = pDev;
+                else
+                    pThis->pDevsHead = pDev;
+
+                /* Adjust the lowest and highest device range. */
+                if (PspAddrMmioStart < pThis->PspAddrMmioDevLowest)
+                    pThis->PspAddrMmioDevLowest = PspAddrMmioStart;
+                if (PspAddrMmioStart + pDevReg->cbMmio - 1 > pThis->PspAddrMmioDevHighest)
+                    pThis->PspAddrMmioDevHighest = PspAddrMmioStart + pDevReg->cbMmio - 1;
+
                 *ppMmioDev = pDev;
                 return 0;
             }
+            else
+                rc = -1;
 
             pDev->pReg->pfnDestruct(pDev);
         }
@@ -80,9 +227,8 @@ int PSPEmuMmioDevCreate(PSPCORE hPspCore, PCPSPMMIODEVREG pDevReg, PSPADDR PspAd
 
 int PSPEmuMmioDevDestroy(PPSPMMIODEV pMmioDev)
 {
-    int rc = PSPEmuCoreMmioDeregister(pMmioDev->hPspCore, pMmioDev->MmioStart, pMmioDev->pReg->cbMmio);
-    /** @todo assert(rc == 0) */
-
+    /** @todo Unlink from list. */
+    pMmioDev->pReg->pfnDestruct(pMmioDev);
     free(pMmioDev);
 }
 
