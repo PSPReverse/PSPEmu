@@ -16,6 +16,7 @@ add_executable(PSPEmu
                       psp-svc.c
                       psp-flash.c
                       psp-mmio-dev.c
+                      psp-smn-dev.c
                       psp-dev-ccp-v5.c
                       psp-dev-unknown-0x03010000.c)
 

@@ -29,6 +29,7 @@
 #include <psp-core.h>
 #include <psp-disasm.h>
 #include <psp-flash.h>
+#include <psp-smn-dev.h>
 #include <psp-devs.h>
 
 
@@ -208,54 +209,59 @@ int main(int argc, char *argv[])
                 rc = PSPEmuMmioMgrCreate(&hMmioMgr, hCore);
                 if (!rc)
                 {
-                    if (Cfg.enmMode == PSPCOREMODE_SYSTEM_ON_CHIP_BL)
-                    {
-                        void *pvOnChipBl = NULL;
-                        size_t cbOnChipBl = 0;
-
-                        rc = PSPEmuFlashLoadFromFile(Cfg.pszPathOnChipBl, &pvOnChipBl, &cbOnChipBl);
-                        if (!rc)
-                        {
-                            rc = PSPEmuCoreSetOnChipBl(hCore, pvOnChipBl, cbOnChipBl);
-                            if (rc)
-                                fprintf(stderr, "Setting the on chip bootloader ROM for the PSP core failed with %d\n", rc);
-                        }
-                        else
-                            fprintf(stderr, "Loading the on chip bootloader ROM failed with %d\n", rc);
-                    }
-
+                    PSPSMNM hSmnMgr;
+                    rc = PSPEmuSmnMgrCreate(&hSmnMgr, hMmioMgr);
                     if (!rc)
                     {
-                        switch (Cfg.enmMode)
+                        if (Cfg.enmMode == PSPCOREMODE_SYSTEM_ON_CHIP_BL)
                         {
-                            case PSPCOREMODE_SYSTEM_ON_CHIP_BL:
+                            void *pvOnChipBl = NULL;
+                            size_t cbOnChipBl = 0;
+
+                            rc = PSPEmuFlashLoadFromFile(Cfg.pszPathOnChipBl, &pvOnChipBl, &cbOnChipBl);
+                            if (!rc)
                             {
+                                rc = PSPEmuCoreSetOnChipBl(hCore, pvOnChipBl, cbOnChipBl);
+                                if (rc)
+                                    fprintf(stderr, "Setting the on chip bootloader ROM for the PSP core failed with %d\n", rc);
+                            }
+                            else
+                                fprintf(stderr, "Loading the on chip bootloader ROM failed with %d\n", rc);
+                        }
+
+                        if (!rc)
+                        {
+                            switch (Cfg.enmMode)
+                            {
+                                case PSPCOREMODE_SYSTEM_ON_CHIP_BL:
+                                {
 #if 1 /* Testing */
-                                PPSPMMIODEV pDev = NULL;
-                                PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceOnChipBl, NULL);
-                                PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
-                                PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
+                                    PPSPMMIODEV pDev = NULL;
+                                    //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceOnChipBl, NULL);
+                                    PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
+                                    PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
 #endif
 
-                                rc = PSPEmuCoreExecSetStartAddr(hCore, 0xffff0000);
-                                if (!rc)
-                                {
-                                    rc = PSPEmuCoreExecRun(hCore, 0, 0);
-                                    if (rc)
+                                    rc = PSPEmuCoreExecSetStartAddr(hCore, 0xffff0000);
+                                    if (!rc)
                                     {
-                                        fprintf(stderr, "Emulation runloop failed with %d\n", rc);
-                                        pspEmuCoreStateDump(hCore);
+                                        rc = PSPEmuCoreExecRun(hCore, 0, 0);
+                                        if (rc)
+                                        {
+                                            fprintf(stderr, "Emulation runloop failed with %d\n", rc);
+                                            pspEmuCoreStateDump(hCore);
+                                        }
                                     }
+                                    else
+                                        fprintf(stderr, "Setting the execution start address failed with %d\n", rc);
+                                    break;
                                 }
-                                else
-                                    fprintf(stderr, "Setting the execution start address failed with %d\n", rc);
-                                break;
+                                case PSPCOREMODE_APP:
+                                case PSPCOREMODE_SYSTEM:
+                                default:
+                                    fprintf(stderr, "Emulation mode not implemented yet\n");
+                                    rc = -1;
                             }
-                            case PSPCOREMODE_APP:
-                            case PSPCOREMODE_SYSTEM:
-                            default:
-                                fprintf(stderr, "Emulation mode not implemented yet\n");
-                                rc = -1;
                         }
                     }
                 }
