@@ -163,6 +163,14 @@ int PSPEmuMmioMgrDestroy(PSPMMIOM hMmioMgr)
     return rc;
 }
 
+int PSPEmuMmioMgrQueryCore(PSPMMIOM hMmioMgr, PPSPCORE phPspCore)
+{
+    PPSPMMIOMINT pThis = hMmioMgr;
+
+    *phPspCore = pThis->hPspCore;
+    return 0;
+}
+
 int PSPEmuMmioDevCreate(PSPMMIOM hMmioMgr, PCPSPMMIODEVREG pDevReg, PSPADDR PspAddrMmioStart, PPSPMMIODEV *ppMmioDev)
 {
     int rc = 0;

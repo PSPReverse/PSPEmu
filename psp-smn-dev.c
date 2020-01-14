@@ -44,6 +44,9 @@ typedef struct PSPSMNMINT
     SMNADDR                     SmnAddrDevHighest;
     /** The MMIO manager handle this SMN manager is assigned to. */
     PSPMMIOM                    hMmioMgr;
+    /** *The underlying PSP core handle this SMN manager is indirectly attached to through
+     * the MMIO manager (for dumping state). */
+    PSPCORE                     hPspCore;
     /** The MMIO device instance for the mapping slots. */
     PPSPMMIODEV                 pMmioDevSlots;
     /** The MMIO device instance for the control register interface. */
@@ -196,6 +199,7 @@ static void pspDevSmnSlotsMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbR
         /* Unassigned read, log and return 0. */
         printf("SMN: Unassigned read at 0x%08x (%zu bytes) -> returning 0\n", SmnAddr, cbRead);
         memset(pvDst, 0, cbRead);
+        PSPEmuCoreStateDump(pThis->hPspCore);
     }
 }
 
@@ -229,6 +233,7 @@ static void pspDevSmnSlotsMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cb
             default:
                 printf("SMN:    Invalid write size!\n");
         }
+        PSPEmuCoreStateDump(pThis->hPspCore);
     }
 }
 
@@ -268,20 +273,24 @@ int PSPEmuSmnMgrCreate(PPSPSMNM phSmnMgr, PSPMMIOM hMmioMgr)
         pThis->SmnAddrDevHighest = 0x00000000;
         pThis->hMmioMgr          = hMmioMgr;
 
-        rc = PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegSmnCtrl, 0x03220000, &pThis->pMmioDevCtrl);
+        rc = PSPEmuMmioMgrQueryCore(hMmioMgr, &pThis->hPspCore);
         if (!rc)
         {
-            rc = PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegSmnSlots, 0x01000000, &pThis->pMmioDevSlots);
+            rc = PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegSmnCtrl, 0x03220000, &pThis->pMmioDevCtrl);
             if (!rc)
             {
-                /* XXX Directly accessing the MMIO device instance data to set the SMN manager handle. */
-                PPSPDEVSMN pMmioDev = (PPSPDEVSMN)&pThis->pMmioDevCtrl->abInstance[0];
-                pMmioDev->pSmnMgr = pThis;
-                pMmioDev = (PPSPDEVSMN)&pThis->pMmioDevSlots->abInstance[0];
-                pMmioDev->pSmnMgr = pThis;
+                rc = PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegSmnSlots, 0x01000000, &pThis->pMmioDevSlots);
+                if (!rc)
+                {
+                    /* XXX Directly accessing the MMIO device instance data to set the SMN manager handle. */
+                    PPSPDEVSMN pMmioDev = (PPSPDEVSMN)&pThis->pMmioDevCtrl->abInstance[0];
+                    pMmioDev->pSmnMgr = pThis;
+                    pMmioDev = (PPSPDEVSMN)&pThis->pMmioDevSlots->abInstance[0];
+                    pMmioDev->pSmnMgr = pThis;
 
-                *phSmnMgr = pThis;
-                return 0;
+                    *phSmnMgr = pThis;
+                    return 0;
+                }
             }
         }
     }

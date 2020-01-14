@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
                                 {
 #if 1 /* Testing */
                                     PPSPMMIODEV pDev = NULL;
-                                    PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceOnChipBl, NULL);
+                                    //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceOnChipBl, NULL);
                                     PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
                                     PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
 #endif

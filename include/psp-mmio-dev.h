@@ -119,6 +119,14 @@ int PSPEmuMmioMgrCreate(PPSPMMIOM phMmioMgr, PSPCORE hPspCore);
 int PSPEmuMmioMgrDestroy(PSPMMIOM hMmioMgr);
 
 /**
+ * Queries the PSP core handle asociated with the given MMIO manager.
+ *
+ * @returns Status code.
+ * @param   phPspCore               Where to store the PSP core handle on success.
+ */
+int PSPEmuMmioMgrQueryCore(PSPMMIOM hMmioMgr, PPSPCORE phPspCore);
+
+/**
  * Creates a new device instance of the given device registration record, iniitalizes it and
  * registers the MMIO handlers with the given PSP core.
  *
