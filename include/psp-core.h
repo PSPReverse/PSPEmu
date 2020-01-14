@@ -263,4 +263,12 @@ int PSPEmuCoreMmioRegister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMm
  */
 int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMmio);
 
+/**
+ * Dumps the emulation core state to stdout.
+ *
+ * @returns nothing.
+ * @param   hCore                   The PSP core handle.
+ */
+void PSPEmuCoreStateDump(PSPCORE hCore);
+
 #endif /* __psp_core_h */

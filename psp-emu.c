@@ -27,7 +27,6 @@
 #include <common/cdefs.h>
 
 #include <psp-core.h>
-#include <psp-disasm.h>
 #include <psp-flash.h>
 #include <psp-smn-dev.h>
 #include <psp-devs.h>
@@ -65,51 +64,10 @@ static struct option g_aOptions[] =
 };
 
 
-
-/**
- * Dumps the PSP core register state.
- *
- * @returns nothing.
- * @param   hCore                   The PSP core handle to dump the register state from.
- */
-static void pspEmuCoreStateDump(PSPCORE hCore)
-{
-    PSPCOREREG enmReg = PSPCOREREG_R0;
-    uint32_t au32Reg[PSPCOREREG_PC + 1];
-
-    while (enmReg <= PSPCOREREG_PC)
-    {
-        PSPEmuCoreQueryReg(hCore, enmReg, &au32Reg[enmReg]);
-        enmReg++;
-    }
-
-    printf( "R0 > 0x%08x | R1 > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
-            "R4 > 0x%08x | R5 > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
-            "R8 > 0x%08x | R9 > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
-            "R12> 0x%08x | SP > 0x%08x | LR > 0x%08x | PC > 0x%08x\n",
-            au32Reg[PSPCOREREG_R0], au32Reg[PSPCOREREG_R1], au32Reg[PSPCOREREG_R2], au32Reg[PSPCOREREG_R3],
-            au32Reg[PSPCOREREG_R4], au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6], au32Reg[PSPCOREREG_R7],
-            au32Reg[PSPCOREREG_R8], au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
-            au32Reg[PSPCOREREG_R12], au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR], au32Reg[PSPCOREREG_PC]);
-
-    /* Dump a few instructions. */ /** @todo Thumb */
-    uint8_t abInsn[5 * sizeof(uint32_t)];
-    char achBuf[_1K];
-    int rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_PC], &abInsn[0], sizeof(abInsn));
-    if (!rc)
-    {
-        rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC]);
-        if (!rc)
-            printf("Disasm:\n"
-                   "%s", &achBuf[0]);
-    }
-}
-
-
 static void pspEmuTraceOnChipBl(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
 {
     printf(">>> Tracing instruction at %#x, instruction size = 0x%x\n", uPspAddr, cbInsn);
-    pspEmuCoreStateDump(hCore);
+    PSPEmuCoreStateDump(hCore);
 }
 
 /**
@@ -237,7 +195,7 @@ int main(int argc, char *argv[])
                                 {
 #if 1 /* Testing */
                                     PPSPMMIODEV pDev = NULL;
-                                    //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceOnChipBl, NULL);
+                                    PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceOnChipBl, NULL);
                                     PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
                                     PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
 #endif
@@ -249,7 +207,7 @@ int main(int argc, char *argv[])
                                         if (rc)
                                         {
                                             fprintf(stderr, "Emulation runloop failed with %d\n", rc);
-                                            pspEmuCoreStateDump(hCore);
+                                            PSPEmuCoreStateDump(hCore);
                                         }
                                     }
                                     else
