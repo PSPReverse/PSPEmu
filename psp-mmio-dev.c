@@ -87,7 +87,7 @@ static void pspEmuMmioMgrRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
     else
     {
         /* Unassigned read, log and return 0. */
-        printf("MMIO: Unassigned read at %#08x (%zu bytes) -> returning 0\n", uPspAddr, cbRead);
+        printf("MMIO: Unassigned read at 0x%08x (%zu bytes) -> returning 0\n", uPspAddr, cbRead);
         memset(pvDst, 0, cbRead);
     }
 }
@@ -104,7 +104,7 @@ static void pspEmuMmioMgrWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
     else
     {
         /* Unassigned read, log and return 0. */
-        printf("MMIO: Unassigned write at %#08x (%zu bytes) -> ignoring\n", uPspAddr, cbWrite);
+        printf("MMIO: Unassigned write at 0x%08x (%zu bytes) -> ignoring\n", uPspAddr, cbWrite);
         switch (cbWrite)
         {
             case 1:

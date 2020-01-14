@@ -94,7 +94,7 @@ static void pspDevSmnCtrlMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbW
             /* Each 4 byte access programs two slots. */
             uint32_t idxSlotBase = (offMmio / 4) * 2;
             uint32_t uSmnBaseVal = *(uint32_t *)pvVal;
-            printf("MMIO/SMN: Mapping slot %u and %u to %#08x\n", idxSlotBase, idxSlotBase + 1, uSmnBaseVal);
+            printf("MMIO/SMN: Mapping slot %u and %u to 0x%08x\n", idxSlotBase, idxSlotBase + 1, uSmnBaseVal);
             pThis->aSmnAddrBaseSlots[idxSlotBase]     = (uSmnBaseVal & 0xffff) << 20;
             pThis->aSmnAddrBaseSlots[idxSlotBase + 1] = (uSmnBaseVal >> 16) << 20;
             break;
@@ -194,7 +194,7 @@ static void pspDevSmnSlotsMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbR
     else
     {
         /* Unassigned read, log and return 0. */
-        printf("SMN: Unassigned read at %#08x (%zu bytes) -> returning 0\n", SmnAddr, cbRead);
+        printf("SMN: Unassigned read at 0x%08x (%zu bytes) -> returning 0\n", SmnAddr, cbRead);
         memset(pvDst, 0, cbRead);
     }
 }
@@ -211,7 +211,7 @@ static void pspDevSmnSlotsMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cb
     else
     {
         /* Unassigned read, log and return 0. */
-        printf("SMN: Unassigned write at %#08x (%zu bytes) -> ignoring\n", SmnAddr, cbWrite);
+        printf("SMN: Unassigned write at 0x%08x (%zu bytes) -> ignoring\n", SmnAddr, cbWrite);
         switch (cbWrite)
         {
             case 1:
