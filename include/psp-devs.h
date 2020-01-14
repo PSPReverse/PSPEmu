@@ -25,9 +25,12 @@
 #include <common/types.h>
 
 #include <psp-mmio-dev.h>
+#include <psp-smn-dev.h>
 
 extern const PSPMMIODEVREG g_MmioDevRegCcpV5;
 extern const PSPMMIODEVREG g_MmioDevRegUnk0x03010000;
+
+extern const PSPSMNDEVREG g_SmnDevRegUnk0x0005e000;
 
 #endif /* __psp_devs_h */
 
