@@ -409,7 +409,39 @@ static int pspEmuDbgRunloopCoreNotRunning(PPSPDBGINT pThis)
  */
 static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
 {
-    return -1;
+    /* Poll for data and feed it to the GDB stub, which will execute requests. */
+    int rc = 0;
+    struct pollfd PollFd;
+
+    PollFd.fd      = pThis->iFdGdbCon;
+    PollFd.events  = POLLIN | POLLHUP | POLLERR;
+    PollFd.revents = 0;
+
+    while (   pThis->fCoreRunning
+           && !rc)
+    {
+        /*
+         * Execute a bunch of instructions, check whether we have data from GDB
+         * and act accordingly.
+         */
+        rc = PSPEmuCoreExecRun(pThis->hCore, 100, 0);
+        if (!rc)
+        {
+            int rcPsx = poll(&PollFd, 1, 0);
+            if (rcPsx == 1)
+            {
+                /* Run the GDB stub runloop until it returns. */
+                int rcGdbStub = GDBStubCtxRun(pThis->hGdbStubCtx);
+                if (   rcGdbStub != GDBSTUB_INF_SUCCESS
+                    && rcGdbStub != GDBSTUB_INF_TRY_AGAIN)
+                    rc = -1;
+            }
+            if (rcPsx == -1)
+                rc = -1;
+        }
+    }
+
+    return rc;
 }
 
 
@@ -479,12 +511,11 @@ int PSPEmuDbgDestroy(PSPDBG hDbg)
 
 int PSPEmuDbgRunloop(PSPDBG hDbg)
 {
+    int rc = 0;
     PPSPDBGINT pThis = hDbg;
 
-    for (;;)
+    while (!rc)
     {
-        int rc = 0;
-
         /* Wait until we get a connection. */
         while (   !rc
                && pThis->iFdGdbCon == 0)
@@ -495,7 +526,8 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
         else
             rc = pspEmuDbgRunloopCoreRunning(pThis);
     }
-    return -1;
+
+    return rc;
 }
 
 
