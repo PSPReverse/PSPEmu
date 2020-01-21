@@ -208,6 +208,7 @@ static int pspEmuCoreErrConvertFromUcErr(uc_err rcUc)
     if (rcUc == UC_ERR_OK)
         return 0;
 
+    printf("rcUc=%u\n", rcUc);
     return -1; /** @todo */
 }
 
@@ -328,6 +329,13 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
                 if (!rc)
                 {
                     uc_mem_map_ptr(pThis->pUcEngine, 0x0, pThis->cbSram, UC_PROT_ALL, pThis->pvSram);
+
+                     /** @todo The stack memory, do this more elegantly. The PSP sets up page tables
+                      * but unicorn somehow ignores them so we have to make the stack available here for now
+                      * with an explicit mapping.
+                      */
+                    uc_mem_map(pThis->pUcEngine, 0x50000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE);
+
                     *phCore = pThis;
                     return 0;
                 }
@@ -583,6 +591,8 @@ int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cb
 
 void PSPEmuCoreStateDump(PSPCORE hCore)
 {
+    PPSPCOREINT pThis = hCore;
+
     PSPCOREREG enmReg = PSPCOREREG_R0;
     uint32_t au32Reg[PSPCOREREG_PC + 1];
 
@@ -607,9 +617,17 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
     int rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_PC], &abInsn[0], sizeof(abInsn));
     if (!rc)
     {
-        rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC]);
-        if (!rc)
-            printf("Disasm:\n"
-                   "%s", &achBuf[0]);
+        size_t ucCpuMode = 0;
+
+        uc_err rcUc = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+        if (rcUc == UC_ERR_OK)
+        {
+            rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC], ucCpuMode == UC_MODE_THUMB ? true : false);
+            if (!rc)
+                printf("Disasm:\n"
+                       "%s", &achBuf[0]);
+        }
+        else
+            fprintf(stderr, "Querying CPU mode failed with %d\n", pspEmuCoreErrConvertFromUcErr(rcUc));
     }
 }

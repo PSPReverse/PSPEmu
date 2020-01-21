@@ -43,6 +43,10 @@ typedef struct PSPEMUCFG
     const char              *pszPathFlashRom;
     /** Path to the on chip bootloader if in appropriate mode. */
     const char              *pszPathOnChipBl;
+    /** Binary to load, if NULL we get one from the flash image depending on the mode. */
+    const char              *pszPathBinLoad;
+    /** Flag whether overwritten binaries have the 256 byte header prepended (affects the load address). */
+    bool                    fBinContainsHdr;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;
@@ -58,13 +62,16 @@ static struct option g_aOptions[] =
     {"emulation-mode",       required_argument, 0, 'm'},
     {"flash-rom",            required_argument, 0, 'f'},
     {"on-chip-bl",           required_argument, 0, 'o'},
+    {"on-chip-bl",           required_argument, 0, 'p'},
+    {"bin-load",             required_argument, 0, 'b'},
+    {"bin-contains-hdr",     no_argument,       0, 'p'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
 };
 
 
-static void pspEmuTraceOnChipBl(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
+static void pspEmuTraceState(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
 {
     printf(">>> Tracing instruction at %#x, instruction size = 0x%x\n", uPspAddr, cbInsn);
     PSPEmuCoreStateDump(hCore);
@@ -86,8 +93,10 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->enmMode         = PSPCOREMODE_INVALID;
     pCfg->pszPathFlashRom = NULL;
     pCfg->pszPathOnChipBl = NULL;
+    pCfg->pszPathBinLoad  = NULL;
+    pCfg->fBinContainsHdr = false;
 
-    while ((ch = getopt_long (argc, argv, "hm:f:o:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -96,6 +105,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 printf("%s: AMD Platform Secure Processor emulator\n"
                        "    --emulation-mode [app|sys|on-chip-bl]\n"
                        "    --flash-rom <path/to/flash/rom>\n"
+                       "    --bin-contains-hdr The binaries contain the 256 byte header, omit if raw binaries\n"
+                       "    --bin-load <path/to/binary/to/load>"
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n",
                        argv[0]);
                 exit(0);
@@ -120,6 +131,12 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'o':
                 pCfg->pszPathOnChipBl = optarg;
                 break;
+            case 'p':
+                pCfg->fBinContainsHdr = true;
+                break;
+            case 'b':
+                pCfg->pszPathBinLoad = optarg;
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
@@ -137,6 +154,13 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
         && pCfg->enmMode == PSPCOREMODE_SYSTEM_ON_CHIP_BL)
     {
         fprintf(stderr, "The on chip bootloader binary is required for the selected emulation mode\n");
+        return -1;
+    }
+
+    if (   pCfg->enmMode != PSPCOREMODE_SYSTEM_ON_CHIP_BL
+        && !pCfg->pszPathBinLoad)
+    {
+        fprintf(stderr, "Loading the designated binary from the flash image is not implemented yet, please load the binary explicitely using --bin-load\n");
         return -1;
     }
 
@@ -171,7 +195,7 @@ int main(int argc, char *argv[])
                     rc = PSPEmuSmnMgrCreate(&hSmnMgr, hMmioMgr);
                     if (!rc)
                     {
-                        if (Cfg.enmMode == PSPCOREMODE_SYSTEM_ON_CHIP_BL)
+                        if (Cfg.pszPathOnChipBl)
                         {
                             void *pvOnChipBl = NULL;
                             size_t cbOnChipBl = 0;
@@ -187,41 +211,89 @@ int main(int argc, char *argv[])
                                 fprintf(stderr, "Loading the on chip bootloader ROM failed with %d\n", rc);
                         }
 
+                        if (Cfg.pszPathBinLoad)
+                        {
+                            void *pvBin = NULL;
+                            size_t cbBin = 0;
+
+                            rc = PSPEmuFlashLoadFromFile(Cfg.pszPathBinLoad, &pvBin, &cbBin);
+                            if (!rc)
+                            {
+                                PSPADDR PspAddrWrite = 0;
+
+                                switch (Cfg.enmMode)
+                                {
+                                    case PSPCOREMODE_SYSTEM:
+                                        PspAddrWrite = 0x0;
+                                        break;
+                                    case PSPCOREMODE_APP:
+                                        PspAddrWrite = 0x15000;
+                                        break;
+                                    default:
+                                        fprintf(stderr, "Invalid emulation mode selected for the loaded binary\n");
+                                        return -1;
+                                }
+
+                                if (!Cfg.fBinContainsHdr)
+                                    PspAddrWrite += 256; /* Skip the header part. */
+
+                                rc = PSPEmuCoreMemWrite(hCore, PspAddrWrite, pvBin, cbBin);
+                                if (rc)
+                                    fprintf(stderr, "Writing the binary to PSP memory failed with %d\n", rc);
+
+                                PSPEmuFlashFree(pvBin, cbBin);
+                            }
+                            else
+                                fprintf(stderr, "Loading the binary failed with %d\n", rc);
+                        }
+
                         if (!rc)
                         {
+                            /** @todo Proper initialization,instantiation of attached devices. */
+                            PPSPMMIODEV pDev = NULL;
+                            PPSPSMNDEV pSmnDev = NULL;
+
+                            PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
+                            PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
+                            PSPEmuSmnDevCreate(hSmnMgr, &g_SmnDevRegUnk0x0005e000, 0x0005e000, &pSmnDev);
+
+                            PSPADDR PspAddrStartExec = 0x0;
                             switch (Cfg.enmMode)
                             {
                                 case PSPCOREMODE_SYSTEM_ON_CHIP_BL:
                                 {
-#if 1 /* Testing */
-                                    PPSPMMIODEV pDev = NULL;
-                                    PPSPSMNDEV pSmnDev = NULL;
-                                    //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceOnChipBl, NULL);
-                                    PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
-                                    PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
-                                    PSPEmuSmnDevCreate(hSmnMgr, &g_SmnDevRegUnk0x0005e000, 0x0005e000, &pSmnDev);
-#endif
-
-                                    rc = PSPEmuCoreExecSetStartAddr(hCore, 0xffff0000);
-                                    if (!rc)
-                                    {
-                                        rc = PSPEmuCoreExecRun(hCore, 0, 0);
-                                        if (rc)
-                                        {
-                                            fprintf(stderr, "Emulation runloop failed with %d\n", rc);
-                                            PSPEmuCoreStateDump(hCore);
-                                        }
-                                    }
-                                    else
-                                        fprintf(stderr, "Setting the execution start address failed with %d\n", rc);
+                                    //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceState, NULL);
+                                    PspAddrStartExec = 0xffff0000;
                                     break;
                                 }
                                 case PSPCOREMODE_APP:
+                                {
+                                    PspAddrStartExec = 0x15100;
+                                    break;
+                                }
                                 case PSPCOREMODE_SYSTEM:
+                                {
+                                    PSPEmuCoreTraceRegister(hCore, 0x100, 0x1000, pspEmuTraceState, NULL);
+                                    PspAddrStartExec = 0x100;
+                                    break;
+                                }
                                 default:
-                                    fprintf(stderr, "Emulation mode not implemented yet\n");
+                                    fprintf(stderr, "Invalid emulation mode selected %d\n", Cfg.enmMode);
                                     rc = -1;
                             }
+
+                            rc = PSPEmuCoreExecSetStartAddr(hCore, PspAddrStartExec);
+                            if (!rc)
+                            {
+                                rc = PSPEmuCoreExecRun(hCore, 0, 0);
+                                if (rc)
+                                {
+                                    fprintf(stderr, "Emulation runloop failed with %d\n", rc);
+                                    PSPEmuCoreStateDump(hCore);
+                                }
+                            }
+                            else
+                                fprintf(stderr, "Setting the execution start address failed with %d\n", rc);
                         }
                     }
                 }

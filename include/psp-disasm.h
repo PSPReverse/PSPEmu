@@ -33,7 +33,8 @@
  * @param   pbCode                  The code to disassemble.
  * @param   cbCode                  Number of code bytes.
  * @param   uAddrStart              The address of the first instruction.
+ * @param   fThumb 					Flag whether to disassemble in THUMB or ARM mode.
  */
-int PSPEmuDisasm(char *pchDst, size_t cch, uint8_t *pbCode, size_t cbCode, PSPADDR uAddrStart);
+int PSPEmuDisasm(char *pchDst, size_t cch, uint8_t *pbCode, size_t cbCode, PSPADDR uAddrStart, bool fThumb);
 
 #endif /* __psp_disasm_h */

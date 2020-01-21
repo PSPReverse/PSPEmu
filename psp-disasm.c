@@ -27,14 +27,14 @@
 
 #include <psp-disasm.h>
 
-int PSPEmuDisasm(char *pchDst, size_t cch, uint8_t *pbCode, size_t cbCode, PSPADDR uAddrStart)
+int PSPEmuDisasm(char *pchDst, size_t cch, uint8_t *pbCode, size_t cbCode, PSPADDR uAddrStart, bool fThumb)
 {
     int rc = 0;
     csh hCapStone;
     cs_insn *paInsn;
 
     /** @todo Thumb */
-    if (cs_open(CS_ARCH_ARM, CS_MODE_ARM, &hCapStone) != CS_ERR_OK)
+    if (cs_open(CS_ARCH_ARM, fThumb ? CS_MODE_THUMB : CS_MODE_ARM, &hCapStone) != CS_ERR_OK)
         return -1;
 
     size_t cInsn = cs_disasm(hCapStone, pbCode, cbCode, uAddrStart, 0, &paInsn);
