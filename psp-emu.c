@@ -282,7 +282,7 @@ int main(int argc, char *argv[])
                                 }
                                 case PSPCOREMODE_SYSTEM:
                                 {
-                                    PSPEmuCoreTraceRegister(hCore, 0x100, 0x1000, pspEmuTraceState, NULL);
+                                    //PSPEmuCoreTraceRegister(hCore, 0x100, 0x1000, pspEmuTraceState, NULL);
                                     PspAddrStartExec = 0x100;
                                     break;
                                 }
@@ -311,7 +311,10 @@ int main(int argc, char *argv[])
                                             printf("Debugger is listening on port %u...\n", Cfg.uDbgPort);
                                             rc = PSPEmuDbgRunloop(hDbg);
                                             if (rc)
+                                            {
                                                 printf("Debugger runloop failed with %d\n", rc);
+                                                PSPEmuCoreStateDump(hCore);
+                                            }
                                         }
                                         else
                                             fprintf(stderr, "Failed to create debugger instance with %d\n", rc);
