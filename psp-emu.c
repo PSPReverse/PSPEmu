@@ -296,18 +296,26 @@ int main(int argc, char *argv[])
                             {
                                 if (Cfg.uDbgPort)
                                 {
-                                    PSPDBG hDbg = NULL;
-
-                                    rc = PSPEmuDbgCreate(&hDbg, hCore, Cfg.uDbgPort);
+                                    /*
+                                     * Execute one instruction to initialize the unicorn CPU state properly
+                                     * so the debugger has valid values to work with.
+                                     */
+                                    rc = PSPEmuCoreExecRun(hCore, 1, 0);
                                     if (!rc)
                                     {
-                                        printf("Debugger is listening on port %u...\n", Cfg.uDbgPort);
-                                        rc = PSPEmuDbgRunloop(hDbg);
-                                        if (rc)
-                                            printf("Debugger runloop failed with %d\n", rc);
+                                        PSPDBG hDbg = NULL;
+
+                                        rc = PSPEmuDbgCreate(&hDbg, hCore, Cfg.uDbgPort);
+                                        if (!rc)
+                                        {
+                                            printf("Debugger is listening on port %u...\n", Cfg.uDbgPort);
+                                            rc = PSPEmuDbgRunloop(hDbg);
+                                            if (rc)
+                                                printf("Debugger runloop failed with %d\n", rc);
+                                        }
+                                        else
+                                            fprintf(stderr, "Failed to create debugger instance with %d\n", rc);
                                     }
-                                    else
-                                        fprintf(stderr, "Failed to create debugger instance with %d\n", rc);
                                 }
                                 else
                                 {
