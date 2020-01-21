@@ -8,3 +8,6 @@
 [submodule "capstone"]
 	path = capstone
 	url = https://github.com/aquynh/capstone
+[submodule "libgdbstub"]
+	path = libgdbstub
+	url = https://github.com/AlexanderEichner/libgdbstub
