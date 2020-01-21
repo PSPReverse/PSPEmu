@@ -456,7 +456,22 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
         uint64_t uTmp = 0;
         uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uTmp);
         if (rcUc2 == UC_ERR_OK)
-            pThis->PspAddrExecNext = (PSPADDR)uTmp;
+        {
+            size_t ucCpuMode = 0;
+
+            /*
+             * Unicorn doesn't use the CPSR Thumb state bit but switches to the instruction set
+             * based on bit 0 of the address (like for a blx instruction for instance).
+             */
+            uc_err rcUc2 = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+            if (rcUc2 == UC_ERR_OK)
+            {
+                uTmp |= ucCpuMode == UC_MODE_THUMB ? 1 : 0;
+                pThis->PspAddrExecNext = (PSPADDR)uTmp;
+            }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+        }
         else
             rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
     }
@@ -629,7 +644,7 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
             au32Reg[PSPCOREREG_R12], au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR], au32Reg[PSPCOREREG_PC],
             au32Reg[PSPCOREREG_CPSR]);
 
-    /* Dump a few instructions. */ /** @todo Thumb */
+    /* Dump a few instructions. */
     uint8_t abInsn[5 * sizeof(uint32_t)];
     char achBuf[_1K];
     int rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_PC], &abInsn[0], sizeof(abInsn));
