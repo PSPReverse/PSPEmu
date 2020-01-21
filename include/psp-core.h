@@ -135,7 +135,7 @@ int PSPEmuCoreQueryCcd(PSPCORE hCore, uint32_t *pidCcd);
  * @param   pvData                  The data to write.
  * @param   cbData                  Amount of bytes to write.
  */
-int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, void *pvData, size_t cbData);
+int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, const void *pvData, size_t cbData);
 
 /**
  * Reads data from the given memory address of the given PSP core.

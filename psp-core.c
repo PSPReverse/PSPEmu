@@ -385,7 +385,7 @@ int PSPEmuCoreQueryCcd(PSPCORE hCore, uint32_t *pidCcd)
     return 0;
 }
 
-int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, void *pvData, size_t cbData)
+int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, const void *pvData, size_t cbData)
 {
     PPSPCOREINT pThis = hCore;
 
@@ -445,8 +445,22 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
 {
     PPSPCOREINT pThis = hCore;
 
+    int rc = 0;
     uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff /** @todo */, msExec, cInsnExec);
-    return pspEmuCoreErrConvertFromUcErr(rcUc);
+    if (rcUc == UC_ERR_OK)
+    {
+        /* Query the next address to execute and set it. */
+        uint64_t uTmp = 0;
+        uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uTmp);
+        if (rcUc2 == UC_ERR_OK)
+            pThis->PspAddrExecNext = (PSPADDR)uTmp;
+        else
+            rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+    }
+    else
+        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+    return rc;
 }
 
 int PSPEmuCoreExecStop(PSPCORE hCore)
