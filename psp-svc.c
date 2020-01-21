@@ -23,7 +23,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define IN_PSP_EMULATOR
 #include <common/types.h>
 #include <common/cdefs.h>
 

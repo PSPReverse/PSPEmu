@@ -24,7 +24,6 @@
 #include <stdio.h>
 #include <errno.h>
 
-#define IN_PSP_EMULATOR
 #include <psp-flash.h>
 
 int PSPEmuFlashLoadFromFile(const char *pszFilename, void **ppv, size_t *pcb)

@@ -27,7 +27,6 @@
 #include <common/types.h>
 #include <common/cdefs.h>
 
-#define IN_PSP_EMULATOR
 #include <psp-mmio-dev.h>
 
 

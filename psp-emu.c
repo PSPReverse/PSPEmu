@@ -27,6 +27,7 @@
 #include <common/cdefs.h>
 
 #include <psp-core.h>
+#include <psp-dbg.h>
 #include <psp-flash.h>
 #include <psp-smn-dev.h>
 #include <psp-devs.h>
@@ -47,6 +48,8 @@ typedef struct PSPEMUCFG
     const char              *pszPathBinLoad;
     /** Flag whether overwritten binaries have the 256 byte header prepended (affects the load address). */
     bool                    fBinContainsHdr;
+    /** Debugger port to listen on, 0 means debugger is disabled. */
+    uint16_t                uDbgPort;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;
@@ -65,6 +68,7 @@ static struct option g_aOptions[] =
     {"on-chip-bl",           required_argument, 0, 'p'},
     {"bin-load",             required_argument, 0, 'b'},
     {"bin-contains-hdr",     no_argument,       0, 'p'},
+    {"dbg",                  required_argument, 0, 'd'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -95,8 +99,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszPathOnChipBl = NULL;
     pCfg->pszPathBinLoad  = NULL;
     pCfg->fBinContainsHdr = false;
+    pCfg->uDbgPort        = 0;
 
-    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -108,6 +113,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --bin-contains-hdr The binaries contain the 256 byte header, omit if raw binaries\n"
                        "    --bin-load <path/to/binary/to/load>"
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n",
+                       "    --dbg <listening port>\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -136,6 +142,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'b':
                 pCfg->pszPathBinLoad = optarg;
+                break;
+            case 'd':
+                pCfg->uDbgPort = strtoul(optarg, NULL, 10);
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -285,11 +294,29 @@ int main(int argc, char *argv[])
                             rc = PSPEmuCoreExecSetStartAddr(hCore, PspAddrStartExec);
                             if (!rc)
                             {
-                                rc = PSPEmuCoreExecRun(hCore, 0, 0);
-                                if (rc)
+                                if (Cfg.uDbgPort)
                                 {
-                                    fprintf(stderr, "Emulation runloop failed with %d\n", rc);
-                                    PSPEmuCoreStateDump(hCore);
+                                    PSPDBG hDbg = NULL;
+
+                                    rc = PSPEmuDbgCreate(&hDbg, hCore, Cfg.uDbgPort);
+                                    if (!rc)
+                                    {
+                                        printf("Debugger is listening on port %u...\n", Cfg.uDbgPort);
+                                        rc = PSPEmuDbgRunloop(hDbg);
+                                        if (rc)
+                                            printf("Debugger runloop failed with %d\n", rc);
+                                    }
+                                    else
+                                        fprintf(stderr, "Failed to create debugger instance with %d\n", rc);
+                                }
+                                else
+                                {
+                                    rc = PSPEmuCoreExecRun(hCore, 0, 0);
+                                    if (rc)
+                                    {
+                                        fprintf(stderr, "Emulation runloop failed with %d\n", rc);
+                                        PSPEmuCoreStateDump(hCore);
+                                    }
                                 }
                             }
                             else
