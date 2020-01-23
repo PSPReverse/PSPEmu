@@ -287,6 +287,7 @@ int main(int argc, char *argv[])
                             PPSPSMNDEV pSmnDev = NULL;
 
                             PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
+                            PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegTimer, 0x03010424, &pDev);
                             PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
                             PSPEmuSmnDevCreate(hSmnMgr, &g_SmnDevRegUnk0x0005e000, 0x0005e000, &pSmnDev);
                             PSPEmuSmnDevCreate(hSmnMgr, &g_SmnDevRegUnk0x0005d0cc, 0x0005d0cc, &pSmnDev);

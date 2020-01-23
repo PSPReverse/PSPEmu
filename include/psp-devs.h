@@ -29,6 +29,7 @@
 
 extern const PSPMMIODEVREG g_MmioDevRegCcpV5;
 extern const PSPMMIODEVREG g_MmioDevRegUnk0x03010000;
+extern const PSPMMIODEVREG g_MmioDevRegTimer;
 
 extern const PSPSMNDEVREG g_SmnDevRegUnk0x0005e000;
 extern const PSPSMNDEVREG g_SmnDevRegUnk0x0005d0cc;
