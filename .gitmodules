@@ -7,3 +7,7 @@
 [submodule "libgdbstub"]
 	path = libgdbstub
 	url = https://github.com/AlexanderEichner/libgdbstub
+[submodule "unicorn"]
+	path = unicorn
+	url = https://github.com/PSPReverse/unicorn.git
+	branch = mmio
