@@ -46,6 +46,8 @@ typedef struct PSPEMUCFG
     const char              *pszPathOnChipBl;
     /** Binary to load, if NULL we get one from the flash image depending on the mode. */
     const char              *pszPathBinLoad;
+    /** Path to the boot rom service page to inject (for system and app emulation mode). */
+    const char              *pszPathBootRomSvcPage;
     /** Flag whether overwritten binaries have the 256 byte header prepended (affects the load address). */
     bool                    fBinContainsHdr;
     /** Debugger port to listen on, 0 means debugger is disabled. */
@@ -65,7 +67,7 @@ static struct option g_aOptions[] =
     {"emulation-mode",       required_argument, 0, 'm'},
     {"flash-rom",            required_argument, 0, 'f'},
     {"on-chip-bl",           required_argument, 0, 'o'},
-    {"on-chip-bl",           required_argument, 0, 'p'},
+    {"boot-rom-svc-page",    required_argument, 0, 's'},
     {"bin-load",             required_argument, 0, 'b'},
     {"bin-contains-hdr",     no_argument,       0, 'p'},
     {"dbg",                  required_argument, 0, 'd'},
@@ -94,14 +96,15 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     int ch = 0;
     int idxOption = 0;
 
-    pCfg->enmMode         = PSPCOREMODE_INVALID;
-    pCfg->pszPathFlashRom = NULL;
-    pCfg->pszPathOnChipBl = NULL;
-    pCfg->pszPathBinLoad  = NULL;
-    pCfg->fBinContainsHdr = false;
-    pCfg->uDbgPort        = 0;
+    pCfg->enmMode               = PSPCOREMODE_INVALID;
+    pCfg->pszPathFlashRom       = NULL;
+    pCfg->pszPathOnChipBl       = NULL;
+    pCfg->pszPathBinLoad        = NULL;
+    pCfg->pszPathBootRomSvcPage = NULL;
+    pCfg->fBinContainsHdr       = false;
+    pCfg->uDbgPort              = 0;
 
-    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -110,6 +113,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 printf("%s: AMD Platform Secure Processor emulator\n"
                        "    --emulation-mode [app|sys|on-chip-bl]\n"
                        "    --flash-rom <path/to/flash/rom>\n"
+                       "    --boot-rom-svc-page <path/to/boot/rom/svc/page>\n"
                        "    --bin-contains-hdr The binaries contain the 256 byte header, omit if raw binaries\n"
                        "    --bin-load <path/to/binary/to/load>\n"
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
@@ -133,6 +137,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'f':
                 pCfg->pszPathFlashRom = optarg;
+                break;
+            case 's':
+                pCfg->pszPathBootRomSvcPage = optarg;
                 break;
             case 'o':
                 pCfg->pszPathOnChipBl = optarg;
@@ -219,6 +226,23 @@ int main(int argc, char *argv[])
                             else
                                 fprintf(stderr, "Loading the on chip bootloader ROM failed with %d\n", rc);
                         }
+
+                        if (Cfg.pszPathBootRomSvcPage)
+                        {
+                            void *pvBootRomSvcPage = NULL;
+                            size_t cbBootRomSvcPage = 0;
+
+                            rc = PSPEmuFlashLoadFromFile(Cfg.pszPathBootRomSvcPage, &pvBootRomSvcPage, &cbBootRomSvcPage);
+                            if (!rc)
+                            {
+                                rc = PSPEmuCoreMemWrite(hCore, 0x3f000, pvBootRomSvcPage, cbBootRomSvcPage);
+                                if (rc)
+                                    fprintf(stderr, "Initializing the boot ROM service page from the given file failed with %d\n", rc);
+                            }
+                            else
+                                fprintf(stderr, "Loading the boot ROM service page from the given file failed with %d\n", rc);
+                        }
+                        /** @todo else: Set one up based on the system information given in the arguments. */
 
                         if (Cfg.pszPathBinLoad)
                         {
