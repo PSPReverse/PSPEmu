@@ -49,6 +49,22 @@ static void pspDevCcpDestruct(PPSPMMIODEV pDev)
 static void pspDevCcpMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead, void *pvVal)
 {
     printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
+    switch (cbRead)
+    {
+        case 4:
+        {
+            switch (offMmio)
+            {
+                case 0x1000:
+                    *(uint32_t *)pvVal = 0x2; /* Halt bit. */
+                    break;
+                case 0x1100:
+                    *(uint32_t *)pvVal = 0x0; /* Status. */
+                    break;
+            }
+            break;
+        }
+    }
 }
 
 static void pspDevCcpMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrite, const void *pvVal)
