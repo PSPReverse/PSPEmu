@@ -41,6 +41,28 @@
 #include <psp-dbg.h>
 
 
+/** Pointer to the debugger instance data. */
+typedef struct PSPDBGINT *PPSPDBGINT;
+
+
+/**
+ * A single tracepoint.
+ */
+typedef struct PSPDBGTP
+{
+    /** Next tracepoint in the list. */
+    struct PSPDBGTP         *pNext;
+    /** Pointer to the owning debugger instance. */
+    PPSPDBGINT              pDbg;
+    /** The tracepoint address. */
+    PSPADDR                 PspAddrTp;
+} PSPDBGTP;
+/** Pointer to a tracepoint. */
+typedef PSPDBGTP *PPSPDBGTP;
+/** Pointer to a const tracepoint. */
+typedef const PSPDBGTP *PCPSPDBGTP;
+
+
 /**
  * PSP debugger instance data.
  */
@@ -56,10 +78,13 @@ typedef struct PSPDBGINT
     int                     iFdGdbCon;
     /** Flag whether the core is currently running. */
     bool                    fCoreRunning;
+    /** Flag whether we are currently singel stepping (to avoid triggering breakpoints). */
+    bool                    fSingleStep;
+    /** Head of tracepoint list. */
+    PPSPDBGTP               pTpsHead;
+    /** Current breakpoint which hit. */
+    PCPSPDBGTP              pTpHit;
 } PSPDBGINT;
-/** Pointer to the debugger instance data. */
-typedef PSPDBGINT *PPSPDBGINT;
-
 
 
 /**
@@ -120,6 +145,30 @@ static int pspEmuDbgErrConvertToGdbStubErr(int rc)
 
 
 /**
+ * Callback when a tracepoint is hit.
+ *
+ * @returns Nothing.
+ * @param   hCore                   The PSP core handle.
+ * @param   uPspAddr                The PSP address where the callback hit.
+ * @param   cbInsn                  Instruction size.
+ * @param   pvUser                  Opaque user data.
+ */
+static void pspDbgTpBpHit(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
+{
+    PCPSPDBGTP pTp = (PCPSPDBGTP)pvUser;
+    PPSPDBGINT pThis = pTp->pDbg;
+
+    /* Stop the emulation if not in single stepping mode. */
+    if (!pThis->fSingleStep)
+    {
+        pThis->fCoreRunning = false;
+        pThis->pTpHit = pTp;
+        PSPEmuCoreExecStop(hCore);
+    }
+}
+
+
+/**
  * @copydoc{GDBSTUBIF,pfnMemAlloc}
  */
 static void *pspDbgGdbStubIfMemAlloc(GDBSTUBCTX hGdbStubCtx, void *pvUser, size_t cb)
@@ -173,7 +222,9 @@ static int pspDbgGdbStubIfTgtStep(GDBSTUBCTX hGdbStubCtx, void *pvUser)
 {
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
 
+    pThis->fSingleStep = true;
     int rc = PSPEmuCoreExecRun(pThis->hCore, 1, 0);
+    pThis->fSingleStep = false;
     return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
 
@@ -245,6 +296,89 @@ static int pspDbgGdbStubIfTgtRegsWrite(GDBSTUBCTX hGdbStubCtx, void *pvUser, uin
 
 
 /**
+ * @copydoc{GDBSTUBIF,pfnTgtTpSet}
+ */
+static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTMEMADDR GdbTgtTpAddr, GDBSTUBTPTYPE enmTpType, GDBSTUBTPACTION enmTpAction)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    if (enmTpAction != GDBSTUBTPACTION_STOP)
+        return GDBSTUB_ERR_NOT_SUPPORTED;
+    if (   enmTpType != GDBSTUBTPTYPE_EXEC_SW
+        && enmTpType != GDBSTUBTPTYPE_EXEC_HW)
+        return GDBSTUB_ERR_NOT_SUPPORTED;
+
+    int rcGdbStub = GDBSTUB_INF_SUCCESS;
+    PSPADDR PspAddrBp = (PSPADDR)GdbTgtTpAddr;
+    PPSPDBGTP pTp = (PPSPDBGTP)calloc(1, sizeof(*pTp));
+    if (pTp)
+    {
+        pTp->pNext     = NULL;
+        pTp->pDbg      = pThis;
+        pTp->PspAddrTp = PspAddrBp;
+
+        int rc = PSPEmuCoreTraceRegister(pThis->hCore, PspAddrBp, PspAddrBp, pspDbgTpBpHit, pTp);
+        if (!rc)
+        {
+            pTp->pNext = pThis->pTpsHead;
+            pThis->pTpsHead = pTp;
+            return GDBSTUB_INF_SUCCESS;
+        }
+        else
+            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+
+        free(pTp);
+    }
+    else
+        rcGdbStub = GDBSTUB_ERR_NO_MEMORY;
+
+    return rcGdbStub;
+}
+
+
+/**
+ * @copydoc{GDBSTUBIF,pfnTgtTpClear}
+ */
+static int pspDbgGdbStubIfTgtTpClear(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTMEMADDR GdbTgtTpAddr)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPADDR PspAddrBp = (PSPADDR)GdbTgtTpAddr;
+
+    /* Find the tracepoint to remove. */
+    PPSPDBGTP pTpPrev = NULL;
+    PPSPDBGTP pTpCur = pThis->pTpsHead;
+    while (   pTpCur
+           && pTpCur->PspAddrTp != PspAddrBp)
+    {
+        pTpPrev = pTpCur;
+        pTpCur = pTpCur->pNext;
+    }
+
+    int rcGdbStub = GDBSTUB_INF_SUCCESS;
+    if (pTpCur)
+    {
+        int rc = PSPEmuCoreTraceDeregister(pThis->hCore, pTpCur->PspAddrTp, pTpCur->PspAddrTp);
+        if (!rc)
+        {
+            /* Unlink and free memory. */
+            if (pTpPrev)
+                pTpPrev->pNext = pTpCur->pNext;
+            else
+                pThis->pTpsHead = pTpCur->pNext;
+
+            free(pTpCur);
+        }
+        else
+            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+    }
+    else
+        rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+
+    return rcGdbStub;
+}
+
+
+/**
  * GDB stub interface callback table.
  */
 static const GDBSTUBIF g_PspDbgGdbStubIf =
@@ -270,7 +404,13 @@ static const GDBSTUBIF g_PspDbgGdbStubIf =
     /** pfnTgtMemWrite */
     pspDbgGdbStubIfTgtMemWrite,
     /** pfnTgtRegsRead */
-    pspDbgGdbStubIfTgtRegsRead
+    pspDbgGdbStubIfTgtRegsRead,
+    /** pfnTgtRegsWrite */
+    pspDbgGdbStubIfTgtRegsWrite,
+    /** pfnTgtTpSet */
+    pspDbgGdbStubIfTgtTpSet,
+    /** pfnTgtTpClear */
+    pspDbgGdbStubIfTgtTpClear,
 };
 
 
@@ -379,16 +519,23 @@ static int pspEmuDbgRunloopCoreNotRunning(PPSPDBGINT pThis)
 
     PollFd.fd      = pThis->iFdGdbCon;
     PollFd.events  = POLLIN | POLLHUP | POLLERR;
-    PollFd.revents = 0;
+
+    /* Run the GDB stub runloop once to sync on the target state. */
+    int rcGdbStub = GDBStubCtxRun(pThis->hGdbStubCtx);
+    if (   rcGdbStub != GDBSTUB_INF_SUCCESS
+        && rcGdbStub != GDBSTUB_INF_TRY_AGAIN)
+        rc = -1;
 
     while (   !pThis->fCoreRunning
            && !rc)
     {
+        PollFd.revents = 0;
+
         int rcPsx = poll(&PollFd, 1, INT32_MAX);
         if (rcPsx == 1)
         {
             /* Run the GDB stub runloop until it returns. */
-            int rcGdbStub = GDBStubCtxRun(pThis->hGdbStubCtx);
+            rcGdbStub = GDBStubCtxRun(pThis->hGdbStubCtx);
             if (   rcGdbStub != GDBSTUB_INF_SUCCESS
                 && rcGdbStub != GDBSTUB_INF_TRY_AGAIN)
                 rc = -1;
@@ -454,6 +601,7 @@ int PSPEmuDbgCreate(PPSPDBG phDbg, PSPCORE hCore, uint16_t uPort)
         pThis->hCore        = hCore;
         pThis->iFdGdbCon    = 0;
         pThis->fCoreRunning = false;
+        pThis->pTpsHead     = NULL;
 
         int rcGdbStub = GDBStubCtxCreate(&pThis->hGdbStubCtx, &g_PspDbgGdbStubIoIf, &g_PspDbgGdbStubIf, pThis);
         if (rcGdbStub == GDBSTUB_INF_SUCCESS)

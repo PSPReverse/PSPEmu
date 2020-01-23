@@ -483,7 +483,10 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
 
 int PSPEmuCoreExecStop(PSPCORE hCore)
 {
-    return -1; /** @todo */
+    PPSPCOREINT pThis = hCore;
+
+    int rcUc = uc_emu_stop(pThis->pUcEngine);
+    return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
 int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd, PFNPSPCORETRACE pfnTrace, void *pvUser)

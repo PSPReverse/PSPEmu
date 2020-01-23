@@ -111,8 +111,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --emulation-mode [app|sys|on-chip-bl]\n"
                        "    --flash-rom <path/to/flash/rom>\n"
                        "    --bin-contains-hdr The binaries contain the 256 byte header, omit if raw binaries\n"
-                       "    --bin-load <path/to/binary/to/load>"
-                       "    --on-chip-bl <path/to/on-chip-bl/binary>\n",
+                       "    --bin-load <path/to/binary/to/load>\n"
+                       "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
                        "    --dbg <listening port>\n",
                        argv[0]);
                 exit(0);
