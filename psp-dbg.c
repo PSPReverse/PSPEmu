@@ -108,7 +108,7 @@ static const char *g_apszPspDbgGdbStubRegs[] =
     "sp",
     "lr",
     "pc",
-/*    "cpsr",*/
+    "cpsr",
     NULL
 };
 
@@ -275,12 +275,7 @@ static int pspDbgGdbStubIfTgtRegsRead(GDBSTUBCTX hGdbStubCtx, void *pvUser, uint
     int rc = 0;
     uint32_t *pau32RegVals = (uint32_t *)pvDst;
     for (uint32_t i = 0; i < cRegs && !rc; i++)
-    {
-        if (paRegs[i] == 0x19) /** XXX CPSR */
-            rc = PSPEmuCoreQueryReg(pThis->hCore, PSPCOREREG_CPSR, &pau32RegVals[i]);
-        else
-            rc = PSPEmuCoreQueryReg(pThis->hCore, (PSPCOREREG)(paRegs[i] + 1), &pau32RegVals[i]);
-    }
+        rc = PSPEmuCoreQueryReg(pThis->hCore, (PSPCOREREG)(paRegs[i] + 1), &pau32RegVals[i]);
 
     return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
@@ -383,6 +378,8 @@ static int pspDbgGdbStubIfTgtTpClear(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTG
  */
 static const GDBSTUBIF g_PspDbgGdbStubIf =
 {
+    /** enmArch */
+    GDBSTUBTGTARCH_ARM,
     /** cbReg */
     sizeof(uint32_t),
     /** papszRegs */
