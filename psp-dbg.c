@@ -90,26 +90,26 @@ typedef struct PSPDBGINT
 /**
  * GDB stub ARM register names.
  */
-static const char *g_apszPspDbgGdbStubRegs[] =
+static const GDBSTUBREG g_apszPspDbgGdbStubRegs[] =
 {
-    "r0",
-    "r1",
-    "r2",
-    "r3",
-    "r4",
-    "r5",
-    "r6",
-    "r7",
-    "r8",
-    "r9",
-    "r10",
-    "r11",
-    "r12",
-    "sp",
-    "lr",
-    "pc",
-    "cpsr",
-    NULL
+    { "r0",   32, GDBSTUBREGTYPE_GP        },
+    { "r1",   32, GDBSTUBREGTYPE_GP        },
+    { "r2",   32, GDBSTUBREGTYPE_GP        },
+    { "r3",   32, GDBSTUBREGTYPE_GP        },
+    { "r4",   32, GDBSTUBREGTYPE_GP        },
+    { "r5",   32, GDBSTUBREGTYPE_GP        },
+    { "r6",   32, GDBSTUBREGTYPE_GP        },
+    { "r7",   32, GDBSTUBREGTYPE_GP        },
+    { "r8",   32, GDBSTUBREGTYPE_GP        },
+    { "r9",   32, GDBSTUBREGTYPE_GP        },
+    { "r10",  32, GDBSTUBREGTYPE_GP        },
+    { "r11",  32, GDBSTUBREGTYPE_GP        },
+    { "r12",  32, GDBSTUBREGTYPE_GP        },
+    { "sp",   32, GDBSTUBREGTYPE_STACK_PTR },
+    { "lr",   32, GDBSTUBREGTYPE_CODE_PTR  },
+    { "pc",   32, GDBSTUBREGTYPE_PC        },
+    { "cpsr", 32, GDBSTUBREGTYPE_STATUS    },
+    { NULL,    0, GDBSTUBREGTYPE_INVALID   }
 };
 
 
@@ -380,9 +380,7 @@ static const GDBSTUBIF g_PspDbgGdbStubIf =
 {
     /** enmArch */
     GDBSTUBTGTARCH_ARM,
-    /** cbReg */
-    sizeof(uint32_t),
-    /** papszRegs */
+    /** paRegs */
     &g_apszPspDbgGdbStubRegs[0],
     /** pfnMemAlloc */
     pspDbgGdbStubIfMemAlloc,
