@@ -42,7 +42,7 @@ static void pspDevUnkMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void 
 
     switch (offMmio)
     {
-        case 0x104:
+        case 0:
             /* The on chip bootloader waits in on_chip_bl_main() until bit 8 is set. */
             *(uint32_t *)pvVal = 0x100;
             break;
@@ -67,7 +67,7 @@ static int pspDevMmioUnkInit(PPSPDEV pDev)
     PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
 
     /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010000, 4096,
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010104, 4,
                                      pspDevUnkMmioRead, pspDevUnkMmioWrite, NULL,
                                      &pThis->hMmio);
     return rc;
