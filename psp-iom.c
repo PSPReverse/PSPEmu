@@ -857,7 +857,7 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
             if (pPrev)
                 pPrev->pNext = pRegion;
             else
-                pThis->pSmnHead = pRegion;
+                pThis->pX86MmioHead = pRegion;
 
             /* Adjust the lowest and highest device range. */
             if (PhysX86AddrMmioStart < pThis->PhysX86AddrMmioLowest)
