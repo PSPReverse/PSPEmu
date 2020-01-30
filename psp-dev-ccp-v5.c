@@ -30,23 +30,14 @@
  */
 typedef struct PSPDEVCCP
 {
-    uint8_t uDummy;
+   /** MMIO region handle. */
+    PSPIOMREGIONHANDLE              hMmio;
 } PSPDEVCCP;
 /** Pointer to the device instance data. */
 typedef PSPDEVCCP *PPSPDEVCCP;
 
-static int pspDevCcpInit(PPSPMMIODEV pDev)
-{
-    /* Nothing to do. */
-    return 0;
-}
 
-static void pspDevCcpDestruct(PPSPMMIODEV pDev)
-{
-    /* Nothing to do so far. */
-}
-
-static void pspDevCcpMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead, void *pvVal)
+static void pspDevCcpMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
     printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
     switch (cbRead)
@@ -67,7 +58,8 @@ static void pspDevCcpMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead, 
     }
 }
 
-static void pspDevCcpMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrite, const void *pvVal)
+
+static void pspDevCcpMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     printf("%s: offMmio=%#x cbWrite=%zu\n", __FUNCTION__, offMmio, cbWrite);
 
@@ -80,10 +72,28 @@ static void pspDevCcpMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrite
 }
 
 
+static int pspDevCcpInit(PPSPDEV pDev)
+{
+    PPSPDEVCCP pThis = (PPSPDEVCCP)&pDev->abInstance[0];
+
+    /* Register MMIO ranges. */
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03000000, 2 * 4096,
+                                     pspDevCcpMmioRead, pspDevCcpMmioWrite, pThis,
+                                     &pThis->hMmio);
+    return rc;
+}
+
+
+static void pspDevCcpDestruct(PPSPDEV pDev)
+{
+    /* Nothing to do so far. */
+}
+
+
 /**
  * Device registration structure.
  */
-const PSPMMIODEVREG g_MmioDevRegCcpV5 =
+const PSPDEVREG g_DevRegCcpV5 =
 {
     /** pszName */
     "ccp-v5",
@@ -91,15 +101,9 @@ const PSPMMIODEVREG g_MmioDevRegCcpV5 =
     "CCPv5",
     /** cbInstance */
     sizeof(PSPDEVCCP),
-    /** cbMmio */
-    2 * 4096,
     /** pfnInit */
     pspDevCcpInit,
     /** pfnDestruct */
     pspDevCcpDestruct,
-    /** pfnMmioRead */
-    pspDevCcpMmioRead,
-    /** pfnMmioWrite */
-    pspDevCcpMmioWrite
 };
 

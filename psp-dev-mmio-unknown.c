@@ -30,23 +30,13 @@
  */
 typedef struct PSPDEVUNK
 {
-    uint8_t uDummy;
+    /** MMIO region handle. */
+    PSPIOMREGIONHANDLE      hMmio;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
 
-static int pspDevUnkInit(PPSPMMIODEV pDev)
-{
-    /* Nothing to do. */
-    return 0;
-}
-
-static void pspDevUnkDestruct(PPSPMMIODEV pDev)
-{
-    /* Nothing to do so far. */
-}
-
-static void pspDevUnkMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead, void *pvVal)
+static void pspDevUnkMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
     printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
 
@@ -59,7 +49,7 @@ static void pspDevUnkMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead, 
     }
 }
 
-static void pspDevUnkMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrite, const void *pvVal)
+static void pspDevUnkMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     printf("%s: offMmio=%#x cbWrite=%zu\n", __FUNCTION__, offMmio, cbWrite);
 
@@ -72,26 +62,38 @@ static void pspDevUnkMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrite
 }
 
 
+static int pspDevMmioUnkInit(PPSPDEV pDev)
+{
+    PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
+
+    /* Register MMIO ranges. */
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010000, 4096,
+                                     pspDevUnkMmioRead, pspDevUnkMmioWrite, NULL,
+                                     &pThis->hMmio);
+    return rc;
+}
+
+
+static void pspDevMmioUnkDestruct(PPSPDEV pDev)
+{
+    /* Nothing to do so far. */
+}
+
+
 /**
  * Device registration structure.
  */
-const PSPMMIODEVREG g_MmioDevRegUnk0x03010000 =
+const PSPDEVREG g_DevRegMmioUnk =
 {
     /** pszName */
-    "unk-0x030100000",
+    "mmio-unknown",
     /** pszDesc */
-    "Unknown device starting at 0x030100000",
+    "Unknown MMIO registers device",
     /** cbInstance */
     sizeof(PSPDEVUNK),
-    /** cbMmio */
-    4096,
     /** pfnInit */
-    pspDevUnkInit,
+    pspDevMmioUnkInit,
     /** pfnDestruct */
-    pspDevUnkDestruct,
-    /** pfnMmioRead */
-    pspDevUnkMmioRead,
-    /** pfnMmioWrite */
-    pspDevUnkMmioWrite
+    pspDevMmioUnkDestruct
 };
 

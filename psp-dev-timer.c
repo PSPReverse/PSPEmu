@@ -34,27 +34,16 @@ typedef struct PSPDEVTIMER
     uint32_t                        regCtrl;
     /** The counter running at 100MHz. */
     uint32_t                        regCnt100MHz;
+    /** MMIO region handle. */
+    PSPIOMREGIONHANDLE              hMmio;
 } PSPDEVTIMER;
 /** Pointer to the device instance data. */
 typedef PSPDEVTIMER *PPSPDEVTIMER;
 
-static int pspDevTimerInit(PPSPMMIODEV pDev)
-{
-    PPSPDEVTIMER pThis = (PPSPDEVTIMER)&pDev->abInstance[0];
 
-    pThis->regCtrl      = 0;
-    pThis->regCnt100MHz = 0;
-    return 0;
-}
-
-static void pspDevTimerDestruct(PPSPMMIODEV pDev)
+static void pspDevTimerMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
-    /* Nothing to do so far. */
-}
-
-static void pspDevTimerMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead, void *pvVal)
-{
-    PPSPDEVTIMER pThis = (PPSPDEVTIMER)&pDev->abInstance[0];
+    PPSPDEVTIMER pThis = (PPSPDEVTIMER)pvUser;
 
     if (cbRead != sizeof(uint32_t))
     {
@@ -83,9 +72,9 @@ static void pspDevTimerMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead
     }
 }
 
-static void pspDevTimerMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrite, const void *pvVal)
+static void pspDevTimerMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
-    PPSPDEVTIMER pThis = (PPSPDEVTIMER)&pDev->abInstance[0];
+    PPSPDEVTIMER pThis = (PPSPDEVTIMER)pvUser;
 
     if (cbWrite != sizeof(uint32_t))
     {
@@ -113,10 +102,30 @@ static void pspDevTimerMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWri
 }
 
 
+static int pspDevTimerInit(PPSPDEV pDev)
+{
+    PPSPDEVTIMER pThis = (PPSPDEVTIMER)&pDev->abInstance[0];
+
+    pThis->regCtrl      = 0;
+    pThis->regCnt100MHz = 0;
+
+    /* Register MMIO ranges. */
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010424, 36,
+                                     pspDevTimerMmioRead, pspDevTimerMmioWrite, pThis,
+                                     &pThis->hMmio);
+    return rc;
+}
+
+static void pspDevTimerDestruct(PPSPDEV pDev)
+{
+    /* Nothing to do so far. */
+}
+
+
 /**
  * Device registration structure.
  */
-const PSPMMIODEVREG g_MmioDevRegTimer =
+const PSPDEVREG g_DevRegTimer =
 {
     /** pszName */
     "timer",
@@ -124,15 +133,9 @@ const PSPMMIODEVREG g_MmioDevRegTimer =
     "Timer device starting at 0x03010424",
     /** cbInstance */
     sizeof(PSPDEVTIMER),
-    /** cbMmio */
-    36,
     /** pfnInit */
     pspDevTimerInit,
     /** pfnDestruct */
     pspDevTimerDestruct,
-    /** pfnMmioRead */
-    pspDevTimerMmioRead,
-    /** pfnMmioWrite */
-    pspDevTimerMmioWrite
 };
 
