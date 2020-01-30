@@ -19,13 +19,10 @@ add_executable(PSPEmu
                       psp-flash.c
                       psp-iom.c
                       psp-dev.c
-                      psp-mmio-dev.c
-                      psp-smn-dev.c
                       psp-dev-ccp-v5.c
                       psp-dev-timer.c
-                      psp-dev-unknown-0x03010000.c
-                      psp-smn-dev-unknown-0x0005e000.c
-                      psp-smn-dev-unknown-0x0005d0cc.c)
+                      psp-dev-mmio-unknown.c
+                      psp-dev-smn-unknown.c)
 
 target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/include"
