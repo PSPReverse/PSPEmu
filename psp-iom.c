@@ -239,7 +239,7 @@ static void pspEmuIomMmioRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
 
-    uPspAddr += 0x01000000; /* The address contains the offset from the beginning of the registered range */
+    uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
     if (   pRegion
         && pRegion->u.Mmio.pfnRead)
@@ -253,7 +253,7 @@ static void pspEmuIomMmioWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
 
-    uPspAddr += 0x01000000; /* The address contains the offset from the beginning of the registered range */
+    uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
     if (   pRegion
         && pRegion->u.Mmio.pfnWrite)
@@ -294,6 +294,7 @@ static int pspEmuIomMmioRegionRegister(PPSPIOMINT pThis, PSPADDR PspAddrMmioStar
     if (pRegion)
     {
         pRegion->fMmio                   = true;
+        pRegion->pvUser                  = pvUser;
         pRegion->u.Mmio.PspAddrMmioStart = PspAddrMmioStart;
         pRegion->u.Mmio.cbMmio           = cbMmio;
         pRegion->u.Mmio.pfnRead          = pfnRead;
@@ -361,13 +362,13 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
         pThis->pMmioRegionSmnCtrl = NULL;
 
         /* Register the MMIO region, where the SMN devices get mapped to (32 slots each 1MiB wide). */
-        rc = PSPEmuCoreMmioRegister(hPspCore, 0x01000000, 0x01000000 + 32 * _1M,
+        rc = PSPEmuCoreMmioRegister(hPspCore, 0x01000000, 32 * _1M,
                                     pspEmuIomSmnSlotsRead, pspEmuIomSmnSlotsWrite,
                                     pThis);
         if (!rc)
         {
             /* Register the remaining standard MMIO region. */
-            rc = PSPEmuCoreMmioRegister(hPspCore, 0x01000000 + 32 * _1M, 0x44000000,
+            rc = PSPEmuCoreMmioRegister(hPspCore, 0x01000000 + 32 * _1M, 0x44000000 - (0x01000000 + 32 * _1M),
                                         pspEmuIomMmioRead, pspEmuIomMmioWrite,
                                         pThis);
             if (!rc)
@@ -431,6 +432,7 @@ int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
     if (pRegion)
     {
         pRegion->fMmio              = false;
+        pRegion->pvUser             = pvUser;
         pRegion->u.Smn.SmnAddrStart = SmnAddrStart;
         pRegion->u.Smn.cbSmn        = cbSmn;
         pRegion->u.Smn.pfnRead      = pfnRead;
