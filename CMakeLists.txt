@@ -22,7 +22,8 @@ add_executable(PSPEmu
                       psp-dev-ccp-v5.c
                       psp-dev-timer.c
                       psp-dev-mmio-unknown.c
-                      psp-dev-smn-unknown.c)
+                      psp-dev-smn-unknown.c
+                      psp-dev-x86-unknown.c)
 
 target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/include"

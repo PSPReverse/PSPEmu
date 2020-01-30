@@ -288,6 +288,8 @@ int main(int argc, char *argv[])
                             rc = PSPEmuDevCreate(hIoMgr, &g_DevRegMmioUnk, &pDev);
                         if (!rc)
                             rc = PSPEmuDevCreate(hIoMgr, &g_DevRegSmnUnk, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegX86Unk, &pDev);
                         if (rc)
                             printf("Error creating one of the devices: %d\n", rc);
 

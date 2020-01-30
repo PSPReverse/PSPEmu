@@ -32,5 +32,7 @@ extern const PSPDEVREG g_DevRegMmioUnk;
 
 extern const PSPDEVREG g_DevRegSmnUnk;
 
+extern const PSPDEVREG g_DevRegX86Unk;
+
 #endif /* __psp_devs_h */
 
