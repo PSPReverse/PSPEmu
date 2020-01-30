@@ -17,6 +17,7 @@ add_executable(PSPEmu
                       psp-dbg.c
                       psp-svc.c
                       psp-flash.c
+                      psp-iom.c
                       psp-mmio-dev.c
                       psp-smn-dev.c
                       psp-dev-ccp-v5.c
