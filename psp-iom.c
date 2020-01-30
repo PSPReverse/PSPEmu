@@ -111,7 +111,7 @@ typedef PSPIOMREGIONHANDLEINT *PPSPIOMREGIONHANDLEINT;
  */
 typedef struct PSPIOMX86MAPCTRLSLOT
 {
-    uint32_t                        u32RegUnk0;
+    uint32_t                        u32RegX86BaseAddr;
     uint32_t                        u32RegUnk1;
     uint32_t                        u32RegUnk2;
     uint32_t                        u32RegUnk3;
@@ -325,12 +325,64 @@ static void pspEmuIomMmioWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
 }
 
 
+/**
+ * Finds the device assigned to the given SMN address or NULL if there is nothing assigned.
+ *
+ * @returns Pointer to the device assigned to the SMN address or NULL if none was found.
+ * @param   pThis                   The I/O manager.
+ * @param   PhysX86Addr             The absolute X86 physical address to look for.
+ */
+static PPSPIOMREGIONHANDLEINT pspEmuIomX86MapFindRegion(PPSPIOMINT pThis, X86PADDR PhysX86Addr)
+{
+    if (   PhysX86Addr < pThis->PhysX86AddrMmioLowest
+        || PhysX86Addr > pThis->PhysX86AddrMmioHighest)
+        return NULL;
+
+    /* Slow path. */
+    PPSPIOMREGIONHANDLEINT pCur = pThis->pX86MmioHead;
+    while (pCur)
+    {
+        if (   PhysX86Addr >= pCur->u.X86Mmio.PhysX86AddrMmioStart
+            && PhysX86Addr < pCur->u.X86Mmio.PhysX86AddrMmioStart + pCur->u.X86Mmio.cbX86Mmio)
+            return pCur;
+
+        pCur = pCur->pNext;
+    }
+
+    return NULL;
+}
+
+
+static X86PADDR pspEmuIomGetPhysX86AddrFromSlotAndOffset(PPSPIOMINT pThis, PSPADDR offMmio)
+{
+    /* Each slot is 64MB big, so get the slot number by shifting the appropriate bits to the right. */
+    uint32_t idxSlot = offMmio >> 26;
+    uint32_t offSlot = offMmio & ((64 * _1M) - 1);
+
+    if (idxSlot < ELEMENTS(pThis->aX86MapCtrlSlots))
+    {
+        uint32_t u32RegX86BaseAddr = pThis->aX86MapCtrlSlots[idxSlot].u32RegX86BaseAddr;
+        X86PADDR PhysX86Base = (X86PADDR)(u32RegX86BaseAddr & 0x3f) << 26 | ((X86PADDR)(u32RegX86BaseAddr >> 6)) << 32;
+        return PhysX86Base | offSlot;
+    }
+    else
+        printf("ERROR: X86 mapping slot index out of range (is %u, max is %u)\n", idxSlot, ELEMENTS(pThis->aX86MapCtrlSlots));
+
+    return 0;
+}
+
+
 static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
 
-    /** @todo */
-    pspEmuIomUnassignedRegionRead(pThis, "X86/MMIO", uPspAddr, pvDst, cbRead);
+    X86PADDR PhysX86Addr = pspEmuIomGetPhysX86AddrFromSlotAndOffset(pThis, uPspAddr);
+    PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
+    if (   pRegion
+        && pRegion->u.X86Mmio.pfnRead)
+        pRegion->u.X86Mmio.pfnRead(PhysX86Addr - pRegion->u.X86Mmio.PhysX86AddrMmioStart, cbRead, pvDst, pRegion->pvUser);
+    else
+        pspEmuIomUnassignedRegionRead(pThis, "X86/MMIO", PhysX86Addr, pvDst, cbRead);
 }
 
 
@@ -338,8 +390,13 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
 
-    /** @todo */
-    pspEmuIomUnassignedRegionWrite(pThis, "X86/MMIO", uPspAddr, pvSrc, cbWrite);
+    SMNADDR PhysX86Addr = pspEmuIomGetPhysX86AddrFromSlotAndOffset(pThis, uPspAddr);
+    PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
+    if (   pRegion
+        && pRegion->u.X86Mmio.pfnWrite)
+        pRegion->u.X86Mmio.pfnWrite(PhysX86Addr - pRegion->u.X86Mmio.PhysX86AddrMmioStart, cbWrite, pvSrc, pRegion->pvUser);
+    else
+        pspEmuIomUnassignedRegionWrite(pThis, "X86/MMIO", PhysX86Addr, pvSrc, cbWrite);
 }
 
 
@@ -368,13 +425,13 @@ static void pspEmuIoMgrMmioSmnCtrlWrite(PSPADDR offMmio, size_t cbWrite, const v
 static void pspEmuIoMgrX86MapSlotDump(PPSPIOMX86MAPCTRLSLOT pX86Slot, uint32_t idxSlot)
 {
     printf("MMIO/X86: Slot %u\n"
-           "    u32RegUnk0: 0x%08x\n"
-           "    u32RegUnk1: 0x%08x\n"
-           "    u32RegUnk2: 0x%08x\n"
-           "    u32RegUnk3: 0x%08x\n"
-           "    u32RegUnk4: 0x%08x\n"
-           "    u32RegUnk5: 0x%08x\n", idxSlot,
-           pX86Slot->u32RegUnk0, pX86Slot->u32RegUnk1, pX86Slot->u32RegUnk2,
+           "    u32RegX86BaseAddr: 0x%08x\n"
+           "    u32RegUnk1:        0x%08x\n"
+           "    u32RegUnk2:        0x%08x\n"
+           "    u32RegUnk3:        0x%08x\n"
+           "    u32RegUnk4:        0x%08x\n"
+           "    u32RegUnk5:        0x%08x\n", idxSlot,
+           pX86Slot->u32RegX86BaseAddr, pX86Slot->u32RegUnk1, pX86Slot->u32RegUnk2,
            pX86Slot->u32RegUnk3, pX86Slot->u32RegUnk4, pX86Slot->u32RegUnk5);
 }
 
@@ -394,7 +451,7 @@ static void pspEmuIoMgrX86MapCtrlRead(PSPADDR offMmio, size_t cbRead, void *pvDs
         {
             case 0:
             {
-                *(uint32_t *)pvDst = pX86Slot->u32RegUnk0;
+                *(uint32_t *)pvDst = pX86Slot->u32RegX86BaseAddr;
                 break;
             }
             case 4:
@@ -436,7 +493,7 @@ static void pspEmuIoMgrX86MapCtrlWrite(PSPADDR offMmio, size_t cbWrite, const vo
         {
             case 0:
             {
-                pX86Slot->u32RegUnk0 = *(uint32_t *)pvVal;
+                pX86Slot->u32RegX86BaseAddr = *(uint32_t *)pvVal;
                 break;
             }
             case 4:
