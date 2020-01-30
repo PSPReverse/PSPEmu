@@ -59,6 +59,17 @@ typedef void (FNPSPIOMMMIOWRITE)(PSPADDR offMmio, size_t cbRead, const void *pvV
 typedef FNPSPIOMMMIOWRITE *PFNPSPIOMMMIOWRITE;
 
 
+/** X86 MMIO read handler. */
+typedef void (FNPSPIOMX86MMIOREAD)(X86PADDR offX86Mmio, size_t cbRead, void *pvVal, void *pvUser);
+/** X86 MMIO read handler pointer. */
+typedef FNPSPIOMX86MMIOREAD *PFNPSPIOMX86MMIOREAD;
+
+/** X86 MMIO write handler. */
+typedef void (FNPSPIOMX86MMIOWRITE)(X86PADDR offX86Mmio, size_t cbRead, const void *pvVal, void *pvUser);
+/** X86 MMIO write handler pointer. */
+typedef FNPSPIOMX86MMIOWRITE *PFNPSPIOMX86MMIOWRITE;
+
+
 /**
  * Initializes the I/O manager returning a handle.
  *
@@ -110,6 +121,23 @@ int PSPEmuIoMgrMmioRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, size_t cbMm
 int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
                            PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser,
                            PPSPIOMREGIONHANDLE phSmn);
+
+
+/**
+ * Registers read/write handlers for the given X86 MMIO region.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   PhysX86AddrMmioStart    The X86 MMIO start address of the region to register.
+ * @param   cbX86Mmio               Size of the X86 MMIO region in bytes.
+ * @param   pfnRead                 Callback to call on a read access, optional (NULL means write only).
+ * @param   pfnWrite                Callback to call on a write access, optional (NULL means readonly).
+ * @param   pvUser                  Opaque user data passed in the callback.
+ * @param   phX86Mmio               Where to store the handle to the X86 MMIO region on success.
+ */
+int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, size_t cbX86Mmio,
+                               PFNPSPIOMX86MMIOREAD pfnRead, PFNPSPIOMX86MMIOWRITE pfnWrite, void *pvUser,
+                               PPSPIOMREGIONHANDLE phX86Mmio);
 
 
 /**
