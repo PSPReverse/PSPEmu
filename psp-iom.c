@@ -107,6 +107,22 @@ typedef PSPIOMREGIONHANDLEINT *PPSPIOMREGIONHANDLEINT;
 
 
 /**
+ * X86 mapping control slot.
+ */
+typedef struct PSPIOMX86MAPCTRLSLOT
+{
+    uint32_t                        u32RegUnk0;
+    uint32_t                        u32RegUnk1;
+    uint32_t                        u32RegUnk2;
+    uint32_t                        u32RegUnk3;
+    uint32_t                        u32RegUnk4;
+    uint32_t                        u32RegUnk5;
+} PSPIOMX86MAPCTRLSLOT;
+/** Pointer to a X86 mapping control slot. */
+typedef PSPIOMX86MAPCTRLSLOT *PPSPIOMX86MAPCTRLSLOT;
+
+
+/**
  * The internal I/O manager manager state.
  */
 typedef struct PSPIOMINT
@@ -141,6 +157,8 @@ typedef struct PSPIOMINT
     PPSPIOMREGIONHANDLEINT      pMmioRegionX86MapCtrl2;
     /** The MMIO region handle for the X86 mapping control register interface - third part. */
     PPSPIOMREGIONHANDLEINT      pMmioRegionX86MapCtrl3;
+    /** X86 mapping control slots. */
+    PSPIOMX86MAPCTRLSLOT        aX86MapCtrlSlots[15];
 } PSPIOMINT;
 /** Pointer to the internal I/O manager state. */
 typedef PSPIOMINT *PPSPIOMINT;
@@ -347,45 +365,168 @@ static void pspEmuIoMgrMmioSmnCtrlWrite(PSPADDR offMmio, size_t cbWrite, const v
 }
 
 
+static void pspEmuIoMgrX86MapSlotDump(PPSPIOMX86MAPCTRLSLOT pX86Slot, uint32_t idxSlot)
+{
+    printf("MMIO/X86: Slot %u\n"
+           "    u32RegUnk0: 0x%08x\n"
+           "    u32RegUnk1: 0x%08x\n"
+           "    u32RegUnk2: 0x%08x\n"
+           "    u32RegUnk3: 0x%08x\n"
+           "    u32RegUnk4: 0x%08x\n"
+           "    u32RegUnk5: 0x%08x\n", idxSlot,
+           pX86Slot->u32RegUnk0, pX86Slot->u32RegUnk1, pX86Slot->u32RegUnk2,
+           pX86Slot->u32RegUnk3, pX86Slot->u32RegUnk4, pX86Slot->u32RegUnk5);
+}
+
+
 static void pspEmuIoMgrX86MapCtrlRead(PSPADDR offMmio, size_t cbRead, void *pvDst, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
-    printf("MMIO/X86: Mapping control read offMmio=%x cbRead=%zu\n", offMmio, cbRead);
+
+    uint32_t idxX86Slot = offMmio / (4 * sizeof(uint32_t));
+    uint32_t offSlot = offMmio % (4 * sizeof(uint32_t));
+    if (   idxX86Slot < ELEMENTS(pThis->aX86MapCtrlSlots)
+        && cbRead == sizeof(uint32_t))
+    {
+        PPSPIOMX86MAPCTRLSLOT pX86Slot = &pThis->aX86MapCtrlSlots[idxX86Slot];
+
+        switch (offSlot)
+        {
+            case 0:
+            {
+                *(uint32_t *)pvDst = pX86Slot->u32RegUnk0;
+                break;
+            }
+            case 4:
+            {
+                *(uint32_t *)pvDst = pX86Slot->u32RegUnk1;
+                break;
+            }
+            case 8:
+            {
+                *(uint32_t *)pvDst = pX86Slot->u32RegUnk2;
+                break;
+            }
+            case 12:
+            {
+                *(uint32_t *)pvDst = pX86Slot->u32RegUnk3;
+                break;
+            }
+            default:
+                printf("MMIO/X86: Impossible slot offset offSlot=%u\n!", offSlot);
+        }
+    }
+    else
+        printf("MMIO/X86: Mapping control read offMmio=%x cbRead=%zu\n", offMmio, cbRead);
 }
 
 
 static void pspEmuIoMgrX86MapCtrlWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
-    printf("MMIO/X86: Mapping control write offMmio=%x cbWrite=%zu\n", offMmio, cbWrite);
+
+    uint32_t idxX86Slot = offMmio / (4 * sizeof(uint32_t));
+    uint32_t offSlot = offMmio % (4 * sizeof(uint32_t));
+    if (   idxX86Slot < ELEMENTS(pThis->aX86MapCtrlSlots)
+        && cbWrite == sizeof(uint32_t))
+    {
+        PPSPIOMX86MAPCTRLSLOT pX86Slot = &pThis->aX86MapCtrlSlots[idxX86Slot];
+
+        switch (offSlot)
+        {
+            case 0:
+            {
+                pX86Slot->u32RegUnk0 = *(uint32_t *)pvVal;
+                break;
+            }
+            case 4:
+            {
+                pX86Slot->u32RegUnk1 = *(uint32_t *)pvVal;
+                break;
+            }
+            case 8:
+            {
+                pX86Slot->u32RegUnk2 = *(uint32_t *)pvVal;
+                break;
+            }
+            case 12:
+            {
+                pX86Slot->u32RegUnk3 = *(uint32_t *)pvVal;
+                break;
+            }
+            default:
+                printf("MMIO/X86: Impossible slot offset offSlot=%u\n!", offSlot);
+        }
+    }
+    else
+        printf("MMIO/X86: Mapping control write offMmio=%x cbWrite=%zu\n", offMmio, cbWrite);
 }
 
 
 static void pspEmuIoMgrX86MapCtrl2Read(PSPADDR offMmio, size_t cbRead, void *pvDst, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
-    printf("MMIO/X86: Mapping control 2 read offMmio=%x cbRead=%zu\n", offMmio, cbRead);
+
+    uint32_t idxX86Slot = offMmio / sizeof(uint32_t);
+    if (   idxX86Slot < ELEMENTS(pThis->aX86MapCtrlSlots)
+        && cbRead == sizeof(uint32_t))
+    {
+        PPSPIOMX86MAPCTRLSLOT pX86Slot = &pThis->aX86MapCtrlSlots[idxX86Slot];
+        *(uint32_t *)pvDst = pX86Slot->u32RegUnk4;
+    }
+    else
+        printf("MMIO/X86: Mapping control 2 read offMmio=%x cbRead=%zu\n", offMmio, cbRead);
 }
 
 
 static void pspEmuIoMgrX86MapCtrl2Write(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
-    printf("MMIO/X86: Mapping control 2 write offMmio=%x cbWrite=%zu\n", offMmio, cbWrite);
+
+    uint32_t idxX86Slot = offMmio / sizeof(uint32_t);
+    if (   idxX86Slot < ELEMENTS(pThis->aX86MapCtrlSlots)
+        && cbWrite == sizeof(uint32_t))
+    {
+        PPSPIOMX86MAPCTRLSLOT pX86Slot = &pThis->aX86MapCtrlSlots[idxX86Slot];
+        pX86Slot->u32RegUnk4 = *(uint32_t *)pvVal;
+    }
+    else
+        printf("MMIO/X86: Mapping control 2 write offMmio=%x cbWrite=%zu\n", offMmio, cbWrite);
 }
 
 
 static void pspEmuIoMgrX86MapCtrl3Read(PSPADDR offMmio, size_t cbRead, void *pvDst, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
-    printf("MMIO/X86: Mapping control 3 read offMmio=%x cbRead=%zu\n", offMmio, cbRead);
+
+    uint32_t idxX86Slot = offMmio / sizeof(uint32_t);
+    if (   idxX86Slot < ELEMENTS(pThis->aX86MapCtrlSlots)
+        && cbRead == sizeof(uint32_t))
+    {
+        PPSPIOMX86MAPCTRLSLOT pX86Slot = &pThis->aX86MapCtrlSlots[idxX86Slot];
+        *(uint32_t *)pvDst = pX86Slot->u32RegUnk5;
+    }
+    else
+        printf("MMIO/X86: Mapping control 3 read offMmio=%x cbRead=%zu\n", offMmio, cbRead);
 }
 
 
 static void pspEmuIoMgrX86MapCtrl3Write(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
-    printf("MMIO/X86: Mapping control 3 write offMmio=%x cbWrite=%zu\n", offMmio, cbWrite);
+
+    uint32_t idxX86Slot = offMmio / sizeof(uint32_t);
+    if (   idxX86Slot < ELEMENTS(pThis->aX86MapCtrlSlots)
+        && cbWrite == sizeof(uint32_t))
+    {
+        PPSPIOMX86MAPCTRLSLOT pX86Slot = &pThis->aX86MapCtrlSlots[idxX86Slot];
+        pX86Slot->u32RegUnk5 = *(uint32_t *)pvVal;
+
+        /* Dump the slot state as it is the last written register in the mapping method. */
+        pspEmuIoMgrX86MapSlotDump(pX86Slot, idxX86Slot);
+    }
+    else
+        printf("MMIO/X86: Mapping control 3 write offMmio=%x cbWrite=%zu\n", offMmio, cbWrite);
 }
 
 
