@@ -31,32 +31,7 @@
 #include <psp-flash.h>
 #include <psp-iom.h>
 #include <psp-devs.h>
-
-
-/**
- * PSP emulator config.
- */
-typedef struct PSPEMUCFG
-{
-    /** Emulation mode. */
-    PSPCOREMODE             enmMode;
-    /** The flash ROM path. */
-    const char              *pszPathFlashRom;
-    /** Path to the on chip bootloader if in appropriate mode. */
-    const char              *pszPathOnChipBl;
-    /** Binary to load, if NULL we get one from the flash image depending on the mode. */
-    const char              *pszPathBinLoad;
-    /** Path to the boot rom service page to inject (for system and app emulation mode). */
-    const char              *pszPathBootRomSvcPage;
-    /** Flag whether overwritten binaries have the 256 byte header prepended (affects the load address). */
-    bool                    fBinContainsHdr;
-    /** Debugger port to listen on, 0 means debugger is disabled. */
-    uint16_t                uDbgPort;
-} PSPEMUCFG;
-/** Pointer to a PSPEmu config. */
-typedef PSPEMUCFG *PPSPEMUCFG;
-/** Pointer to a const PSPEmu config. */
-typedef const PSPEMUCFG *PCPSPEMUCFG;
+#include <psp-cfg.h>
 
 
 /**
