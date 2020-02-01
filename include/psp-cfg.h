@@ -43,6 +43,10 @@ typedef struct PSPEMUCFG
     bool                    fBinContainsHdr;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
+    /** Pointer to the read flash rom content. */
+    void                    *pvFlashRom;
+    /** Size of the flash ROM in bytes. */
+    size_t                  cbFlashRom;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;

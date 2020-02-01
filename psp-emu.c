@@ -174,6 +174,10 @@ int main(int argc, char *argv[])
         if (!rc)
         {
             PSPCORE hCore;
+
+            Cfg.pvFlashRom = pv;
+            Cfg.cbFlashRom = cb;
+
             rc = PSPEmuCoreCreate(&hCore, Cfg.enmMode);
             if (!rc)
             {
