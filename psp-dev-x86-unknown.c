@@ -22,6 +22,8 @@
 
 #include <stdio.h>
 
+#include <common/cdefs.h>
+
 #include <psp-devs.h>
 
 
@@ -55,6 +57,25 @@ static void pspDevX86UnkMmioRead(X86PADDR offMmio, size_t cbRead, void *pvVal, v
     }
 }
 
+static void pspDevX86UnkMmioRead0xfffdfc0003fd(X86PADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
+{
+    printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
+
+    if (cbRead != sizeof(uint8_t))
+    {
+        printf("%s: Unsupported read size cbRead=%zu\n", cbRead);
+        return;
+    }
+
+    switch (offMmio)
+    {
+        case 0:
+            /* The off chip bootloader waits for bit 6 to be set. */
+            *(uint8_t *)pvVal = BIT(6);
+            break;
+    }
+}
+
 static int pspDevX86UnkInit(PPSPDEV pDev)
 {
     PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
@@ -62,6 +83,10 @@ static int pspDevX86UnkInit(PPSPDEV pDev)
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfed81e77, 1,
                                         pspDevX86UnkMmioRead, NULL, NULL,
+                                        &pThis->hMmio);
+    if (!rc)
+        rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfffdfc0003fd, 1,
+                                        pspDevX86UnkMmioRead0xfffdfc0003fd, NULL, NULL,
                                         &pThis->hMmio);
     return rc;
 }
