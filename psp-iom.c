@@ -400,6 +400,25 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
 }
 
 
+static void pspEmuIoMgrMmioSmnCtrlRead(PSPADDR offMmio, size_t cbRead, void *pvDst, void *pvUser)
+{
+    PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
+
+    switch (cbRead)
+    {
+        case 4:
+        {
+            /* Each 4 byte access programs two slots. */
+            uint32_t idxSlotBase = (offMmio / 4) * 2;
+            *(uint32_t *)pvDst = ((pThis->aSmnAddrBaseSlots[idxSlotBase + 1] >> 20) << 16) | (pThis->aSmnAddrBaseSlots[idxSlotBase] >> 20);
+            break;
+        }
+        default:
+            printf("Invalid read size %zu\n", cbRead);
+    }
+}
+
+
 static void pspEmuIoMgrMmioSmnCtrlWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
@@ -686,7 +705,7 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
                 {
                     /* Register our SMN mapping control registers into the MMIO region. */
                     rc = pspEmuIomMmioRegionRegister(pThis, 0x03220000, 16 * sizeof(uint32_t),
-                                                     NULL /*pfnRead*/, pspEmuIoMgrMmioSmnCtrlWrite,
+                                                     pspEmuIoMgrMmioSmnCtrlRead, pspEmuIoMgrMmioSmnCtrlWrite,
                                                      pThis, &pThis->pMmioRegionSmnCtrl);
                     if (!rc)
                     {
