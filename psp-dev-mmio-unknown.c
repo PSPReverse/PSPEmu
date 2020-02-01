@@ -1,5 +1,5 @@
 /** @file
- * PSP Emulator - Unknown device residing at 0x03200000.
+ * PSP Emulator - Unknown devices mapped directly into MMIO space.
  */
 
 /*
@@ -30,47 +30,15 @@
  */
 typedef struct PSPDEVUNK
 {
-    /** MMIO region handle. */
-    PSPIOMREGIONHANDLE      hMmio;
+    uint32_t uDummy;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
 
-static void pspDevUnkMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
-{
-    printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
-
-    switch (offMmio)
-    {
-        case 0:
-            /* The on chip bootloader waits in on_chip_bl_main() until bit 8 is set. */
-            *(uint32_t *)pvVal = 0x100;
-            break;
-    }
-}
-
-static void pspDevUnkMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
-{
-    printf("%s: offMmio=%#x cbWrite=%zu\n", __FUNCTION__, offMmio, cbWrite);
-
-    switch (cbWrite)
-    {
-        case 4:
-            printf("    u32Val=%#x\n", *(uint32_t *)pvVal);
-            break;
-    }
-}
-
-
 static int pspDevMmioUnkInit(PPSPDEV pDev)
 {
-    PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
-
-    /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010104, 4,
-                                     pspDevUnkMmioRead, pspDevUnkMmioWrite, NULL,
-                                     &pThis->hMmio);
-    return rc;
+    /* Nothing to do so far. */
+    return 0;
 }
 
 

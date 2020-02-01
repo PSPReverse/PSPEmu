@@ -21,6 +21,7 @@ add_executable(PSPEmu
                       psp-dev.c
                       psp-dev-ccp-v5.c
                       psp-dev-timer.c
+                      psp-dev-fuse.c
                       psp-dev-mmio-unknown.c
                       psp-dev-smn-unknown.c
                       psp-dev-x86-unknown.c)
