@@ -27,7 +27,7 @@
 #include <psp-dev.h>
 
 
-int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PPSPDEV *ppDev)
+int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PCPSPEMUCFG pCfg, PPSPDEV *ppDev)
 {
     int rc = 0;
     PPSPDEV pDev = (PPSPDEV)calloc(1, sizeof(*pDev) + pDevReg->cbInstance);
@@ -35,6 +35,7 @@ int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PPSPDEV *ppDev)
     {
         pDev->pReg      = pDevReg;
         pDev->hIoMgr    = hIoMgr;
+        pDev->pCfg      = pCfg;
 
         /* Initialize the device instance and add to the list of known devices. */
         rc = pDev->pReg->pfnInit(pDev);

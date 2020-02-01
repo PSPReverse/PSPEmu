@@ -260,17 +260,17 @@ int main(int argc, char *argv[])
                         /** @todo Proper initialization,instantiation of attached devices. */
                         PPSPDEV pDev = NULL;
 
-                        rc = PSPEmuDevCreate(hIoMgr, &g_DevRegCcpV5, &pDev);
+                        rc = PSPEmuDevCreate(hIoMgr, &g_DevRegCcpV5, &Cfg, &pDev);
                         if (!rc)
-                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegTimer, &pDev);
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegTimer, &Cfg, &pDev);
                         if (!rc)
-                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegMmioUnk, &pDev);
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegMmioUnk, &Cfg, &pDev);
                         if (!rc)
-                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegSmnUnk, &pDev);
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegSmnUnk, &Cfg, &pDev);
                         if (!rc)
-                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegX86Unk, &pDev);
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegX86Unk, &Cfg, &pDev);
                         if (!rc)
-                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegFuse, &pDev);
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegFuse, &Cfg, &pDev);
                         if (rc)
                             printf("Error creating one of the devices: %d\n", rc);
 

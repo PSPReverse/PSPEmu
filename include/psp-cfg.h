@@ -24,6 +24,8 @@
 
 #include <common/types.h>
 
+#include <psp-core.h>
+
 /**
  * PSP emulator config.
  */

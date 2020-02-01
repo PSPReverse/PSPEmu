@@ -24,6 +24,7 @@
 
 #include <common/types.h>
 
+#include <psp-cfg.h>
 #include <psp-iom.h>
 
 /** Pointer to a const PSP device registration record. */
@@ -42,6 +43,8 @@ typedef struct PSPDEV
     PCPSPDEVREG            pReg;
     /** The I/O manager the device is attached to. */
     PSPIOM                 hIoMgr;
+    /** The global config structure. */
+    PCPSPEMUCFG            pCfg;
     /** Instance data - variable in size. */
     uint8_t                abInstance[1];
 } PSPDEV;
@@ -84,9 +87,10 @@ typedef struct PSPDEVREG
  * @returns Status code.
  * @param   hIoMgr                  The I/O manager handle this device will be attached to.
  * @param   pDevReg                 The device template to use.
+ * @param   pCfg                    The config to use for the device.
  * @param   ppDev                   Where to store the device on success.
  */
-int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PPSPDEV *ppDev);
+int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PCPSPEMUCFG pCfg, PPSPDEV *ppDev);
 
 
 /**
