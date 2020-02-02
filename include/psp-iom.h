@@ -149,5 +149,29 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
 int PSPEmuIoMgrDeregister(PSPIOMREGIONHANDLE hRegion);
 
 
+/**
+ * Reads from the given PSP physical address, honoring MMIO access handlers.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   PspAddr                 The PSP physical address to start reading from.
+ * @param   pvDst                   Where to store the read data.
+ * @param   cbRead                  How many bytes to read.
+ */
+int PSPEmuIoMgrPspAddrRead(PSPIOM hIoMgr, PSPADDR PspAddr, void *pvDst, size_t cbRead);
+
+
+/**
+ * Writes to the given PSP physical address, honoring MMIO access handlers.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   PspAddr                 The PSP physical address to start writing to.
+ * @param   pvSrc                   The data to write.
+ * @param   cbWrite                 How many bytes to write.
+ */
+int PSPEmuIoMgrPspAddrWrite(PSPIOM hIoMgr, PSPADDR PspAddr, const void *pvSrc, size_t cbWrite);
+
+
 #endif /* __psp_iom_h */
 

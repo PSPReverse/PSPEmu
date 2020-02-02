@@ -904,3 +904,22 @@ int PSPEmuIoMgrDeregister(PSPIOMREGIONHANDLE hRegion)
     /** @todo */
     return -1;
 }
+
+
+int PSPEmuIoMgrPspAddrRead(PSPIOM hIoMgr, PSPADDR PspAddr, void *pvDst, size_t cbRead)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    /** @todo Access handlers. */
+    return PSPEmuCoreMemRead(pThis->hPspCore, PspAddr, pvDst, cbRead);
+}
+
+
+int PSPEmuIoMgrPspAddrWrite(PSPIOM hIoMgr, PSPADDR PspAddr, const void *pvSrc, size_t cbWrite)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    /** @todo Access handlers. */
+    return PSPEmuCoreMemWrite(pThis->hPspCore, PspAddr, pvSrc, cbWrite);
+}
+
