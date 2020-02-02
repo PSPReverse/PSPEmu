@@ -31,6 +31,8 @@
 *********************************************************************************************************************************/
 #include <stdio.h>
 
+#include <common/cdefs.h>
+
 #include <psp-devs.h>
 
 
@@ -144,6 +146,43 @@
 /** Return the PASSTHRU reflect operation from the given function. */
 #define CCP_V5_ENGINE_PASSTHRU_REFLECT_GET(a_Func)  (((a_Func) >> 5) & 0x3)
 /** @} */
+
+/** @name Available memory types.
+ * @{ */
+/** System memory (DRAM). */
+#define CCP_V5_MEM_TYPE_SYSTEM                      0
+/** Local storage buffer. */
+#define CCP_V5_MEM_TYPE_SB                          1
+/** Local PSP SRAM. */
+#define CCP_V5_MEM_TYPE_LOCAL                       2
+/** @} */
+
+/** @name Queue register offsets.
+ * @{ */
+/** Start offset of the first queue in MMIO space. */
+#define CCP_V5_Q_OFFSET                             _4K
+/** Size of a single queue MMIO area in bytes. */
+#define CCP_V5_Q_SIZE                               _4K
+/** Control register. */
+#define CCP_V5_Q_REG_CTRL                           0x0
+/** The RUN bit, which makes the CCP process requests. */
+# define CCP_V5_Q_REG_CTRL_RUN                      BIT(0)
+/** The HAKT bit, which indicates whether the queue is currently processing requests. */
+# define CCP_V5_Q_REG_CTRL_HALT                     BIT(1)
+/** Request queue head register. */
+#define CCP_V5_Q_REG_HEAD                           0x4
+/** Request queue tail register. */
+#define CCP_V5_Q_REG_TAIL                           0x8
+/** Status register. */
+#define CCP_V5_Q_REG_STATUS                         0x100
+/** Status register success indicator. */
+# define CCP_V5_Q_REG_STATUS_SUCCESS                0
+/** Status register error indicator. */
+# define CCP_V5_Q_REG_STATUS_ERROR                  1
+/** @} */
+
+/** The CCP MMIO address. */
+#define CCP_V5_MMIO_ADDRESS                         0x03000000
 
 
 /*********************************************************************************************************************************
@@ -504,16 +543,16 @@ static void pspDevCcpMmioQueueRegRead(PCCPQUEUE pQueue, uint32_t offRegQ, uint32
 {
     switch (offRegQ)
     {
-        case 0:
+        case CCP_V5_Q_REG_CTRL:
             *pu32Dst = pQueue->u32RegCtrl;
             break;
-        case 4:
+        case CCP_V5_Q_REG_HEAD:
             *pu32Dst = pQueue->u32RegReqHead;
             break;
-        case 8:
+        case CCP_V5_Q_REG_TAIL:
             *pu32Dst = pQueue->u32RegReqTail;
             break;
-        case 0x100:
+        case CCP_V5_Q_REG_STATUS:
             *pu32Dst = pQueue->u32RegSts;
             break;
     }
@@ -533,12 +572,12 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
 {
     switch (offRegQ)
     {
-        case 0:
+        case CCP_V5_Q_REG_CTRL:
             pQueue->u32RegCtrl = u32Val;
-            if (pQueue->u32RegCtrl & 0x1) /* Running bit set? Process requests. */
+            if (pQueue->u32RegCtrl & CCP_V5_Q_REG_CTRL_RUN) /* Running bit set? Process requests. */
             {
                 /* Clear halt and running bit. */
-                pQueue->u32RegCtrl &= ~0x3;
+                pQueue->u32RegCtrl &= ~(CCP_V5_Q_REG_CTRL_RUN | CCP_V5_Q_REG_CTRL_HALT);
 
                 uint32_t u32ReqTail = pQueue->u32RegReqTail;
                 uint32_t u32ReqHead = pQueue->u32RegReqHead;
@@ -552,12 +591,12 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
                     {
                         pspDevCcpDumpReq(&Req, u32ReqTail);
                         /** @todo */
-                        pQueue->u32RegSts = 0;
+                        pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_SUCCESS;
                     }
                     else
                     {
                         printf("CCP: Failed to read request from 0x%08x with rc=%d\n", u32ReqTail, rc);
-                        pQueue->u32RegSts = 1; /* Signal error. */
+                        pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR; /* Signal error. */
                         break;
                     }
 
@@ -565,16 +604,16 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
                 }
 
                 /* Set halt bit again. */
-                pQueue->u32RegCtrl |= 0x2;
+                pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
             }
             break;
-        case 4:
+        case CCP_V5_Q_REG_HEAD:
             pQueue->u32RegReqHead = u32Val;
             break;
-        case 8:
+        case CCP_V5_Q_REG_TAIL:
             pQueue->u32RegReqTail = u32Val;
             break;
-        case 0x100:
+        case CCP_V5_Q_REG_STATUS:
             pQueue->u32RegSts = u32Val;
             break;
     }
@@ -591,12 +630,12 @@ static void pspDevCcpMmioRead(PSPADDR offMmio, size_t cbRead, void *pvDst, void 
         return;
     }
 
-    if (offMmio >= 0x1000)
+    if (offMmio >= CCP_V5_Q_OFFSET)
     {
         /* Queue access. */
-        offMmio -= 0x1000;
-        uint32_t uQueue = offMmio / 0x1000;
-        uint32_t offRegQ = offMmio % 0x1000;
+        offMmio -= CCP_V5_Q_OFFSET;
+        uint32_t uQueue = offMmio / CCP_V5_Q_SIZE;
+        uint32_t offRegQ = offMmio % CCP_V5_Q_SIZE;
 
         if (uQueue > 0)
             printf("%s: offMmio=%#x cbRead=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbRead, uQueue);
@@ -620,12 +659,12 @@ static void pspDevCcpMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVa
         return;
     }
 
-    if (offMmio >= 0x1000)
+    if (offMmio >= CCP_V5_Q_OFFSET)
     {
         /* Queue access. */
-        offMmio -= 0x1000;
-        uint32_t uQueue = offMmio / 0x1000;
-        uint32_t offRegQ = offMmio % 0x1000;
+        offMmio -= CCP_V5_Q_OFFSET;
+        uint32_t uQueue = offMmio / CCP_V5_Q_SIZE;
+        uint32_t offRegQ = offMmio % CCP_V5_Q_SIZE;
 
         if (uQueue > 0)
             printf("%s: offMmio=%#x cbWrite=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbWrite, uQueue);
@@ -644,11 +683,11 @@ static int pspDevCcpInit(PPSPDEV pDev)
     PPSPDEVCCP pThis = (PPSPDEVCCP)&pDev->abInstance[0];
 
     pThis->pDev             = pDev;
-    pThis->Queue.u32RegCtrl = 0x2; /* Halt bit set. */
-    pThis->Queue.u32RegSts  = 0x0;
+    pThis->Queue.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
+    pThis->Queue.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
 
     /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03000000, 2 * 4096,
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + CCP_V5_Q_SIZE,
                                      pspDevCcpMmioRead, pspDevCcpMmioWrite, pThis,
                                      &pThis->hMmio);
     return rc;
