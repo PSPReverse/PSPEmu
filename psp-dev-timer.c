@@ -78,7 +78,7 @@ static void pspDevTimerMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, voi
     {
         case 0: /* Control register */
         {
-            *pu32Ret = pSubTimer->regCnt100MHz;
+            *pu32Ret = pSubTimer->regCtrl;
             break;
         }
         case 32: /* 100MHz counter. */
