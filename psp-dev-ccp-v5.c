@@ -189,6 +189,12 @@
 *   Structures and Typedefs                                                                                                      *
 *********************************************************************************************************************************/
 
+/** Address type the CCP uses (created from low and high parts). */
+typedef uint64_t CCPADDR;
+/** Create a CCP address from the given low and high parts. */
+#define CCP_ADDR_CREATE_FROM_HI_LO(a_High, a_Low) (((CCPADDR)(a_High) << 32) | (a_Low))
+
+
 /**
  * Request descriptor.
  */
@@ -291,9 +297,248 @@ typedef struct PSPDEVCCP
 typedef PSPDEVCCP *PPSPDEVCCP;
 
 
+/**
+ * Data transfer context.
+ */
+typedef struct CCPXFERCTX
+{
+    /** The read callback. */
+    int    (*pfnRead) (PPSPDEVCCP pThis, CCPADDR CcpAddr, void *pvDst, size_t cbRead);
+    /** The read callback. */
+    int    (*pfnWrite) (PPSPDEVCCP pThis, CCPADDR CcpAddr, const void *pvSrc, size_t cbWrite);
+    /** The CCP device instance the context is for. */
+    PPSPDEVCCP                  pThis;
+    /** Current source address. */
+    CCPADDR                     CcpAddrSrc;
+    /** Amount of data to read left. */
+    size_t                      cbReadLeft;
+    /** Current destination address. */
+    CCPADDR                     CcpAddrDst;
+    /** Amount of data to write left. */
+    size_t                      cbWriteLeft;
+} CCPXFERCTX;
+/** Pointer to an xfer context. */
+typedef CCPXFERCTX *PCCPXFERCTX;
+
+
 /*********************************************************************************************************************************
 *   Internal Functions                                                                                                           *
 *********************************************************************************************************************************/
+
+
+/**
+ * Transfer data from system memory to a local buffer.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   CcpAddr             The address to read from (x86 physical address).
+ * @param   pvDst               Where to store the read data.
+ * @param   cbRead              How much to read.
+ */
+static int pspDevCcpXferMemSysRead(PPSPDEVCCP pThis, CCPADDR CcpAddr, void *pvDst, size_t cbRead)
+{
+    return -1;
+}
+
+
+/**
+ * Transfer data from a local buffer to system memory.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   CcpAddr             The address to write to (x86 physical address).
+ * @param   pvSrc               The data to write.
+ * @param   cbWrite             How much to write.
+ */
+static int pspDevCcpXferMemSysWrite(PPSPDEVCCP pThis, CCPADDR CcpAddr, const void *pvSrc, size_t cbWrite)
+{
+    return -1;
+}
+
+
+/**
+ * Transfer data from a local storage buffer to a local buffer.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   CcpAddr             The address to read from (LSB address).
+ * @param   pvDst               Where to store the read data.
+ * @param   cbRead              How much to read.
+ */
+static int pspDevCcpXferMemLsbRead(PPSPDEVCCP pThis, CCPADDR CcpAddr, void *pvDst, size_t cbRead)
+{
+    return -1;
+}
+
+
+/**
+ * Transfer data from a local buffer to a local storage buffer.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   CcpAddr             The address to write to (LSB address).
+ * @param   pvSrc               The data to write.
+ * @param   cbWrite             How much to write.
+ */
+static int pspDevCcpXferMemLsbWrite(PPSPDEVCCP pThis, CCPADDR CcpAddr, const void *pvSrc, size_t cbWrite)
+{
+    return -1;
+}
+
+
+/**
+ * Transfer data from a local PSP memory address (SRAM,MMIO) to a local buffer.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   CcpAddr             The address to read from (PSP address).
+ * @param   pvDst               Where to store the read data.
+ * @param   cbRead              How much to read.
+ */
+static int pspDevCcpXferMemLocalRead(PPSPDEVCCP pThis, CCPADDR CcpAddr, void *pvDst, size_t cbRead)
+{
+    return PSPEmuIoMgrPspAddrRead(pThis->pDev->hIoMgr, (uint32_t)CcpAddr, pvDst, cbRead);
+}
+
+
+/**
+ * Transfer data from a local buffer to a local PSP memory address (SRAM,MMIO).
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   CcpAddr             The address to write to (PSP address).
+ * @param   pvSrc               The data to write.
+ * @param   cbWrite             How much to write.
+ */
+static int pspDevCcpXferMemLocalWrite(PPSPDEVCCP pThis, CCPADDR CcpAddr, const void *pvSrc, size_t cbWrite)
+{
+    return PSPEmuIoMgrPspAddrWrite(pThis->pDev->hIoMgr, (uint32_t)CcpAddr, pvSrc, cbWrite);
+}
+
+
+/**
+ * Initializes a data transfer context.
+ *
+ * @returns Status code.
+ * @param   pCtx                The transfer context to initialize.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The CCP request to take memory types from.
+ * @param   fSha                Flag whether this context is for the SHA engine.
+ * @param   cbWrite             Amount of bytes to write in total.
+ */
+static int pspDevCcpXferCtxInit(PCCPXFERCTX pCtx, PPSPDEVCCP pThis, PCCCP5REQ pReq, bool fSha, size_t cbWrite)
+{
+    pCtx->pThis      = pThis;
+    pCtx->CcpAddrSrc = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrSrcHigh, pReq->u32AddrSrcLow);
+    pCtx->cbReadLeft = pReq->cbSrc;
+    switch (pReq->u16SrcMemType)
+    {
+        case CCP_V5_MEM_TYPE_SYSTEM:
+            pCtx->pfnRead = pspDevCcpXferMemSysRead;
+            break;
+        case CCP_V5_MEM_TYPE_SB:
+            pCtx->pfnRead = pspDevCcpXferMemLsbRead;
+            break;
+        case CCP_V5_MEM_TYPE_LOCAL:
+            pCtx->pfnRead = pspDevCcpXferMemLocalRead;
+            break;
+        default:
+            return -1;
+    }
+
+    pCtx->cbWriteLeft = cbWrite;
+    if (!fSha)
+    {
+        pCtx->CcpAddrDst = CCP_ADDR_CREATE_FROM_HI_LO(pReq->Op.NonSha.u16AddrDstHigh, pReq->Op.NonSha.u32AddrDstLow);
+        switch (pReq->Op.NonSha.u16DstMemType)
+        {
+            case CCP_V5_MEM_TYPE_SYSTEM:
+                pCtx->pfnWrite = pspDevCcpXferMemSysWrite;
+                break;
+            case CCP_V5_MEM_TYPE_SB:
+                pCtx->pfnWrite = pspDevCcpXferMemLsbWrite;
+                break;
+            case CCP_V5_MEM_TYPE_LOCAL:
+                pCtx->pfnWrite = pspDevCcpXferMemLocalWrite;
+                break;
+            default:
+                return -1;
+        }
+    }
+    else
+        return -1;
+
+    return 0;
+}
+
+
+/**
+ * Executes a read pass using the given transfer context.
+ *
+ * @returns Status code.
+ * @param   pCtx                The transfer context to use.
+ * @param   pvDst               Where to store the read data.
+ * @param   cbRead              How much to read.
+ * @param   pcbRead             Where to store the amount of data actually read, optional.
+ */
+static int pspDevCcpxXferCtxRead(PCCPXFERCTX pCtx, void *pvDst, size_t cbRead, size_t *pcbRead)
+{
+    int rc = 0;
+    size_t cbThisRead = MIN(cbRead, pCtx->cbReadLeft);
+
+    if (    cbThisRead
+        && (   pcbRead
+            || cbThisRead == cbRead))
+    {
+        rc = pCtx->pfnRead(pCtx->pThis, pCtx->CcpAddrSrc, pvDst, cbThisRead);
+        if (!rc)
+        {
+            pCtx->cbReadLeft -= cbThisRead;
+            pCtx->CcpAddrSrc += cbThisRead;
+            if (pcbRead)
+                *pcbRead = cbThisRead;
+        }
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
+/**
+ * Executes a write pass using the given transfer context.
+ *
+ * @returns Status code.
+ * @param   pCtx                The transfer context to use.
+ * @param   pvSrc               The data to write.
+ * @param   cbWrite             How much to write.
+ * @param   pcbWritten          Where to store the amount of data actually written, optional.
+ */
+static int pspDevCcpxXferCtxWrite(PCCPXFERCTX pCtx, const void *pvSrc, size_t cbWrite, size_t *pcbWritten)
+{
+    int rc = 0;
+    size_t cbThisWrite = MIN(cbWrite, pCtx->cbWriteLeft);
+
+    if (    cbThisWrite
+        && (   pcbWritten
+            || cbThisWrite == cbWrite))
+    {
+        rc = pCtx->pfnWrite(pCtx->pThis, pCtx->CcpAddrDst, pvSrc, cbThisWrite);
+        if (!rc)
+        {
+            pCtx->cbWriteLeft -= cbThisWrite;
+            pCtx->CcpAddrDst  += cbThisWrite;
+            if (pcbWritten)
+                *pcbWritten = cbThisWrite;
+        }
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
 
 /**
  * Returns the string representation of the given CCP request engine field.
@@ -532,6 +777,92 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
 
 
 /**
+ * Processes a passthru request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ * @param   uFunc               The engine specific function.
+ */
+static int pspDevCcpReqPassthruProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc)
+{
+    int rc = 0;
+    uint8_t uByteSwap = CCP_V5_ENGINE_PASSTHRU_BYTESWAP_GET(uFunc);
+    uint8_t uBitwise  = CCP_V5_ENGINE_PASSTHRU_BITWISE_GET(uFunc);
+    uint8_t uReflect  = CCP_V5_ENGINE_PASSTHRU_REFLECT_GET(uFunc);
+
+    if (   uBitwise == CCP_V5_ENGINE_PASSTHRU_BITWISE_NOOP
+        && uByteSwap == CCP_V5_ENGINE_PASSTHRU_BYTESWAP_NOOP
+        && uReflect == 0)
+    {
+        size_t cbLeft = pReq->cbSrc;
+        CCPXFERCTX XferCtx;
+
+        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/, cbLeft);
+        if (!rc)
+        {
+            uint8_t abData[32];
+            while (   !rc
+                   && cbLeft)
+            {
+                size_t cbThisProc = MIN(cbLeft, sizeof(abData));
+
+                rc = pspDevCcpxXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
+                if (!rc)
+                    rc = pspDevCcpxXferCtxWrite(&XferCtx, &abData[0], cbThisProc, NULL);
+
+                cbLeft -= cbThisProc;
+            }
+        }
+    }
+    else
+    {
+        printf("CCP: PASSTHRU ERROR uBitwise=%u, uByteSwap=%u and uReflect=%u not implemented yet!\n", uBitwise, uByteSwap, uReflect);
+        rc = -1;
+    }
+
+    return rc;
+}
+
+
+/**
+ * Processes the given request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ */
+static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
+{
+    int rc = 0;
+    uint32_t uEngine   = CCP_V5_ENGINE_GET(pReq->u32Dw0);
+    uint32_t uFunction = CCP_V5_ENGINE_FUNC_GET(pReq->u32Dw0);
+
+    switch (uEngine)
+    {
+        case CCP_V5_ENGINE_PASSTHRU:
+        {
+            rc = pspDevCcpReqPassthruProcess(pThis, pReq, uFunction);
+            break;
+        }
+        case CCP_V5_ENGINE_AES:
+        case CCP_V5_ENGINE_XTS_AES128:
+        case CCP_V5_ENGINE_DES3:
+        case CCP_V5_ENGINE_SHA:
+        case CCP_V5_ENGINE_RSA:
+        case CCP_V5_ENGINE_ZLIB_DECOMP:
+        case CCP_V5_ENGINE_ECC:
+            /** @todo */
+            break;
+        default:
+            rc = -1;
+    }
+
+    return rc;
+}
+
+
+/**
  * Handles register read from a specific queue.
  *
  * @returns nothing.
@@ -590,8 +921,11 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
                     if (!rc)
                     {
                         pspDevCcpDumpReq(&Req, u32ReqTail);
-                        /** @todo */
-                        pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_SUCCESS;
+                        rc = pspDevCcpReqProcess(pThis, &Req);
+                        if (!rc)
+                            pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_SUCCESS;
+                        else
+                            pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR;
                     }
                     else
                     {
@@ -604,6 +938,7 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
                 }
 
                 /* Set halt bit again. */
+                pQueue->u32RegReqTail = u32ReqTail;
                 pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
             }
             break;
