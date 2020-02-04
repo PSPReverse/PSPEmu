@@ -36,6 +36,12 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hSmn0x0005e000;
     /** 0x0005d0cc register handle. */
     PSPIOMREGIONHANDLE          hSmn0x0005d0cc;
+    /** 0x01025034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01025034;
+    /** 0x01004034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01004034;
+    /** 0x01003034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01003034;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -68,6 +74,32 @@ static void pspDevUnkSmnRead0x0005d0cc(SMNADDR offSmn, size_t cbRead, void *pvVa
     }
 }
 
+static void pspDevUnkSmnRead0x01025034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
+
+    switch (offSmn)
+    {
+        case 0x0:
+            /* Read by the on chip bootloader and acted upon. */
+            *(uint32_t *)pvVal = 0x1e113;
+            break;
+    }
+}
+
+static void pspDevUnkSmnRead0x01004034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
+
+    switch (offSmn)
+    {
+        case 0x0:
+            /* Read by the on chip bootloader and acted upon. */
+            *(uint32_t *)pvVal = 0x1e112;
+            break;
+    }
+}
+
 static void pspDevUnkSmnWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     printf("%s: offSmn=%#x cbWrite=%zu\n", __FUNCTION__, offSmn, cbWrite);
@@ -92,6 +124,18 @@ static int pspDevUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005d0cc, 4,
                                     pspDevUnkSmnRead0x0005d0cc, pspDevUnkSmnWrite, pThis,
                                     &pThis->hSmn0x0005d0cc);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01025034, 4,
+                                    pspDevUnkSmnRead0x01025034, NULL, pThis,
+                                    &pThis->hSmn0x01025034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01004034, 4,
+                                    pspDevUnkSmnRead0x01004034, NULL, pThis,
+                                    &pThis->hSmn0x01004034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01003034, 4,
+                                    pspDevUnkSmnRead0x01004034, NULL, pThis,
+                                    &pThis->hSmn0x01003034);
     return rc;
 }
 
