@@ -30,15 +30,36 @@
  */
 typedef struct PSPDEVUNK
 {
-    uint32_t uDummy;
+    /** 0x03006038 register handle. */
+    PSPIOMREGIONHANDLE          hMmio0x03006038;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
 
+
+static void pspDevUnkMmioRead0x03006038(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
+{
+    printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
+
+    switch (offMmio)
+    {
+        case 0x0:
+            /* The on chip bootloader waits for bit 0 to go 1. */
+            *(uint32_t *)pvVal = 0x1;
+            break;
+    }
+}
+
+
 static int pspDevMmioUnkInit(PPSPDEV pDev)
 {
-    /* Nothing to do so far. */
-    return 0;
+    PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
+
+    /* Register MMIO ranges. */
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03006038, 4,
+                                     pspDevUnkMmioRead0x03006038, NULL, pThis,
+                                     &pThis->hMmio0x03006038);
+    return rc;
 }
 
 
