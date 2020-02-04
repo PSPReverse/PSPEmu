@@ -42,6 +42,40 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hSmn0x01004034;
     /** 0x01003034 region handle. */
     PSPIOMREGIONHANDLE          hSmn0x01003034;
+    /** 0x18080064 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x18080064;
+    /** 0x18480064 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x18480064;
+    /** 0x01018034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01018034;
+    /** 0x0102e034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0102e034;
+    /** 0x01030034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01030034;
+    /** 0x01046034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01046034;
+    /** 0x01047034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01047034;
+    /** 0x0106c034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0106c034;
+    /** 0x0106d034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0106d034;
+    /** 0x0106e034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0106e034;
+    /** 0x01080034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01080034;
+    /** 0x01081034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01081034;
+    /** 0x01096034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01096034;
+    /** 0x01097034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01097034;
+    /** 0x010a8034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x010a8034;
+    /** 0x010d8034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x010d8034;
+    /** 0x0005a088 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0005a088;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -100,6 +134,46 @@ static void pspDevUnkSmnRead0x01004034(SMNADDR offSmn, size_t cbRead, void *pvVa
     }
 }
 
+static void pspDevUnkSmnRead0x0102e034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
+
+    switch (offSmn)
+    {
+        case 0x0:
+            /* Read by the on chip bootloader and acted upon. */
+            *(uint32_t *)pvVal = 0x1e312;
+            break;
+    }
+}
+
+static void pspDevUnkSmnRead0x01046034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
+
+    switch (offSmn)
+    {
+        case 0x0:
+            /* Read by the on chip bootloader and acted upon. */
+            *(uint32_t *)pvVal = 0x1e103;
+            break;
+    }
+}
+
+
+static void pspDevUnkSmnRead0x18080064(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
+
+    switch (offSmn)
+    {
+        case 0x0:
+            /* The on chip bootloader waits for bit 10 to to get set. */
+            *(uint32_t *)pvVal = BIT(10);
+            break;
+    }
+}
+
 static void pspDevUnkSmnWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     printf("%s: offSmn=%#x cbWrite=%zu\n", __FUNCTION__, offSmn, cbWrite);
@@ -136,6 +210,75 @@ static int pspDevUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01003034, 4,
                                     pspDevUnkSmnRead0x01004034, NULL, pThis,
                                     &pThis->hSmn0x01003034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x18080064, 4,
+                                    pspDevUnkSmnRead0x18080064, NULL, pThis,
+                                    &pThis->hSmn0x18080064);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x18480064, 4,
+                                    pspDevUnkSmnRead0x18080064, NULL, pThis,
+                                    &pThis->hSmn0x18480064);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01018034, 4,
+                                    pspDevUnkSmnRead0x01025034, NULL, pThis,
+                                    &pThis->hSmn0x18480064);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0102e034, 4,
+                                    pspDevUnkSmnRead0x0102e034, NULL, pThis,
+                                    &pThis->hSmn0x0102e034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01030034, 4,
+                                    pspDevUnkSmnRead0x0102e034, NULL, pThis,
+                                    &pThis->hSmn0x01030034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01046034, 4,
+                                    pspDevUnkSmnRead0x01046034, NULL, pThis,
+                                    &pThis->hSmn0x01046034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01047034, 4,
+                                    pspDevUnkSmnRead0x01046034, NULL, pThis,
+                                    &pThis->hSmn0x01047034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0106c034, 4,
+                                    pspDevUnkSmnRead0x01025034, NULL, pThis,
+                                    &pThis->hSmn0x0106c034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0106d034, 4,
+                                    pspDevUnkSmnRead0x01025034, NULL, pThis,
+                                    &pThis->hSmn0x0106d034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0106e034, 4,
+                                    pspDevUnkSmnRead0x0102e034, NULL, pThis,
+                                    &pThis->hSmn0x0106e034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01080034, 4,
+                                    pspDevUnkSmnRead0x01025034, NULL, pThis,
+                                    &pThis->hSmn0x01080034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01081034, 4,
+                                    pspDevUnkSmnRead0x01025034, NULL, pThis,
+                                    &pThis->hSmn0x01081034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01096034, 4,
+                                    pspDevUnkSmnRead0x0102e034, NULL, pThis,
+                                    &pThis->hSmn0x01096034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01097034, 4,
+                                    pspDevUnkSmnRead0x0102e034, NULL, pThis,
+                                    &pThis->hSmn0x01097034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x010a8034, 4,
+                                    pspDevUnkSmnRead0x0102e034, NULL, pThis,
+                                    &pThis->hSmn0x010a8034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x010d8034, 4,
+                                    pspDevUnkSmnRead0x0102e034, NULL, pThis,
+                                    &pThis->hSmn0x010d8034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005a088, 4,
+                                    pspDevUnkSmnRead0x0005e000, NULL, pThis,
+                                    &pThis->hSmn0x0005a088);
+
     return rc;
 }
 
