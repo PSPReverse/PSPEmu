@@ -168,8 +168,8 @@ static void pspDevUnkSmnRead0x18080064(SMNADDR offSmn, size_t cbRead, void *pvVa
     switch (offSmn)
     {
         case 0x0:
-            /* The on chip bootloader waits for bit 10 to to get set. */
-            *(uint32_t *)pvVal = BIT(10);
+            /* The on chip bootloader waits for bit 9 and 10 to become set. */
+            *(uint32_t *)pvVal = BIT(10) | BIT(9);
             break;
     }
 }

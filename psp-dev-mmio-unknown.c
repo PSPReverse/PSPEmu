@@ -34,6 +34,8 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hMmio0x03006038;
     /** 0x03200044 register handle. */
     PSPIOMREGIONHANDLE          hMmio0x03200044;
+    /** 0x03010104 register handle. */
+    PSPIOMREGIONHANDLE          hMmio0x03010104;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -52,6 +54,18 @@ static void pspDevUnkMmioRead0x03006038(PSPADDR offMmio, size_t cbRead, void *pv
     }
 }
 
+static void pspDevUnkMmioRead0x03010104(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
+{
+    printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
+
+    switch (offMmio)
+    {
+        case 0x0:
+            *(uint32_t *)pvVal = 0x1a0e0900;
+            break;
+    }
+}
+
 
 static int pspDevMmioUnkInit(PPSPDEV pDev)
 {
@@ -62,9 +76,16 @@ static int pspDevMmioUnkInit(PPSPDEV pDev)
                                      pspDevUnkMmioRead0x03006038, NULL, pThis,
                                      &pThis->hMmio0x03006038);
     if (!rc)
+        rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010104, 4,
+                                     pspDevUnkMmioRead0x03010104, NULL, pThis,
+                                     &pThis->hMmio0x03010104);
+
+#if 0
+    if (!rc)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03200044, 4,
                                      pspDevUnkMmioRead0x03006038, NULL, pThis,
                                      &pThis->hMmio0x03200044);
+#endif
     return rc;
 }
 
