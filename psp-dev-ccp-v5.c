@@ -30,6 +30,9 @@
 *   Header Files                                                                                                                 *
 *********************************************************************************************************************************/
 #include <stdio.h>
+#include <string.h>
+
+#include <openssl/evp.h>
 
 #include <common/cdefs.h>
 
@@ -61,6 +64,10 @@
 #define CCP_V5_ENGINE_GET(a_Dw0)                    (((a_Dw0) >> 20) & 0xf)
 /** Return the engine specific function from the given dword. */
 #define CCP_V5_ENGINE_FUNC_GET(a_Dw0)               (((a_Dw0) >> 5) & 0x7fff)
+/** Return the end of message field from the given dword. */
+#define CCP_V5_ENGINE_EOM_GET(a_Dw0)                (((a_Dw0) >> 4) & 0x1)
+/** Return the init field from the given dword. */
+#define CCP_V5_ENGINE_INIT_GET(a_Dw0)               (((a_Dw0) >> 3) & 0x1)
 /** @} */
 
 /** @name AES engine specific defines.
@@ -155,6 +162,12 @@
 #define CCP_V5_MEM_TYPE_SB                          1
 /** Local PSP SRAM. */
 #define CCP_V5_MEM_TYPE_LOCAL                       2
+/** Retrieve the memory type from the given 16bit word. */
+#define CCP_V5_MEM_TYPE_GET(a_MemType)              ((a_MemType) & 0x3)
+/** Retrieve the LSB context ID from the given 16bit word. */
+#define CCP_V5_MEM_LSB_CTX_ID_GET(a_MemType)        (((a_MemType) >> 2) & 0xff)
+/** Retrieve the LSB context ID from the given 16bit word. */
+#define CCP_V5_MEM_LSB_FIXED_GET(a_MemType)         (((a_MemType) >> 16) & 0x1)
 /** @} */
 
 /** @name Queue register offsets.
@@ -167,7 +180,7 @@
 #define CCP_V5_Q_REG_CTRL                           0x0
 /** The RUN bit, which makes the CCP process requests. */
 # define CCP_V5_Q_REG_CTRL_RUN                      BIT(0)
-/** The HAKT bit, which indicates whether the queue is currently processing requests. */
+/** The HALT bit, which indicates whether the queue is currently processing requests. */
 # define CCP_V5_Q_REG_CTRL_HALT                     BIT(1)
 /** Request queue head register. */
 #define CCP_V5_Q_REG_HEAD                           0x4
@@ -226,10 +239,10 @@ typedef struct CCP5REQ
         /** SHA operation. */
         struct
         {
-            /** Low 32bit of the SHA length. */
-            uint32_t                u32ShaLenLow;
-            /** High 32bit of the SHA length. */
-            uint32_t                u32ShaLenHigh;
+            /** Low 32bit of the message bitlength. */
+            uint32_t                u32ShaBitsLow;
+            /** High 32bit of the message bitlength. */
+            uint32_t                u32ShaBitsHigh;
         } Sha;
     } Op;
     /** Low 32bit of address of key data. */
@@ -270,8 +283,18 @@ typedef const CCPQUEUE *PCCCPQUEUE;
  */
 typedef struct CCPLSB
 {
-    /** 32byte data. */
-    uint8_t                         abData[32];
+    /** View dependent data. */
+    union
+    {
+        /** A single slot. */
+        struct
+        {
+            /** 32byte data. */
+            uint8_t                 abData[32];
+        } aSlots[8];
+        /* Contiguous view of the complete LSB. */
+        uint8_t                     abLsb[1];
+    } u;
 } CCPLSB;
 /** Pointer to a local storage buffer. */
 typedef CCPLSB *PCCPLSB;
@@ -290,8 +313,14 @@ typedef struct PSPDEVCCP
     PSPIOMREGIONHANDLE              hMmio;
     /** The single CCP queue we have. */
     CCPQUEUE                        Queue;
-    /** The local storage buffers contained in the CCP. */
-    CCPLSB                          aLsbs[8];
+    /** The local storage buffer. */
+    CCPLSB                          Lsb;
+    /** The openssl sha256 context currently in use. This doesn't really belong here
+     * as the state is contained in an LSB but for use with openssl and to support
+     * multi-part messages we have to store it here, luckily the PSP is single threaded
+     * so the code will only every process one SHA operation at a time.
+     */
+    EVP_MD_CTX                      *pOsslSha256Ctx;
 } PSPDEVCCP;
 /** Pointer to the device instance data. */
 typedef PSPDEVCCP *PPSPDEVCCP;
@@ -304,7 +333,7 @@ typedef struct CCPXFERCTX
 {
     /** The read callback. */
     int    (*pfnRead) (PPSPDEVCCP pThis, CCPADDR CcpAddr, void *pvDst, size_t cbRead);
-    /** The read callback. */
+    /** The write callback. */
     int    (*pfnWrite) (PPSPDEVCCP pThis, CCPADDR CcpAddr, const void *pvSrc, size_t cbWrite);
     /** The CCP device instance the context is for. */
     PPSPDEVCCP                  pThis;
@@ -316,6 +345,8 @@ typedef struct CCPXFERCTX
     CCPADDR                     CcpAddrDst;
     /** Amount of data to write left. */
     size_t                      cbWriteLeft;
+    /** Flag whether to write in reverse order. */
+    bool                        fWriteRev;
 } CCPXFERCTX;
 /** Pointer to an xfer context. */
 typedef CCPXFERCTX *PCCPXFERCTX;
@@ -367,7 +398,18 @@ static int pspDevCcpXferMemSysWrite(PPSPDEVCCP pThis, CCPADDR CcpAddr, const voi
  */
 static int pspDevCcpXferMemLsbRead(PPSPDEVCCP pThis, CCPADDR CcpAddr, void *pvDst, size_t cbRead)
 {
-    return -1;
+    int rc = 0;
+
+    if (   CcpAddr < sizeof(pThis->Lsb)
+        && CcpAddr + cbRead <= sizeof(pThis->Lsb))
+        memcpy(pvDst, &pThis->Lsb.u.abLsb[CcpAddr], cbRead);
+    else
+    {
+        printf("CCP: Invalid LSB read offset=%#x cbRead=%zu\n", (uint32_t)CcpAddr, cbRead);
+        rc = -1;
+    }
+
+    return rc;
 }
 
 
@@ -382,7 +424,18 @@ static int pspDevCcpXferMemLsbRead(PPSPDEVCCP pThis, CCPADDR CcpAddr, void *pvDs
  */
 static int pspDevCcpXferMemLsbWrite(PPSPDEVCCP pThis, CCPADDR CcpAddr, const void *pvSrc, size_t cbWrite)
 {
-    return -1;
+    int rc = 0;
+
+    if (   CcpAddr < sizeof(pThis->Lsb)
+        && CcpAddr + cbWrite <= sizeof(pThis->Lsb))
+        memcpy(&pThis->Lsb.u.abLsb[CcpAddr], pvSrc, cbWrite);
+    else
+    {
+        printf("CCP: Invalid LSB write offset=%#x cbWrite=%zu\n", (uint32_t)CcpAddr, cbWrite);
+        rc = -1;
+    }
+
+    return rc;
 }
 
 
@@ -425,13 +478,16 @@ static int pspDevCcpXferMemLocalWrite(PPSPDEVCCP pThis, CCPADDR CcpAddr, const v
  * @param   pReq                The CCP request to take memory types from.
  * @param   fSha                Flag whether this context is for the SHA engine.
  * @param   cbWrite             Amount of bytes to write in total.
+ * @param   fWriteRev           Flag whether to write the data in reverse order.
  */
-static int pspDevCcpXferCtxInit(PCCPXFERCTX pCtx, PPSPDEVCCP pThis, PCCCP5REQ pReq, bool fSha, size_t cbWrite)
+static int pspDevCcpXferCtxInit(PCCPXFERCTX pCtx, PPSPDEVCCP pThis, PCCCP5REQ pReq, bool fSha, size_t cbWrite,
+                                bool fWriteRev)
 {
     pCtx->pThis      = pThis;
     pCtx->CcpAddrSrc = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrSrcHigh, pReq->u32AddrSrcLow);
     pCtx->cbReadLeft = pReq->cbSrc;
-    switch (pReq->u16SrcMemType)
+    pCtx->fWriteRev  = fWriteRev;
+    switch (CCP_V5_MEM_TYPE_GET(pReq->u16SrcMemType))
     {
         case CCP_V5_MEM_TYPE_SYSTEM:
             pCtx->pfnRead = pspDevCcpXferMemSysRead;
@@ -450,7 +506,7 @@ static int pspDevCcpXferCtxInit(PCCPXFERCTX pCtx, PPSPDEVCCP pThis, PCCCP5REQ pR
     if (!fSha)
     {
         pCtx->CcpAddrDst = CCP_ADDR_CREATE_FROM_HI_LO(pReq->Op.NonSha.u16AddrDstHigh, pReq->Op.NonSha.u32AddrDstLow);
-        switch (pReq->Op.NonSha.u16DstMemType)
+        switch (CCP_V5_MEM_TYPE_GET(pReq->Op.NonSha.u16DstMemType))
         {
             case CCP_V5_MEM_TYPE_SYSTEM:
                 pCtx->pfnWrite = pspDevCcpXferMemSysWrite;
@@ -465,8 +521,20 @@ static int pspDevCcpXferCtxInit(PCCPXFERCTX pCtx, PPSPDEVCCP pThis, PCCCP5REQ pR
                 return -1;
         }
     }
-    else
-        return -1;
+    else /* SHA always writes to the LSB. */
+    {
+        uint8_t uLsbCtxId = CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType);
+        if (uLsbCtxId < ELEMENTS(pThis->Lsb.u.aSlots))
+        {
+            pCtx->pfnWrite = pspDevCcpXferMemLsbWrite;
+            pCtx->CcpAddrDst = uLsbCtxId * sizeof(pThis->Lsb.u.aSlots[0].abData);
+        }
+        else
+            return -1;
+    }
+
+    if (pCtx->fWriteRev)
+        pCtx->CcpAddrDst += pCtx->cbWriteLeft;
 
     return 0;
 }
@@ -524,13 +592,34 @@ static int pspDevCcpxXferCtxWrite(PCCPXFERCTX pCtx, const void *pvSrc, size_t cb
         && (   pcbWritten
             || cbThisWrite == cbWrite))
     {
-        rc = pCtx->pfnWrite(pCtx->pThis, pCtx->CcpAddrDst, pvSrc, cbThisWrite);
-        if (!rc)
+        if (pCtx->fWriteRev)
         {
-            pCtx->cbWriteLeft -= cbThisWrite;
-            pCtx->CcpAddrDst  += cbThisWrite;
-            if (pcbWritten)
+            const uint8_t *pbSrc = (const uint8_t *)pvSrc;
+
+            /** @todo Unoptimized single byte writes... */
+            while (   cbThisWrite
+                   && !rc)
+            {
+                rc = pCtx->pfnWrite(pCtx->pThis, pCtx->CcpAddrDst, pbSrc, 1);
+                cbThisWrite--;
+                pCtx->CcpAddrDst--;
+                pbSrc++;
+            }
+
+            if (   !rc
+                && pcbWritten)
                 *pcbWritten = cbThisWrite;
+        }
+        else
+        {
+            rc = pCtx->pfnWrite(pCtx->pThis, pCtx->CcpAddrDst, pvSrc, cbThisWrite);
+            if (!rc)
+            {
+                pCtx->cbWriteLeft -= cbThisWrite;
+                pCtx->CcpAddrDst  += cbThisWrite;
+                if (pcbWritten)
+                    *pcbWritten = cbThisWrite;
+            }
         }
     }
     else
@@ -758,17 +847,21 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
     printf("    cbSrc:              %u\n",     pReq->cbSrc);
     printf("    u32AddrSrcLow:      0x%08x\n", pReq->u32AddrSrcLow);
     printf("    u16AddrSrcHigh:     0x%08x\n", pReq->u16AddrSrcHigh);
-    printf("    u16SrcMemType:      0x%08x\n", pReq->u16SrcMemType);
+    printf("    u16SrcMemType:      0x%08x (MemType: %u, LsbCtxId: %u, Fixed: %u)\n",
+           pReq->u16SrcMemType, CCP_V5_MEM_TYPE_GET(pReq->u16SrcMemType),
+           CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType), CCP_V5_MEM_LSB_FIXED_GET(pReq->u16SrcMemType));
     if (uEngine != CCP_V5_ENGINE_SHA)
     {
         printf("    u32AddrDstLow:      0x%08x\n", pReq->Op.NonSha.u32AddrDstLow);
         printf("    u16AddrDstHigh:     0x%08x\n", pReq->Op.NonSha.u16AddrDstHigh);
-        printf("    u16DstMemType:      0x%08x\n", pReq->Op.NonSha.u16DstMemType);
+        printf("    u16DstMemType:      0x%08x (MemType: %u, Fixed: %u)\n",
+               pReq->Op.NonSha.u16DstMemType, CCP_V5_MEM_TYPE_GET(pReq->Op.NonSha.u16DstMemType),
+               CCP_V5_MEM_LSB_FIXED_GET(pReq->Op.NonSha.u16DstMemType));
     }
     else
     {
-        printf("    u32ShaLenLow:       0x%08x\n", pReq->Op.Sha.u32ShaLenLow);
-        printf("    u32ShaLenHigh:      0x%08x\n", pReq->Op.Sha.u32ShaLenHigh);
+        printf("    u32ShaBitsLow:      0x%08x\n", pReq->Op.Sha.u32ShaBitsLow);
+        printf("    u32ShaBitsHigh:     0x%08x\n", pReq->Op.Sha.u32ShaBitsHigh);
     }
     printf("    u32AddrKeyLow:      0x%08x\n", pReq->u32AddrKeyLow);
     printf("    u16AddrKeyHigh:     0x%08x\n", pReq->u16AddrKeyHigh);
@@ -792,13 +885,16 @@ static int pspDevCcpReqPassthruProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_
     uint8_t uReflect  = CCP_V5_ENGINE_PASSTHRU_REFLECT_GET(uFunc);
 
     if (   uBitwise == CCP_V5_ENGINE_PASSTHRU_BITWISE_NOOP
-        && uByteSwap == CCP_V5_ENGINE_PASSTHRU_BYTESWAP_NOOP
+        && (   uByteSwap == CCP_V5_ENGINE_PASSTHRU_BYTESWAP_NOOP
+            || (   uByteSwap == CCP_V5_ENGINE_PASSTHRU_BYTESWAP_256BIT
+                && pReq->cbSrc == 32))
         && uReflect == 0)
     {
         size_t cbLeft = pReq->cbSrc;
         CCPXFERCTX XferCtx;
 
-        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/, cbLeft);
+        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/, cbLeft,
+                                  uByteSwap == CCP_V5_ENGINE_PASSTHRU_BYTESWAP_256BIT ? true : false /*fWriteRev*/);
         if (!rc)
         {
             uint8_t abData[32];
@@ -826,6 +922,88 @@ static int pspDevCcpReqPassthruProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_
 
 
 /**
+ * Processes a SHA request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ * @param   uFunc               The engine specific function.
+ */
+static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc)
+{
+    int rc = 0;
+    uint32_t uShaType = CCP_V5_ENGINE_SHA_TYPE_GET(uFunc);
+    bool fInit = CCP_V5_ENGINE_INIT_GET(pReq->u32Dw0);
+    bool fEom = CCP_V5_ENGINE_EOM_GET(pReq->u32Dw0);
+
+    /* Only sha256 and single-part calculation implemented so far. */
+    if (uShaType == CCP_V5_ENGINE_SHA_TYPE_256)
+    {
+        const EVP_MD *pOsslEvpSha256 = EVP_sha256();
+        size_t cbLeft = pReq->cbSrc;
+        CCPXFERCTX XferCtx;
+
+        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, true /*fSha*/, EVP_MD_size(pOsslEvpSha256),
+                                  false /*fWriteRev*/);
+        if (!rc)
+        {
+            /*
+             * The storage buffer contains the initial sha256 state, which we will ignore
+             * because that is already part of the openssl context.
+             */
+            if (fInit)
+            {
+                pThis->pOsslSha256Ctx = EVP_MD_CTX_new();
+                if (!pThis->pOsslSha256Ctx)
+                    rc = -1;
+
+                if (EVP_DigestInit_ex(pThis->pOsslSha256Ctx, pOsslEvpSha256, NULL) != 1)
+                    rc = -1;
+            }
+
+            while (   !rc
+                   && cbLeft)
+            {
+                uint8_t abData[32];
+                size_t cbThisProc = MIN(cbLeft, sizeof(abData));
+
+                rc = pspDevCcpxXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
+                if (!rc)
+                {
+                    if (EVP_DigestUpdate(pThis->pOsslSha256Ctx, &abData[0], cbThisProc) != 1)
+                        rc = -1;
+                }
+
+                cbLeft -= cbThisProc;
+            }
+
+            if (   !rc
+                && fEom)
+            {
+                /* Finalize state and write to the storage buffer. */
+                uint8_t abHash[32]; /** @todo Hardcoding the digest size is meh... */
+                if (EVP_DigestFinal_ex(pThis->pOsslSha256Ctx, &abHash[0], NULL) == 1)
+                    rc = pspDevCcpxXferCtxWrite(&XferCtx, &abHash[0], sizeof(abHash), NULL);
+                else
+                    rc = -1;
+
+                EVP_MD_CTX_free(pThis->pOsslSha256Ctx);
+                pThis->pOsslSha256Ctx = NULL;
+            }
+        }
+    }
+    else
+    {
+        printf("CCP: SHA ERROR uShaType=%u fInit=%u fEom=%u u32ShaBitsHigh=%u u32ShaBitsLow=%u not implemented yet!\n",
+               uShaType, fInit, fEom, pReq->Op.Sha.u32ShaBitsHigh, pReq->Op.Sha.u32ShaBitsLow);
+        rc = -1;
+    }
+
+    return rc;
+}
+
+
+/**
  * Processes the given request.
  *
  * @returns Status code.
@@ -845,10 +1023,14 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
             rc = pspDevCcpReqPassthruProcess(pThis, pReq, uFunction);
             break;
         }
+        case CCP_V5_ENGINE_SHA:
+        {
+            rc = pspDevCcpReqShaProcess(pThis, pReq, uFunction);
+            break;
+        }
         case CCP_V5_ENGINE_AES:
         case CCP_V5_ENGINE_XTS_AES128:
         case CCP_V5_ENGINE_DES3:
-        case CCP_V5_ENGINE_SHA:
         case CCP_V5_ENGINE_RSA:
         case CCP_V5_ENGINE_ZLIB_DECOMP:
         case CCP_V5_ENGINE_ECC:
@@ -1020,6 +1202,7 @@ static int pspDevCcpInit(PPSPDEV pDev)
     pThis->pDev             = pDev;
     pThis->Queue.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
     pThis->Queue.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
+    pThis->pOsslSha256Ctx   = NULL;
 
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + CCP_V5_Q_SIZE,

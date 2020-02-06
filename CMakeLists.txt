@@ -9,6 +9,7 @@ find_package(PkgConfig)
 find_library(m REQUIRED)
 
 pkg_check_modules(PC_LIBPSPPROXY REQUIRED IMPORTED_TARGET libpspproxy)
+pkg_check_modules(PC_OPENSSL     REQUIRED IMPORTED_TARGET openssl)
 
 add_executable(PSPEmu
                       psp-emu.c
@@ -38,6 +39,7 @@ target_include_directories(PSPEmu PUBLIC
                            )
 
 target_link_libraries(PSPEmu PkgConfig::PC_LIBPSPPROXY)
+target_link_libraries(PSPEmu PkgConfig::PC_OPENSSL)
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/unicorn/libunicorn.a)
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/capstone/libcapstone.a)
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/libgdbstub/libgdbstub.a)
