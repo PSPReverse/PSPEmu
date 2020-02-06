@@ -49,7 +49,7 @@ static void pspDevFuseRegRead(uint32_t offReg, size_t cbRead, void *pvVal, void 
              * and this is also read from SMN and expected to match whats read from MMIO
              * in psp_verify_equal_fuse_info_on_all_ccx_hang_on_mismatch().
              */
-            *(uint32_t *)pvVal = 0x100;
+            *(uint32_t *)pvVal = 0x1a0e0900; /* Value read from a real EPYC system. */
             break;
     }
 }
