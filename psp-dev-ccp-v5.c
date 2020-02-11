@@ -321,6 +321,8 @@ typedef struct PSPDEVCCP
      * so the code will only every process one SHA operation at a time.
      */
     EVP_MD_CTX                      *pOsslSha256Ctx;
+    /** The openssl aes256 context currently in use, same note as above applies. */
+    EVP_CIPHER_CTX                  *pOsslAes256Ctx;
 } PSPDEVCCP;
 /** Pointer to the device instance data. */
 typedef PSPDEVCCP *PPSPDEVCCP;
@@ -549,7 +551,7 @@ static int pspDevCcpXferCtxInit(PCCPXFERCTX pCtx, PPSPDEVCCP pThis, PCCCP5REQ pR
  * @param   cbRead              How much to read.
  * @param   pcbRead             Where to store the amount of data actually read, optional.
  */
-static int pspDevCcpxXferCtxRead(PCCPXFERCTX pCtx, void *pvDst, size_t cbRead, size_t *pcbRead)
+static int pspDevCcpXferCtxRead(PCCPXFERCTX pCtx, void *pvDst, size_t cbRead, size_t *pcbRead)
 {
     int rc = 0;
     size_t cbThisRead = MIN(cbRead, pCtx->cbReadLeft);
@@ -583,7 +585,7 @@ static int pspDevCcpxXferCtxRead(PCCPXFERCTX pCtx, void *pvDst, size_t cbRead, s
  * @param   cbWrite             How much to write.
  * @param   pcbWritten          Where to store the amount of data actually written, optional.
  */
-static int pspDevCcpxXferCtxWrite(PCCPXFERCTX pCtx, const void *pvSrc, size_t cbWrite, size_t *pcbWritten)
+static int pspDevCcpXferCtxWrite(PCCPXFERCTX pCtx, const void *pvSrc, size_t cbWrite, size_t *pcbWritten)
 {
     int rc = 0;
     size_t cbThisWrite = MIN(cbWrite, pCtx->cbWriteLeft);
@@ -621,6 +623,36 @@ static int pspDevCcpxXferCtxWrite(PCCPXFERCTX pCtx, const void *pvSrc, size_t cb
                     *pcbWritten = cbThisWrite;
             }
         }
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
+/**
+ * Queries the key pointer from the LSB indicated in the given request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to get the LSB from.
+ * @param   cbKey               Size of the key in bytes (used for bounds checking).
+ * @param   ppbKey              Where to store the pointer to the key on success.
+ */
+static int pspDevCcpKeyQueryPointerFromReq(PPSPDEVCCP pThis, PCCCP5REQ pReq, size_t cbKey, const uint8_t **ppbKey)
+{
+    int rc = 0;
+
+    if (CCP_V5_MEM_TYPE_GET(pReq->u16KeyMemType) == CCP_V5_MEM_TYPE_SB)
+    {
+        CCPADDR CcpAddrKey = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow);
+
+        if (   CcpAddrKey < sizeof(pThis->Lsb)
+            && CcpAddrKey + cbKey <= sizeof(pThis->Lsb))
+            *ppbKey = &pThis->Lsb.u.abLsb[CcpAddrKey];
+        else
+            rc = -1;
     }
     else
         rc = -1;
@@ -903,9 +935,9 @@ static int pspDevCcpReqPassthruProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_
             {
                 size_t cbThisProc = MIN(cbLeft, sizeof(abData));
 
-                rc = pspDevCcpxXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
+                rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
                 if (!rc)
-                    rc = pspDevCcpxXferCtxWrite(&XferCtx, &abData[0], cbThisProc, NULL);
+                    rc = pspDevCcpXferCtxWrite(&XferCtx, &abData[0], cbThisProc, NULL);
 
                 cbLeft -= cbThisProc;
             }
@@ -928,15 +960,16 @@ static int pspDevCcpReqPassthruProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_
  * @param   pThis               The CCP device instance data.
  * @param   pReq                The request to process.
  * @param   uFunc               The engine specific function.
+ * @param   fInit               Flag whether to initialize the context state.
+ * @param   fEom                Flag whether this request marks the end ofthe message.
  */
-static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc)
+static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
+                                  bool fInit, bool fEom)
 {
     int rc = 0;
     uint32_t uShaType = CCP_V5_ENGINE_SHA_TYPE_GET(uFunc);
-    bool fInit = CCP_V5_ENGINE_INIT_GET(pReq->u32Dw0);
-    bool fEom = CCP_V5_ENGINE_EOM_GET(pReq->u32Dw0);
 
-    /* Only sha256 and single-part calculation implemented so far. */
+    /* Only sha256 implemented so far. */
     if (uShaType == CCP_V5_ENGINE_SHA_TYPE_256)
     {
         const EVP_MD *pOsslEvpSha256 = EVP_sha256();
@@ -956,8 +989,7 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 pThis->pOsslSha256Ctx = EVP_MD_CTX_new();
                 if (!pThis->pOsslSha256Ctx)
                     rc = -1;
-
-                if (EVP_DigestInit_ex(pThis->pOsslSha256Ctx, pOsslEvpSha256, NULL) != 1)
+                else if (EVP_DigestInit_ex(pThis->pOsslSha256Ctx, pOsslEvpSha256, NULL) != 1)
                     rc = -1;
             }
 
@@ -967,7 +999,7 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 uint8_t abData[32];
                 size_t cbThisProc = MIN(cbLeft, sizeof(abData));
 
-                rc = pspDevCcpxXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
+                rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
                 if (!rc)
                 {
                     if (EVP_DigestUpdate(pThis->pOsslSha256Ctx, &abData[0], cbThisProc) != 1)
@@ -983,7 +1015,7 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 /* Finalize state and write to the storage buffer. */
                 uint8_t abHash[32]; /** @todo Hardcoding the digest size is meh... */
                 if (EVP_DigestFinal_ex(pThis->pOsslSha256Ctx, &abHash[0], NULL) == 1)
-                    rc = pspDevCcpxXferCtxWrite(&XferCtx, &abHash[0], sizeof(abHash), NULL);
+                    rc = pspDevCcpXferCtxWrite(&XferCtx, &abHash[0], sizeof(abHash), NULL);
                 else
                     rc = -1;
 
@@ -1004,6 +1036,135 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
 
 /**
+ * Processes a AES request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ * @param   uFunc               The engine specific function.
+ * @param   fInit               Flag whether to initialize the context state.
+ * @param   fEom                Flag whether this request marks the end ofthe message.
+ */
+static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
+                                  bool fInit, bool fEom)
+{
+    int     rc       = 0;
+    uint8_t uSz      = CCP_V5_ENGINE_AES_SZ_GET(uFunc);
+    uint8_t fEncrypt = CCP_V5_ENGINE_AES_ENCRYPT_GET(uFunc);
+    uint8_t uMode    = CCP_V5_ENGINE_AES_MODE_GET(uFunc);
+    uint8_t uAesType = CCP_V5_ENGINE_AES_TYPE_GET(uFunc);
+
+    if (   uSz == 0
+        && fEncrypt == 1
+        && uMode == CCP_V5_ENGINE_AES_MODE_ECB
+        && uAesType == CCP_V5_ENGINE_AES_TYPE_256)
+    {
+        const EVP_CIPHER *pOsslEvpAes256 = EVP_aes_256_ecb();
+        size_t cbLeft = pReq->cbSrc;
+        CCPXFERCTX XferCtx;
+
+        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, true /*fSha*/, pReq->cbSrc /**@todo Correct? */,
+                                  false /*fWriteRev*/);
+        if (!rc)
+        {
+            /*
+             * The storage buffer contains the initial sha256 state, which we will ignore
+             * because that is already part of the openssl context.
+             */
+            if (fInit)
+            {
+                const uint8_t *pbKey = NULL;
+                rc = pspDevCcpKeyQueryPointerFromReq(pThis, pReq, 256 / 8, &pbKey);
+                if (!rc)
+                {
+                    pThis->pOsslAes256Ctx = EVP_CIPHER_CTX_new();
+                    if (!pThis->pOsslAes256Ctx)
+                        rc = -1;
+                    else if (fEncrypt)
+                    {
+                        if (EVP_EncryptInit_ex(pThis->pOsslAes256Ctx, pOsslEvpAes256, NULL, pbKey, NULL) != 1)
+                            rc = -1;
+                    }
+                    else
+                    {
+                        if (EVP_DecryptInit_ex(pThis->pOsslAes256Ctx, pOsslEvpAes256, NULL, pbKey, NULL) != 1)
+                            rc = -1;
+                    }
+
+                    if (EVP_CIPHER_CTX_set_padding(pThis->pOsslAes256Ctx, 0) != 1)
+                        rc = -1;
+                }
+            }
+
+            while (   !rc
+                   && cbLeft)
+            {
+                uint8_t abDataIn[512];
+                uint8_t abDataOut[512];
+                size_t cbThisProc = MIN(cbLeft, sizeof(abDataIn));
+                int cbOut = 0;
+
+                rc = pspDevCcpXferCtxRead(&XferCtx, &abDataIn[0], cbThisProc, NULL);
+                if (!rc)
+                {
+                    if (fEncrypt)
+                    {
+                        if (EVP_EncryptUpdate(pThis->pOsslAes256Ctx, &abDataOut[0], &cbOut, &abDataIn[0], cbThisProc) != 1)
+                            rc = -1;
+                    }
+                    else
+                    {
+                        if (EVP_DecryptUpdate(pThis->pOsslAes256Ctx, &abDataOut[0], &cbOut, &abDataIn[0], cbThisProc) != 1)
+                            rc = -1;
+                    }
+                }
+
+                if (   !rc
+                    && cbOut)
+                    rc = pspDevCcpXferCtxWrite(&XferCtx, &abDataOut[0], cbOut, NULL);
+
+                cbLeft -= cbThisProc;
+            }
+
+            if (   !rc
+                && fEom)
+            {
+                /* Finalize state. */
+                uint8_t abDataOut[512];
+                int cbOut = 0;
+
+                if (fEncrypt)
+                {
+                    if (EVP_EncryptFinal_ex(pThis->pOsslAes256Ctx, &abDataOut[0], &cbOut) != 1)
+                        rc = -1;
+                }
+                else
+                {
+                    if (EVP_DecryptFinal_ex(pThis->pOsslAes256Ctx, &abDataOut[0], &cbOut) != 1)
+                        rc = -1;
+                }
+
+                if (   !rc
+                    && cbOut)
+                    rc = pspDevCcpXferCtxWrite(&XferCtx, &abDataOut[0], cbOut, NULL);
+
+                EVP_CIPHER_CTX_free(pThis->pOsslAes256Ctx);
+                pThis->pOsslAes256Ctx = NULL;
+            }
+        }
+    }
+    else
+    {
+        printf("CCP: AES ERROR uAesType=%u uMode=%u fEncrypt=%u uSz=%u not implemented yet!\n",
+               uAesType, uMode, fEncrypt, uSz);
+        rc = -1;
+    }
+
+    return rc;
+}
+
+
+/**
  * Processes the given request.
  *
  * @returns Status code.
@@ -1015,6 +1176,8 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
     int rc = 0;
     uint32_t uEngine   = CCP_V5_ENGINE_GET(pReq->u32Dw0);
     uint32_t uFunction = CCP_V5_ENGINE_FUNC_GET(pReq->u32Dw0);
+    bool     fInit     = CCP_V5_ENGINE_INIT_GET(pReq->u32Dw0);
+    bool     fEom      = CCP_V5_ENGINE_EOM_GET(pReq->u32Dw0);
 
     switch (uEngine)
     {
@@ -1025,10 +1188,14 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
         }
         case CCP_V5_ENGINE_SHA:
         {
-            rc = pspDevCcpReqShaProcess(pThis, pReq, uFunction);
+            rc = pspDevCcpReqShaProcess(pThis, pReq, uFunction, fInit, fEom);
             break;
         }
         case CCP_V5_ENGINE_AES:
+        {
+            rc = pspDevCcpReqAesProcess(pThis, pReq, uFunction, fInit, fEom);
+            break;
+        }
         case CCP_V5_ENGINE_XTS_AES128:
         case CCP_V5_ENGINE_DES3:
         case CCP_V5_ENGINE_RSA:
