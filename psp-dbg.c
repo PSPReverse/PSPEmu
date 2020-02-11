@@ -289,7 +289,7 @@ static int pspDbgGdbStubIfTgtRegsWrite(GDBSTUBCTX hGdbStubCtx, void *pvUser, uin
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
 
     int rc = 0;
-    uint32_t *pau32RegVals = (uint32_t *)pvDst;
+    uint32_t *pau32RegVals = (uint32_t *)pvSrc;
     for (uint32_t i = 0; i < cRegs && !rc; i++)
         rc = PSPEmuCoreSetReg(pThis->hCore, (PSPCOREREG)(paRegs[i] + 1), pau32RegVals[i]);
 
