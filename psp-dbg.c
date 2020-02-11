@@ -286,7 +286,14 @@ static int pspDbgGdbStubIfTgtRegsRead(GDBSTUBCTX hGdbStubCtx, void *pvUser, uint
  */
 static int pspDbgGdbStubIfTgtRegsWrite(GDBSTUBCTX hGdbStubCtx, void *pvUser, uint32_t *paRegs, uint32_t cRegs, const void *pvSrc)
 {
-    return GDBSTUB_INF_SUCCESS;
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    int rc = 0;
+    uint32_t *pau32RegVals = (uint32_t *)pvDst;
+    for (uint32_t i = 0; i < cRegs && !rc; i++)
+        rc = PSPEmuCoreSetReg(pThis->hCore, (PSPCOREREG)(paRegs[i] + 1), pau32RegVals[i]);
+
+    return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
 
 
