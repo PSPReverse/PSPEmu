@@ -306,9 +306,27 @@ static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTM
 
     if (enmTpAction != GDBSTUBTPACTION_STOP)
         return GDBSTUB_ERR_NOT_SUPPORTED;
-    if (   enmTpType != GDBSTUBTPTYPE_EXEC_SW
-        && enmTpType != GDBSTUBTPTYPE_EXEC_HW)
-        return GDBSTUB_ERR_NOT_SUPPORTED;
+
+    uint32_t fTraceFlags = 0;
+    switch (enmTpType)
+    {
+        case GDBSTUBTPTYPE_EXEC_SW:
+        case GDBSTUBTPTYPE_EXEC_HW:
+            fTraceFlags = PSPEMU_CORE_TRACE_F_EXEC;
+            break;
+        case GDBSTUBTPTYPE_MEM_READ:
+            fTraceFlags = PSPEMU_CORE_TRACE_F_READ;
+            break;
+        case GDBSTUBTPTYPE_MEM_WRITE:
+            fTraceFlags = PSPEMU_CORE_TRACE_F_WRITE;
+            break;
+        case GDBSTUBTPTYPE_MEM_ACCESS:
+            fTraceFlags = PSPEMU_CORE_TRACE_F_READ | PSPEMU_CORE_TRACE_F_WRITE;
+            break;
+        default:
+            /* Should not happen. */
+            return GDBSTUB_ERR_NOT_SUPPORTED;
+    }
 
     int rcGdbStub = GDBSTUB_INF_SUCCESS;
     PSPADDR PspAddrBp = (PSPADDR)GdbTgtTpAddr;
@@ -319,7 +337,7 @@ static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTM
         pTp->pDbg      = pThis;
         pTp->PspAddrTp = PspAddrBp;
 
-        int rc = PSPEmuCoreTraceRegister(pThis->hCore, PspAddrBp, PspAddrBp, pspDbgTpBpHit, pTp);
+        int rc = PSPEmuCoreTraceRegister(pThis->hCore, PspAddrBp, PspAddrBp, fTraceFlags, pspDbgTpBpHit, pTp);
         if (!rc)
         {
             pTp->pNext = pThis->pTpsHead;

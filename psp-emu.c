@@ -283,7 +283,7 @@ int main(int argc, char *argv[])
                         {
                             case PSPCOREMODE_SYSTEM_ON_CHIP_BL:
                             {
-                                //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceState, NULL);
+                                //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
                                 PspAddrStartExec = 0xffff0000;
                                 break;
                             }
@@ -294,7 +294,7 @@ int main(int argc, char *argv[])
                             }
                             case PSPCOREMODE_SYSTEM:
                             {
-                                //PSPEmuCoreTraceRegister(hCore, 0x100, 0x1000, pspEmuTraceState, NULL);
+                                //PSPEmuCoreTraceRegister(hCore, 0x4738, 0x4764, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
                                 PspAddrStartExec = 0x100;
                                 break;
                             }
