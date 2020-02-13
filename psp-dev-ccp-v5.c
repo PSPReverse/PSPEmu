@@ -160,6 +160,14 @@
 #define CCP_V5_ENGINE_PASSTHRU_REFLECT_GET(a_Func)  (((a_Func) >> 5) & 0x3)
 /** @} */
 
+/** @name RSA engine specific defines.
+ * @{ */
+/** Returns the RSA mode. */
+#define CCP_V5_ENGINE_RSA_MODE_GET(a_Func)          ((a_Func) & 0x7)
+/** Returns the RSA size. */
+#define CCP_V5_ENGINE_RSA_SZ_GET(a_Func)            (((a_Func) >> 3) & 0xfff)
+/** @} */
+
 /** @name Available memory types.
  * @{ */
 /** System memory (DRAM). */
@@ -198,6 +206,54 @@
 # define CCP_V5_Q_REG_STATUS_SUCCESS                0
 /** Status register error indicator. */
 # define CCP_V5_Q_REG_STATUS_ERROR                  1
+/** @} */
+
+/** @name CCP status codes contained in the status register (extracted from Linux kernel driver).
+ * @{ */
+#define CCP_V5_STATUS_SUCCESS                       0
+#define CCP_V5_STATUS_ILLEGAL_ENGINE                1
+#define CCP_V5_STATUS_ILLEGAL_KEY_ID                2
+#define CCP_V5_STATUS_ILLEGAL_FUNCTION_TYPE         3
+#define CCP_V5_STATUS_ILLEGAL_FUNCTION_MODE         4
+#define CCP_V5_STATUS_ILLEGAL_FUNCTION_ENCRYPT      5
+#define CCP_V5_STATUS_ILLEGAL_FUNCTION_SIZE         6
+#define CCP_V5_STATUS_ZLIB_MISSING_INIT_EOM         7
+#define CCP_V5_STATUS_ILLEGAL_RUNCTION_RSVD         8
+#define CCP_V5_STATUS_ILLEGAL_BUFFER_LENGTH         9
+#define CCP_V5_STATUS_VLSB_FAULT                   10
+#define CCP_V5_STATUS_ILLEGAL_MEM_ADDR             11
+#define CCP_V5_STATUS_ILLEGAL_MEM_SEL              12
+#define CCP_V5_STATUS_ILLEGAL_CONTEXT_ID           13
+#define CCP_V5_STATUS_ILLEGAL_KEY_ADDR             14
+#define CCP_V5_STATUS_RSVD                         15
+#define CCP_V5_STATUS_ZLIB_ILLEGAL_MULTI_QUEUE     16
+#define CCP_V5_STATUS_ZLIB_ILLEGAL_JOBID_CHANGE    17
+#define CCP_V5_STATUS_CMD_TIMEOUT                  18
+#define CCP_V5_STATUS_IDMA0_AXI_SLVERR             19
+#define CCP_V5_STATUS_IDMA0_AXI_DECERR             20
+#define CCP_V5_STATUS_RSVD1                        21
+#define CCP_V5_STATUS_IDMA1_AXI_SLAVE_FAULT        22
+#define CCP_V5_STATUS_IDMA1_AXI_DECERR             23
+#define CCP_V5_STATUS_RSVD2                        24
+#define CCP_V5_STATUS_ZLIBVHB_AXI_SLVERR           25
+#define CCP_V5_STATUS_ZLIBVHB_AXI_DECERR           26
+#define CCP_V5_STATUS_RSVD3                        27
+#define CCP_V5_STATUS_ZLIB_UNEXPECTED_EOM          28
+#define CCP_V5_STATUS_ZLIB_EXTRA_DATA              29
+#define CCP_V5_STATUS_ZLIB_BTYPE                   30
+#define CCP_V5_STATUS_ZLIB_UNDEFINED_SYMBOL        31
+#define CCP_V5_STATUS_ZLIB_UNDEFINED_DISTANCE_S    32
+#define CCP_V5_STATUS_ZLIB_CODE_LENGTH_SYMBOL      33
+#define CCP_V5_STATUS_ZLIB_VHB_ILLEGAL_FETCH       34
+#define CCP_V5_STATUS_ZLIB_UNCOMPRESSED_LEN        35
+#define CCP_V5_STATUS_ZLIB_LIMIT_REACHED           36
+#define CCP_V5_STATUS_ZLIB_CHECKSUM_MISMATCH       37
+#define CCP_V5_STATUS_ODMA0_AXI_SLVERR             38
+#define CCP_V5_STATUS_ODMA0_AXI_DECERR             39
+#define CCP_V5_STATUS_RSVD4                        40
+#define CCP_V5_STATUS_ODMA1_AXI_SLVERR             41
+#define CCP_V5_STATUS_ODMA1_AXI_DECERR             42
+#define CCP_V5_STATUS_LSB_PARITY_ERR               43
 /** @} */
 
 /** The CCP MMIO address. */
@@ -297,7 +353,7 @@ typedef struct CCPLSB
         {
             /** 32byte data. */
             uint8_t                 abData[32];
-        } aSlots[8];
+        } aSlots[65];
         /* Contiguous view of the complete LSB. */
         uint8_t                     abLsb[1];
     } u;
@@ -862,6 +918,24 @@ static void pspDevCcpReqDumpPassthruFunction(uint32_t uFunc, uint32_t u32Dw0Raw,
 
 
 /**
+ * Extracts and dumps information about the given RSA function.
+ *
+ * @returns nothing.
+ * @param   uFunc               The function part of dword 0.
+ * @param   u32Dw0Raw           The raw dw0 value used for dumping.
+ * @param   pszEngine           The used engine string.
+ */
+static void pspDevCcpReqDumpRsaFunction(uint32_t uFunc, uint32_t u32Dw0Raw, const char *pszEngine)
+{
+    uint16_t uSz   = CCP_V5_ENGINE_RSA_SZ_GET(uFunc);
+    uint8_t  uMode = CCP_V5_ENGINE_RSA_MODE_GET(uFunc);
+
+    printf("    u32Dw0:             0x%08x (Engine: %s, Mode: %u, Size: %u)\n",
+                                    u32Dw0Raw, pszEngine, uMode, uSz);
+}
+
+
+/**
  * Dumps the CCP5 request descriptor.
  *
  * @returns nothing.
@@ -881,6 +955,8 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
         pspDevCcpReqDumpShaFunction(uFunction, pReq->u32Dw0, pszEngine);
     else if (uEngine == CCP_V5_ENGINE_PASSTHRU)
         pspDevCcpReqDumpPassthruFunction(uFunction, pReq->u32Dw0, pszEngine);
+    else if (uEngine == CCP_V5_ENGINE_RSA)
+        pspDevCcpReqDumpRsaFunction(uFunction, pReq->u32Dw0, pszEngine);
     else
         printf("    u32Dw0:             0x%08x (Engine: %s)\n", pReq->u32Dw0, pszEngine);
 
@@ -1247,6 +1323,27 @@ static int pspDevCcpReqZlibProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uF
 
 
 /**
+ * Processes a RSA request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ * @param   uFunc               The engine specific function.
+ * @param   fInit               Flag whether to initialize the context state.
+ * @param   fEom                Flag whether this request marks the end ofthe message.
+ */
+static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
+                                  bool fInit, bool fEom)
+{
+    int      rc    = -1;
+    uint16_t uSz   = CCP_V5_ENGINE_AES_SZ_GET(uFunc);
+    uint8_t  uMode = CCP_V5_ENGINE_AES_MODE_GET(uFunc);
+
+    return rc;
+}
+
+
+/**
  * Processes the given request.
  *
  * @returns Status code.
@@ -1283,9 +1380,13 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
             rc = pspDevCcpReqZlibProcess(pThis, pReq, uFunction, fInit, fEom);
             break;
         }
+        case CCP_V5_ENGINE_RSA:
+        {
+            rc = pspDevCcpReqRsaProcess(pThis, pReq, uFunction, fInit, fEom);
+            break;
+        }
         case CCP_V5_ENGINE_XTS_AES128:
         case CCP_V5_ENGINE_DES3:
-        case CCP_V5_ENGINE_RSA:
         case CCP_V5_ENGINE_ECC:
             /** @todo */
             break;
