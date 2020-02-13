@@ -23,8 +23,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <common/cdefs.h>
+#include <psp-fw/boot-rom-svc-page.h>
 
 #include <psp-core.h>
 #include <psp-dbg.h>
@@ -46,6 +48,8 @@ static struct option g_aOptions[] =
     {"bin-load",             required_argument, 0, 'b'},
     {"bin-contains-hdr",     no_argument,       0, 'p'},
     {"dbg",                  required_argument, 0, 'd'},
+    {"load-psp-dir",         no_argument,       0, 'l'},
+    {"psp-dbg-mode",         no_argument,       0, 'g'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -78,6 +82,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszPathBootRomSvcPage = NULL;
     pCfg->fBinContainsHdr       = false;
     pCfg->uDbgPort              = 0;
+    pCfg->fLoadPspDir           = false;
 
     while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:", &g_aOptions[0], &idxOption)) != -1)
     {
@@ -92,7 +97,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --bin-contains-hdr The binaries contain the 256 byte header, omit if raw binaries\n"
                        "    --bin-load <path/to/binary/to/load>\n"
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
-                       "    --dbg <listening port>\n",
+                       "    --dbg <listening port>\n"
+                       "    --load-psp-dir\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -127,6 +133,12 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'd':
                 pCfg->uDbgPort = strtoul(optarg, NULL, 10);
+                break;
+            case 'l':
+                pCfg->fLoadPspDir = true;
+                break;
+            case 'g':
+                pCfg->fPspDbgMode = true;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -204,13 +216,26 @@ int main(int argc, char *argv[])
 
                     if (Cfg.pszPathBootRomSvcPage)
                     {
-                        void *pvBootRomSvcPage = NULL;
+                        PPSPROMSVCPG pBootRomSvcPage = NULL;
                         size_t cbBootRomSvcPage = 0;
 
-                        rc = PSPEmuFlashLoadFromFile(Cfg.pszPathBootRomSvcPage, &pvBootRomSvcPage, &cbBootRomSvcPage);
+                        rc = PSPEmuFlashLoadFromFile(Cfg.pszPathBootRomSvcPage, (void **)&pBootRomSvcPage, &cbBootRomSvcPage);
                         if (!rc)
                         {
-                            rc = PSPEmuCoreMemWrite(hCore, 0x3f000, pvBootRomSvcPage, cbBootRomSvcPage);
+                            if (Cfg.fPspDbgMode)
+                            {
+                                printf("Activating PSP firmware debug mode\n");
+                                pBootRomSvcPage->Fields.u32BootMode = 1;
+                            }
+
+                            if (Cfg.fLoadPspDir)
+                            {
+                                printf("Loading PSP 1st level directory from flash image into boot ROM service page\n");
+                                uint8_t *pbFlashRom = (uint8_t *)Cfg.pvFlashRom;
+                                memcpy(&pBootRomSvcPage->Fields.abFfsDir[0], &pbFlashRom[0x77000], sizeof(pBootRomSvcPage->Fields.abFfsDir)); /** @todo */
+                            }
+
+                            rc = PSPEmuCoreMemWrite(hCore, 0x3f000, pBootRomSvcPage, cbBootRomSvcPage);
                             if (rc)
                                 fprintf(stderr, "Initializing the boot ROM service page from the given file failed with %d\n", rc);
                         }
@@ -340,6 +365,8 @@ int main(int argc, char *argv[])
                                     fprintf(stderr, "Emulation runloop failed with %d\n", rc);
                                     PSPEmuCoreStateDump(hCore);
                                 }
+                                else
+                                    PSPEmuCoreStateDump(hCore);
                             }
                         }
                         else

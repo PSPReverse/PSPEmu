@@ -22,6 +22,8 @@
 
 #include <stdio.h>
 
+#include <common/cdefs.h>
+
 #include <psp-devs.h>
 
 
@@ -30,6 +32,8 @@
  */
 typedef struct PSPDEVFUSE
 {
+    /** Pointer to the owning device instance. */
+    PPSPDEV                 pDev;
     /** MMIO region handle. */
     PSPIOMREGIONHANDLE      hMmio;
     /** SMN region handle. */
@@ -41,6 +45,9 @@ typedef PSPDEVFUSE *PPSPDEVFUSE;
 
 static void pspDevFuseRegRead(uint32_t offReg, size_t cbRead, void *pvVal, void *pvUser)
 {
+    PPSPDEVFUSE pThis = (PPSPDEVFUSE)pvUser;
+    bool fPspDbgMode = pThis->pDev->pCfg->fPspDbgMode;
+
     switch (offReg)
     {
         case 0:
@@ -49,7 +56,7 @@ static void pspDevFuseRegRead(uint32_t offReg, size_t cbRead, void *pvVal, void 
              * and this is also read from SMN and expected to match whats read from MMIO
              * in psp_verify_equal_fuse_info_on_all_ccx_hang_on_mismatch().
              */
-            *(uint32_t *)pvVal = 0x1a0e0900; /* Value read from a real EPYC system. */
+            *(uint32_t *)pvVal = 0x1a0e0900 | (fPspDbgMode ? BIT(10) : 0); /* Value read from a real EPYC system. */
             break;
     }
 }
@@ -70,13 +77,15 @@ static int pspDevMmioFuseInit(PPSPDEV pDev)
 {
     PPSPDEVFUSE pThis = (PPSPDEVFUSE)&pDev->abInstance[0];
 
+    pThis->pDev = pDev;
+
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010104, 4,
-                                     pspDevFuseMmioRead, NULL, NULL,
+                                     pspDevFuseMmioRead, NULL, pThis,
                                      &pThis->hMmio);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03810104, 4,
-                                    pspDevFuseSmnRead, NULL, NULL,
+                                    pspDevFuseSmnRead, NULL, pThis,
                                     &pThis->hSmn);
     return rc;
 }

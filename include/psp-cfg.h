@@ -43,6 +43,10 @@ typedef struct PSPEMUCFG
     const char              *pszPathBootRomSvcPage;
     /** Flag whether overwritten binaries have the 256 byte header prepended (affects the load address). */
     bool                    fBinContainsHdr;
+    /** Flag whether to load the PSP directory from the flash image into the boot rom service page. */
+    bool                    fLoadPspDir;
+    /** Flag whether to enable the debug mode inside the PSP firmware disabling signature checks etc. */
+    bool                    fPspDbgMode;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
     /** Pointer to the read flash rom content. */
