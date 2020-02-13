@@ -6,6 +6,7 @@ set(CMAKE_THREAD_PREFER_PTHREAD On)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DIN_PSP_EMULATOR")
 find_package (Threads)
 find_package(PkgConfig)
+find_package(ZLIB REQUIRED)
 find_library(m REQUIRED)
 
 pkg_check_modules(PC_LIBPSPPROXY REQUIRED IMPORTED_TARGET libpspproxy)
@@ -36,10 +37,12 @@ target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/capstone/include"
                            "${PROJECT_SOURCE_DIR}/libgdbstub"
                            "${LIBPSPPROXY_INCLUDE_DIRS}"
+                           "${ZLIB_INCLUDE_DIRS}"
                            )
 
 target_link_libraries(PSPEmu PkgConfig::PC_LIBPSPPROXY)
 target_link_libraries(PSPEmu PkgConfig::PC_OPENSSL)
+target_link_libraries(PSPEmu ${ZLIB_LIBRARIES})
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/unicorn/libunicorn.a)
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/capstone/libcapstone.a)
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/libgdbstub/libgdbstub.a)
