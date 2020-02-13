@@ -666,9 +666,9 @@ static int pspDevCcpXferCtxWrite(PCCPXFERCTX pCtx, const void *pvSrc, size_t cbW
             while (   cbThisWrite
                    && !rc)
             {
+                pCtx->CcpAddrDst--;
                 rc = pCtx->pfnWrite(pCtx->pThis, pCtx->CcpAddrDst, pbSrc, 1);
                 cbThisWrite--;
-                pCtx->CcpAddrDst--;
                 pbSrc++;
             }
 
@@ -1060,8 +1060,13 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         size_t cbLeft = pReq->cbSrc;
         CCPXFERCTX XferCtx;
 
+         /*
+          * The final SHA in the LSB seems to be in big endian format because it is always copied out
+          * using the 256bit byteswap passthrough function. We will write it in reverse order here,
+          * to avoid any hacks in the passthrough code.
+          */
         rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, true /*fSha*/, EVP_MD_size(pOsslEvpSha256),
-                                  false /*fWriteRev*/);
+                                  true /*fWriteRev*/);
         if (!rc)
         {
             /*
