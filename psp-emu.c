@@ -99,6 +99,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
                        "    --dbg <listening port>\n"
                        "    --load-psp-dir\n",
+                       "    --psp-dbg-mode\n",
                        argv[0]);
                 exit(0);
                 break;
