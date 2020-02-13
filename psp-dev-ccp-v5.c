@@ -33,6 +33,12 @@
 #include <string.h>
 
 #include <openssl/evp.h>
+#include <zlib.h>
+
+/* Missing in zlib.h */
+# ifndef Z_DEF_WBITS
+#  define Z_DEF_WBITS        MAX_WBITS
+# endif
 
 #include <common/cdefs.h>
 
@@ -323,6 +329,8 @@ typedef struct PSPDEVCCP
     EVP_MD_CTX                      *pOsslSha256Ctx;
     /** The openssl aes256 context currently in use, same note as above applies. */
     EVP_CIPHER_CTX                  *pOsslAes256Ctx;
+    /** The zlib decompression state. */
+    z_stream                        Zlib;
 } PSPDEVCCP;
 /** Pointer to the device instance data. */
 typedef PSPDEVCCP *PPSPDEVCCP;
@@ -1165,6 +1173,80 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
 
 /**
+ * Processes a ZLIB decompression request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ * @param   uFunc               The engine specific function.
+ * @param   fInit               Flag whether to initialize the context state.
+ * @param   fEom                Flag whether this request marks the end ofthe message.
+ */
+static int pspDevCcpReqZlibProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
+                                   bool fInit, bool fEom)
+{
+    (void)uFunc; /* Ignored */
+
+    CCPXFERCTX XferCtx;
+    int rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/, UINT32_MAX,
+                                  false /*fWriteRev*/);
+    if (!rc)
+    {
+        size_t cbReadLeft = pReq->cbSrc;
+
+        if (fInit)
+        {
+            memset(&pThis->Zlib, 0, sizeof(pThis->Zlib));
+            int rcZlib = inflateInit2(&pThis->Zlib, Z_DEF_WBITS);
+            if (rcZlib < 0)
+                rc = -1;
+        }
+
+        while (   !rc
+               && cbReadLeft)
+        {
+            uint8_t abData[_4K];
+            size_t cbThisRead = MIN(cbReadLeft, sizeof(abData));
+
+            rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], cbThisRead, NULL);
+            if (!rc)
+            {
+                pThis->Zlib.avail_in = cbThisRead;
+                pThis->Zlib.next_in  = &abData[0];
+
+                while (   pThis->Zlib.avail_in
+                       && !rc)
+                {
+                    uint8_t abDecomp[_4K];
+                    pThis->Zlib.next_out  = (Bytef *)&abDecomp[0];
+                    pThis->Zlib.avail_out = sizeof(abDecomp);
+
+                    int rcZlib = inflate(&pThis->Zlib, Z_NO_FLUSH);
+                    if (pThis->Zlib.avail_out < sizeof(abDecomp))
+                        rc = pspDevCcpXferCtxWrite(&XferCtx, &abDecomp[0], sizeof(abDecomp) - pThis->Zlib.avail_out, NULL);
+                    if (   !rc
+                        && rcZlib == Z_STREAM_END)
+                        break;
+                }
+            }
+
+            cbReadLeft -= cbThisRead;
+        }
+
+        if (fEom)
+        {
+            int rcZlib = inflateEnd(&pThis->Zlib);
+            if (   rcZlib < 0
+                && !rc)
+                rc = -1;
+        }
+    }
+
+    return rc;
+}
+
+
+/**
  * Processes the given request.
  *
  * @returns Status code.
@@ -1196,10 +1278,14 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
             rc = pspDevCcpReqAesProcess(pThis, pReq, uFunction, fInit, fEom);
             break;
         }
+        case CCP_V5_ENGINE_ZLIB_DECOMP:
+        {
+            rc = pspDevCcpReqZlibProcess(pThis, pReq, uFunction, fInit, fEom);
+            break;
+        }
         case CCP_V5_ENGINE_XTS_AES128:
         case CCP_V5_ENGINE_DES3:
         case CCP_V5_ENGINE_RSA:
-        case CCP_V5_ENGINE_ZLIB_DECOMP:
         case CCP_V5_ENGINE_ECC:
             /** @todo */
             break;
