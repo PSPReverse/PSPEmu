@@ -440,6 +440,12 @@ int PSPEmuCoreSetReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t uVal)
 
     uint64_t uTmp = uVal;
     uc_err rcUc = uc_reg_write(pThis->pUcEngine, pspEmuCoreReg2Uc(enmReg), &uTmp);
+    if (   rcUc == UC_ERR_OK
+        && enmReg == PSPCOREREG_PC)
+    {
+        /* Set the next address to execute to the written value. */
+        pThis->PspAddrExecNext = (PSPADDR)uVal;
+    }
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
