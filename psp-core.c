@@ -186,6 +186,37 @@ static const int g_aUcRegs[] =
 
 
 /**
+ * Human readable error strings for unicorn status codes.
+ */
+static const char *g_apszUcErr[] =
+{
+    "UC_ERR_OK",
+    "UC_ERR_NOMEM",
+    "UC_ERR_ARCH",
+    "UC_ERR_HANDLE",
+    "UC_ERR_MODE",
+    "UC_ERR_VERSION",
+    "UC_ERR_READ_UNMAPPED",
+    "UC_ERR_WRITE_UNMAPPED",
+    "UC_ERR_FETCH_UNMAPPED",
+    "UC_ERR_HOOK",
+    "UC_ERR_INSN_INVALID",
+    "UC_ERR_MAP",
+    "UC_ERR_WRITE_PROT",
+    "UC_ERR_READ_PROT",
+    "UC_ERR_FETCH_PROT",
+    "UC_ERR_ARG",
+    "UC_ERR_READ_UNALIGNED",
+    "UC_ERR_WRITE_UNALIGNED",
+    "UC_ERR_FETCH_UNALIGNED",
+    "UC_ERR_HOOK_EXIST",
+    "UC_ERR_RESOURCE",
+    "UC_ERR_EXCEPTION",
+    "UC_ERR_TIMEOUT"
+};
+
+
+/**
  * Converts the PSP core register enum to the unicorn equivalent.
  *
  * @returns Unicorn register number.
@@ -208,7 +239,7 @@ static int pspEmuCoreErrConvertFromUcErr(uc_err rcUc)
     if (rcUc == UC_ERR_OK)
         return 0;
 
-    printf("rcUc=%u\n", rcUc);
+    printf("rcUc=%u (%s)\n", rcUc, rcUc < ELEMENTS(g_apszUcErr) ? g_apszUcErr[rcUc] : "<UNKNOWN>");
     return -1; /** @todo */
 }
 
