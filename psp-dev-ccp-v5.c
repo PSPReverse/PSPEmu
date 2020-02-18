@@ -34,7 +34,7 @@
 
 #include <openssl/evp.h>
 
-/* OpenSSL version 1.0.x support */
+/* OpenSSL version 1.0.x support (see https://www.openssl.org/docs/man1.1.0/man3/EVP_MD_CTX_new.html#HISTORY) */
 # if OPENSSL_VERSION_NUMBER < 0x10100000 // = OpenSSL 1.1.0
 #  define EVP_MD_CTX_new EVP_MD_CTX_create
 #  define EVP_MD_CTX_free EVP_MD_CTX_destroy
