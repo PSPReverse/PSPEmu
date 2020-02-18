@@ -1,5 +1,5 @@
 /** @file
- * PSP Emulator - Known MMIO devices
+ * PSP Emulator - Device interface.
  */
 
 /*
@@ -19,24 +19,43 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
-#ifndef __psp_devs_h
-#define __psp_devs_h
+#include <stdlib.h>
 
 #include <common/types.h>
+#include <common/cdefs.h>
 
 #include <psp-dev.h>
 
-extern const PSPDEVREG g_DevRegCcpV5;
-extern const PSPDEVREG g_DevRegTimer;
-extern const PSPDEVREG g_DevRegFuse;
-extern const PSPDEVREG g_DevRegFlash;
-extern const PSPDEVREG g_DevRegSmu;
-extern const PSPDEVREG g_DevRegMmioUnk;
-extern const PSPDEVREG g_DevRegTest;
 
-extern const PSPDEVREG g_DevRegSmnUnk;
+int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PCPSPEMUCFG pCfg, PPSPDEV *ppDev)
+{
+    int rc = 0;
+    PPSPDEV pDev = (PPSPDEV)calloc(1, sizeof(*pDev) + pDevReg->cbInstance);
+    if (pDev)
+    {
+        pDev->pReg      = pDevReg;
+        pDev->hIoMgr    = hIoMgr;
+        pDev->pCfg      = pCfg;
 
-extern const PSPDEVREG g_DevRegX86Unk;
+        /* Initialize the device instance and add to the list of known devices. */
+        rc = pDev->pReg->pfnInit(pDev);
+        if (!rc)
+        {
+            *ppDev = pDev;
+            return 0;
+        }
 
-#endif /* __psp_devs_h */
+        free(pDev);
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+int PSPEmuDevDestroy(PPSPDEV pDev)
+{
+    pDev->pReg->pfnDestruct(pDev);
+    free(pDev);
+}
 

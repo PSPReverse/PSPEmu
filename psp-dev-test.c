@@ -68,27 +68,15 @@ The interface is very simple, at 0x04000000 there are three memmory mapped regis
  */
 typedef struct PSPDEVTEST
 {
+    /*+ MMIO region handle. */
+    PSPIOMREGIONHANDLE  hMmio;
 } PSPDEVTEST;
 
 /** Pointer to the device instance data. */
 typedef PSPDEVTEST  *PPSPDEVTEST;
 
-static int pspDevTestInit(PPSPMMIODEV pDev)
+static void pspDevTestMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
-    setvbuf(stdin, NULL, _IONBF ,0);
-    setvbuf(stdout, NULL, _IONBF ,0);
-    return 0;
-}
-
-static void pspDevTestDestruct(PPSPMMIODEV pDev)
-{
-    /* Nothing to do so far. */
-}
-
-static void pspDevTestMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead, void *pvVal)
-{
-    PPSPDEVTEST pThis = (PPSPDEVTEST)&pDev->abInstance[0];
-
     if (cbRead != sizeof(uint32_t))
     {
         printf("%s: offMmio=%#x cbRead=%zu -> Unsupported access width\n", __FUNCTION__, offMmio, cbRead);
@@ -129,10 +117,8 @@ static void pspDevTestMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead,
     }
 }
 
-static void pspDevTestMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrite, const void *pvVal)
+static void pspDevTestMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
-    PPSPDEVTEST pThis = (PPSPDEVTEST)&pDev->abInstance[0];
-
     if (cbWrite != sizeof(uint32_t))
     {
         printf("%s: offMmio=%#x cbWrite=%zu -> Unsupported access width\n", __FUNCTION__, offMmio, cbWrite);
@@ -163,10 +149,30 @@ static void pspDevTestMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrit
     }
 }
 
+static int pspDevTestInit(PPSPDEV pDev)
+{
+    PPSPDEVTEST pThis = (PPSPDEVTEST)&pDev->abInstance[0];
+
+    // disable buffering for sdtio
+    setvbuf(stdin, NULL, _IONBF ,0);
+    setvbuf(stdout, NULL, _IONBF ,0);
+
+    /* Register MMIO ranges. */
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x04000000, 16,
+                                     pspDevTestMmioRead, pspDevTestMmioWrite, pThis,
+                                     &pThis->hMmio);
+    return rc;
+}
+
+static void pspDevTestDestruct(PPSPDEV pDev)
+{
+    /* Nothing to do so far. */
+}
+
 /**
  * Device registration structure.
  */
-const PSPMMIODEVREG g_MmioDevRegTest =
+const PSPDEVREG g_DevRegTest =
 {
     /** pszName */
     "test",
@@ -174,15 +180,9 @@ const PSPMMIODEVREG g_MmioDevRegTest =
     "Test device starting at 0x04000000",
     /** cbInstance */
     sizeof(PSPDEVTEST),
-    /** cbMmio */
-    16,
     /** pfnInit */
     pspDevTestInit,
     /** pfnDestruct */
     pspDevTestDestruct,
-    /** pfnMmioRead */
-    pspDevTestMmioRead,
-    /** pfnMmioWrite */
-    pspDevTestMmioWrite
 };
 

@@ -1,5 +1,5 @@
 /** @file
- * PSP Emulator - Unknown device residing at 0x03200000.
+ * PSP Emulator - Unknown devices mapped directly into MMIO space.
  */
 
 /*
@@ -30,68 +30,67 @@
  */
 typedef struct PSPDEVUNK
 {
-    uint8_t uDummy;
+    /** 0x03006038 register handle. */
+    PSPIOMREGIONHANDLE          hMmio0x03006038;
+    /** 0x03200044 register handle. */
+    PSPIOMREGIONHANDLE          hMmio0x03200044;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
 
-static int pspDevUnkInit(PPSPMMIODEV pDev)
-{
-    /* Nothing to do. */
-    return 0;
-}
 
-static void pspDevUnkDestruct(PPSPMMIODEV pDev)
-{
-    /* Nothing to do so far. */
-}
-
-static void pspDevUnkMmioRead(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbRead, void *pvVal)
+static void pspDevUnkMmioRead0x03006038(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
     printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
 
     switch (offMmio)
     {
-        case 0x104:
-            /* The on chip bootloader waits in on_chip_bl_main() until bit 8 is set. */
-            *(uint32_t *)pvVal = 0x100;
+        case 0x0:
+            /* The on chip bootloader waits for bit 0 to go 1. */
+            *(uint32_t *)pvVal = 0x1;
             break;
     }
 }
 
-static void pspDevUnkMmioWrite(PPSPMMIODEV pDev, PSPADDR offMmio, size_t cbWrite, const void *pvVal)
+static int pspDevMmioUnkInit(PPSPDEV pDev)
 {
-    printf("%s: offMmio=%#x cbWrite=%zu\n", __FUNCTION__, offMmio, cbWrite);
+    PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
 
-    switch (cbWrite)
-    {
-        case 4:
-            printf("    u32Val=%#x\n", *(uint32_t *)pvVal);
-            break;
-    }
+    /* Register MMIO ranges. */
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03006038, 4,
+                                     pspDevUnkMmioRead0x03006038, NULL, pThis,
+                                     &pThis->hMmio0x03006038);
+
+#if 0
+    if (!rc)
+        rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03200044, 4,
+                                     pspDevUnkMmioRead0x03006038, NULL, pThis,
+                                     &pThis->hMmio0x03200044);
+#endif
+    return rc;
+}
+
+
+static void pspDevMmioUnkDestruct(PPSPDEV pDev)
+{
+    /* Nothing to do so far. */
 }
 
 
 /**
  * Device registration structure.
  */
-const PSPMMIODEVREG g_MmioDevRegUnk0x03010000 =
+const PSPDEVREG g_DevRegMmioUnk =
 {
     /** pszName */
-    "unk-0x030100000",
+    "mmio-unknown",
     /** pszDesc */
-    "Unknown device starting at 0x030100000",
+    "Unknown MMIO registers device",
     /** cbInstance */
     sizeof(PSPDEVUNK),
-    /** cbMmio */
-    4096,
     /** pfnInit */
-    pspDevUnkInit,
+    pspDevMmioUnkInit,
     /** pfnDestruct */
-    pspDevUnkDestruct,
-    /** pfnMmioRead */
-    pspDevUnkMmioRead,
-    /** pfnMmioWrite */
-    pspDevUnkMmioWrite
+    pspDevMmioUnkDestruct
 };
 

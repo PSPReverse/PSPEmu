@@ -92,6 +92,14 @@ typedef enum PSPCOREREG
 } PSPCOREREG;
 
 
+/** Callback is triggered when an instruction is executed from the specified range. */
+#define PSPEMU_CORE_TRACE_F_EXEC                BIT(0)
+/** Callback is triggered when data is read from the specified range. */
+#define PSPEMU_CORE_TRACE_F_READ                BIT(1)
+/** Callback is triggered when data is written the specified range. */
+#define PSPEMU_CORE_TRACE_F_WRITE               BIT(2)
+
+
 /**
  * Creates a new emulated PSP core.
  *
@@ -224,10 +232,12 @@ int PSPEmuCoreExecStop(PSPCORE hCore);
  * @param   hCore                   The PSP core handle.
  * @param   uPspAddrStart           Start address of the region to trace.
  * @param   uPspAddrEnd             End address of the region to trace (inclusive).
+ * @param   fFlags                  Flags controlling the trigger conditions, see PSPEMU_CORE_TRACE_F_XXX.
  * @param   pfnTrace                The trace callback to execute.
  * @param   pvUser                  Opaque user data passed to the trace callback.
  */
-int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd, PFNPSPCORETRACE pfnTrace, void *pvUser);
+int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd,
+                            uint32_t fFlags, PFNPSPCORETRACE pfnTrace, void *pvUser);
 
 /**
  * Deregisters a previously registered trace hook.

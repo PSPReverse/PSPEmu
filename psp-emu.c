@@ -23,40 +23,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 #include <common/cdefs.h>
+#include <psp-fw/boot-rom-svc-page.h>
 
 #include <psp-core.h>
 #include <psp-dbg.h>
 #include <psp-flash.h>
-#include <psp-smn-dev.h>
+#include <psp-iom.h>
 #include <psp-devs.h>
-
-
-/**
- * PSP emulator config.
- */
-typedef struct PSPEMUCFG
-{
-    /** Emulation mode. */
-    PSPCOREMODE             enmMode;
-    /** The flash ROM path. */
-    const char              *pszPathFlashRom;
-    /** Path to the on chip bootloader if in appropriate mode. */
-    const char              *pszPathOnChipBl;
-    /** Binary to load, if NULL we get one from the flash image depending on the mode. */
-    const char              *pszPathBinLoad;
-    /** Path to the boot rom service page to inject (for system and app emulation mode). */
-    const char              *pszPathBootRomSvcPage;
-    /** Flag whether overwritten binaries have the 256 byte header prepended (affects the load address). */
-    bool                    fBinContainsHdr;
-    /** Debugger port to listen on, 0 means debugger is disabled. */
-    uint16_t                uDbgPort;
-} PSPEMUCFG;
-/** Pointer to a PSPEmu config. */
-typedef PSPEMUCFG *PPSPEMUCFG;
-/** Pointer to a const PSPEmu config. */
-typedef const PSPEMUCFG *PCPSPEMUCFG;
+#include <psp-cfg.h>
 
 
 /**
@@ -71,6 +48,8 @@ static struct option g_aOptions[] =
     {"bin-load",             required_argument, 0, 'b'},
     {"bin-contains-hdr",     no_argument,       0, 'p'},
     {"dbg",                  required_argument, 0, 'd'},
+    {"load-psp-dir",         no_argument,       0, 'l'},
+    {"psp-dbg-mode",         no_argument,       0, 'g'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -103,6 +82,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszPathBootRomSvcPage = NULL;
     pCfg->fBinContainsHdr       = false;
     pCfg->uDbgPort              = 0;
+    pCfg->fLoadPspDir           = false;
 
     while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:", &g_aOptions[0], &idxOption)) != -1)
     {
@@ -117,7 +97,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --bin-contains-hdr The binaries contain the 256 byte header, omit if raw binaries\n"
                        "    --bin-load <path/to/binary/to/load>\n"
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
-                       "    --dbg <listening port>\n",
+                       "    --dbg <listening port>\n"
+                       "    --load-psp-dir\n",
+                       "    --psp-dbg-mode\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -152,6 +134,12 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'd':
                 pCfg->uDbgPort = strtoul(optarg, NULL, 10);
+                break;
+            case 'l':
+                pCfg->fLoadPspDir = true;
+                break;
+            case 'g':
+                pCfg->fPspDbgMode = true;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -199,167 +187,193 @@ int main(int argc, char *argv[])
         if (!rc)
         {
             PSPCORE hCore;
+
+            Cfg.pvFlashRom = pv;
+            Cfg.cbFlashRom = cb;
+
             rc = PSPEmuCoreCreate(&hCore, Cfg.enmMode);
             if (!rc)
             {
-                PSPMMIOM hMmioMgr;
+                PSPIOM hIoMgr;
 
-                rc = PSPEmuMmioMgrCreate(&hMmioMgr, hCore);
+                rc = PSPEmuIoMgrCreate(&hIoMgr, hCore);
                 if (!rc)
                 {
-                    PSPSMNM hSmnMgr;
-                    rc = PSPEmuSmnMgrCreate(&hSmnMgr, hMmioMgr);
-                    if (!rc)
+                    if (Cfg.pszPathOnChipBl)
                     {
-                        if (Cfg.pszPathOnChipBl)
-                        {
-                            void *pvOnChipBl = NULL;
-                            size_t cbOnChipBl = 0;
+                        void *pvOnChipBl = NULL;
+                        size_t cbOnChipBl = 0;
 
-                            rc = PSPEmuFlashLoadFromFile(Cfg.pszPathOnChipBl, &pvOnChipBl, &cbOnChipBl);
-                            if (!rc)
-                            {
-                                rc = PSPEmuCoreSetOnChipBl(hCore, pvOnChipBl, cbOnChipBl);
-                                if (rc)
-                                    fprintf(stderr, "Setting the on chip bootloader ROM for the PSP core failed with %d\n", rc);
-                            }
-                            else
-                                fprintf(stderr, "Loading the on chip bootloader ROM failed with %d\n", rc);
-                        }
-
-                        if (Cfg.pszPathBootRomSvcPage)
-                        {
-                            void *pvBootRomSvcPage = NULL;
-                            size_t cbBootRomSvcPage = 0;
-
-                            rc = PSPEmuFlashLoadFromFile(Cfg.pszPathBootRomSvcPage, &pvBootRomSvcPage, &cbBootRomSvcPage);
-                            if (!rc)
-                            {
-                                rc = PSPEmuCoreMemWrite(hCore, 0x3f000, pvBootRomSvcPage, cbBootRomSvcPage);
-                                if (rc)
-                                    fprintf(stderr, "Initializing the boot ROM service page from the given file failed with %d\n", rc);
-                            }
-                            else
-                                fprintf(stderr, "Loading the boot ROM service page from the given file failed with %d\n", rc);
-                        }
-                        /** @todo else: Set one up based on the system information given in the arguments. */
-
-                        if (Cfg.pszPathBinLoad)
-                        {
-                            void *pvBin = NULL;
-                            size_t cbBin = 0;
-
-                            rc = PSPEmuFlashLoadFromFile(Cfg.pszPathBinLoad, &pvBin, &cbBin);
-                            if (!rc)
-                            {
-                                PSPADDR PspAddrWrite = 0;
-
-                                switch (Cfg.enmMode)
-                                {
-                                    case PSPCOREMODE_SYSTEM:
-                                        PspAddrWrite = 0x0;
-                                        break;
-                                    case PSPCOREMODE_APP:
-                                        PspAddrWrite = 0x15000;
-                                        break;
-                                    default:
-                                        fprintf(stderr, "Invalid emulation mode selected for the loaded binary\n");
-                                        return -1;
-                                }
-
-                                if (!Cfg.fBinContainsHdr)
-                                    PspAddrWrite += 256; /* Skip the header part. */
-
-                                rc = PSPEmuCoreMemWrite(hCore, PspAddrWrite, pvBin, cbBin);
-                                if (rc)
-                                    fprintf(stderr, "Writing the binary to PSP memory failed with %d\n", rc);
-
-                                PSPEmuFlashFree(pvBin, cbBin);
-                            }
-                            else
-                                fprintf(stderr, "Loading the binary failed with %d\n", rc);
-                        }
-
+                        rc = PSPEmuFlashLoadFromFile(Cfg.pszPathOnChipBl, &pvOnChipBl, &cbOnChipBl);
                         if (!rc)
                         {
-                            /** @todo Proper initialization,instantiation of attached devices. */
-                            PPSPMMIODEV pDev = NULL;
-                            PPSPSMNDEV pSmnDev = NULL;
+                            rc = PSPEmuCoreSetOnChipBl(hCore, pvOnChipBl, cbOnChipBl);
+                            if (rc)
+                                fprintf(stderr, "Setting the on chip bootloader ROM for the PSP core failed with %d\n", rc);
+                        }
+                        else
+                            fprintf(stderr, "Loading the on chip bootloader ROM failed with %d\n", rc);
+                    }
 
-                            PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegCcpV5, 0x03000000, &pDev);
-                            PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegTimer, 0x03010424, &pDev);
-                            PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegTest, 0x04000000, &pDev);
-                            PSPEmuMmioDevCreate(hMmioMgr, &g_MmioDevRegUnk0x03010000, 0x03010000, &pDev);
-                            PSPEmuSmnDevCreate(hSmnMgr, &g_SmnDevRegUnk0x0005e000, 0x0005e000, &pSmnDev);
-                            PSPEmuSmnDevCreate(hSmnMgr, &g_SmnDevRegUnk0x0005d0cc, 0x0005d0cc, &pSmnDev);
+                    if (Cfg.pszPathBootRomSvcPage)
+                    {
+                        PPSPROMSVCPG pBootRomSvcPage = NULL;
+                        size_t cbBootRomSvcPage = 0;
 
-                            PSPADDR PspAddrStartExec = 0x0;
-                            switch (Cfg.enmMode)
+                        rc = PSPEmuFlashLoadFromFile(Cfg.pszPathBootRomSvcPage, (void **)&pBootRomSvcPage, &cbBootRomSvcPage);
+                        if (!rc)
+                        {
+                            if (Cfg.fPspDbgMode)
                             {
-                                case PSPCOREMODE_SYSTEM_ON_CHIP_BL:
-                                {
-                                    //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, pspEmuTraceState, NULL);
-                                    PspAddrStartExec = 0xffff0000;
-                                    break;
-                                }
-                                case PSPCOREMODE_APP:
-                                {
-                                    PspAddrStartExec = 0x15100;
-                                    break;
-                                }
-                                case PSPCOREMODE_SYSTEM:
-                                {
-                                    //PSPEmuCoreTraceRegister(hCore, 0x100, 0x1000, pspEmuTraceState, NULL);
-                                    PspAddrStartExec = 0x100;
-                                    break;
-                                }
-                                default:
-                                    fprintf(stderr, "Invalid emulation mode selected %d\n", Cfg.enmMode);
-                                    rc = -1;
+                                printf("Activating PSP firmware debug mode\n");
+                                pBootRomSvcPage->Fields.u32BootMode = 1;
                             }
 
-                            rc = PSPEmuCoreExecSetStartAddr(hCore, PspAddrStartExec);
-                            if (!rc)
+                            if (Cfg.fLoadPspDir)
                             {
-                                if (Cfg.uDbgPort)
+                                printf("Loading PSP 1st level directory from flash image into boot ROM service page\n");
+                                uint8_t *pbFlashRom = (uint8_t *)Cfg.pvFlashRom;
+                                memcpy(&pBootRomSvcPage->Fields.abFfsDir[0], &pbFlashRom[0x77000], sizeof(pBootRomSvcPage->Fields.abFfsDir)); /** @todo */
+                            }
+
+                            rc = PSPEmuCoreMemWrite(hCore, 0x3f000, pBootRomSvcPage, cbBootRomSvcPage);
+                            if (rc)
+                                fprintf(stderr, "Initializing the boot ROM service page from the given file failed with %d\n", rc);
+                        }
+                        else
+                            fprintf(stderr, "Loading the boot ROM service page from the given file failed with %d\n", rc);
+                    }
+                    /** @todo else: Set one up based on the system information given in the arguments. */
+
+                    if (Cfg.pszPathBinLoad)
+                    {
+                        void *pvBin = NULL;
+                        size_t cbBin = 0;
+
+                        rc = PSPEmuFlashLoadFromFile(Cfg.pszPathBinLoad, &pvBin, &cbBin);
+                        if (!rc)
+                        {
+                            PSPADDR PspAddrWrite = 0;
+
+                            switch (Cfg.enmMode)
+                            {
+                                case PSPCOREMODE_SYSTEM:
+                                    PspAddrWrite = 0x0;
+                                    break;
+                                case PSPCOREMODE_APP:
+                                    PspAddrWrite = 0x15000;
+                                    break;
+                                default:
+                                    fprintf(stderr, "Invalid emulation mode selected for the loaded binary\n");
+                                    return -1;
+                            }
+
+                            if (!Cfg.fBinContainsHdr)
+                                PspAddrWrite += 256; /* Skip the header part. */
+
+                            rc = PSPEmuCoreMemWrite(hCore, PspAddrWrite, pvBin, cbBin);
+                            if (rc)
+                                fprintf(stderr, "Writing the binary to PSP memory failed with %d\n", rc);
+
+                            PSPEmuFlashFree(pvBin, cbBin);
+                        }
+                        else
+                            fprintf(stderr, "Loading the binary failed with %d\n", rc);
+                    }
+
+                    if (!rc)
+                    {
+                        /** @todo Proper initialization,instantiation of attached devices. */
+                        PPSPDEV pDev = NULL;
+
+                        rc = PSPEmuDevCreate(hIoMgr, &g_DevRegCcpV5, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegTimer, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegMmioUnk, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegSmnUnk, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegX86Unk, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegFuse, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegFlash, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegSmu, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegTest, &Cfg, &pDev);
+                        if (rc)
+                            printf("Error creating one of the devices: %d\n", rc);
+
+                        PSPADDR PspAddrStartExec = 0x0;
+                        switch (Cfg.enmMode)
+                        {
+                            case PSPCOREMODE_SYSTEM_ON_CHIP_BL:
+                            {
+                                //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
+                                PspAddrStartExec = 0xffff0000;
+                                break;
+                            }
+                            case PSPCOREMODE_APP:
+                            {
+                                PspAddrStartExec = 0x15100;
+                                break;
+                            }
+                            case PSPCOREMODE_SYSTEM:
+                            {
+                                //PSPEmuCoreTraceRegister(hCore, 0x4738, 0x4764, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
+                                PspAddrStartExec = 0x100;
+                                break;
+                            }
+                            default:
+                                fprintf(stderr, "Invalid emulation mode selected %d\n", Cfg.enmMode);
+                                rc = -1;
+                        }
+
+                        rc = PSPEmuCoreExecSetStartAddr(hCore, PspAddrStartExec);
+                        if (!rc)
+                        {
+                            if (Cfg.uDbgPort)
+                            {
+                                /*
+                                 * Execute one instruction to initialize the unicorn CPU state properly
+                                 * so the debugger has valid values to work with.
+                                 */
+                                rc = PSPEmuCoreExecRun(hCore, 1, 0);
+                                if (!rc)
                                 {
-                                    /*
-                                     * Execute one instruction to initialize the unicorn CPU state properly
-                                     * so the debugger has valid values to work with.
-                                     */
-                                    rc = PSPEmuCoreExecRun(hCore, 1, 0);
+                                    PSPDBG hDbg = NULL;
+
+                                    rc = PSPEmuDbgCreate(&hDbg, hCore, Cfg.uDbgPort);
                                     if (!rc)
                                     {
-                                        PSPDBG hDbg = NULL;
-
-                                        rc = PSPEmuDbgCreate(&hDbg, hCore, Cfg.uDbgPort);
-                                        if (!rc)
+                                        printf("Debugger is listening on port %u...\n", Cfg.uDbgPort);
+                                        rc = PSPEmuDbgRunloop(hDbg);
+                                        if (rc)
                                         {
-                                            printf("Debugger is listening on port %u...\n", Cfg.uDbgPort);
-                                            rc = PSPEmuDbgRunloop(hDbg);
-                                            if (rc)
-                                            {
-                                                printf("Debugger runloop failed with %d\n", rc);
-                                                PSPEmuCoreStateDump(hCore);
-                                            }
+                                            printf("Debugger runloop failed with %d\n", rc);
+                                            PSPEmuCoreStateDump(hCore);
                                         }
-                                        else
-                                            fprintf(stderr, "Failed to create debugger instance with %d\n", rc);
                                     }
-                                }
-                                else
-                                {
-                                    rc = PSPEmuCoreExecRun(hCore, 0, 0);
-                                    if (rc)
-                                    {
-                                        fprintf(stderr, "Emulation runloop failed with %d\n", rc);
-                                        PSPEmuCoreStateDump(hCore);
-                                    }
+                                    else
+                                        fprintf(stderr, "Failed to create debugger instance with %d\n", rc);
                                 }
                             }
                             else
-                                fprintf(stderr, "Setting the execution start address failed with %d\n", rc);
+                            {
+                                rc = PSPEmuCoreExecRun(hCore, 0, 0);
+                                if (rc)
+                                {
+                                    fprintf(stderr, "Emulation runloop failed with %d\n", rc);
+                                    PSPEmuCoreStateDump(hCore);
+                                }
+                                else
+                                    PSPEmuCoreStateDump(hCore);
+                            }
                         }
+                        else
+                            fprintf(stderr, "Setting the execution start address failed with %d\n", rc);
                     }
                 }
             }

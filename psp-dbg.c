@@ -90,26 +90,26 @@ typedef struct PSPDBGINT
 /**
  * GDB stub ARM register names.
  */
-static const char *g_apszPspDbgGdbStubRegs[] =
+static const GDBSTUBREG g_apszPspDbgGdbStubRegs[] =
 {
-    "r0",
-    "r1",
-    "r2",
-    "r3",
-    "r4",
-    "r5",
-    "r6",
-    "r7",
-    "r8",
-    "r9",
-    "r10",
-    "r11",
-    "r12",
-    "sp",
-    "lr",
-    "pc",
-/*    "cpsr",*/
-    NULL
+    { "r0",   32, GDBSTUBREGTYPE_GP        },
+    { "r1",   32, GDBSTUBREGTYPE_GP        },
+    { "r2",   32, GDBSTUBREGTYPE_GP        },
+    { "r3",   32, GDBSTUBREGTYPE_GP        },
+    { "r4",   32, GDBSTUBREGTYPE_GP        },
+    { "r5",   32, GDBSTUBREGTYPE_GP        },
+    { "r6",   32, GDBSTUBREGTYPE_GP        },
+    { "r7",   32, GDBSTUBREGTYPE_GP        },
+    { "r8",   32, GDBSTUBREGTYPE_GP        },
+    { "r9",   32, GDBSTUBREGTYPE_GP        },
+    { "r10",  32, GDBSTUBREGTYPE_GP        },
+    { "r11",  32, GDBSTUBREGTYPE_GP        },
+    { "r12",  32, GDBSTUBREGTYPE_GP        },
+    { "sp",   32, GDBSTUBREGTYPE_STACK_PTR },
+    { "lr",   32, GDBSTUBREGTYPE_CODE_PTR  },
+    { "pc",   32, GDBSTUBREGTYPE_PC        },
+    { "cpsr", 32, GDBSTUBREGTYPE_STATUS    },
+    { NULL,    0, GDBSTUBREGTYPE_INVALID   }
 };
 
 
@@ -275,12 +275,7 @@ static int pspDbgGdbStubIfTgtRegsRead(GDBSTUBCTX hGdbStubCtx, void *pvUser, uint
     int rc = 0;
     uint32_t *pau32RegVals = (uint32_t *)pvDst;
     for (uint32_t i = 0; i < cRegs && !rc; i++)
-    {
-        if (paRegs[i] == 0x19) /** XXX CPSR */
-            rc = PSPEmuCoreQueryReg(pThis->hCore, PSPCOREREG_CPSR, &pau32RegVals[i]);
-        else
-            rc = PSPEmuCoreQueryReg(pThis->hCore, (PSPCOREREG)(paRegs[i] + 1), &pau32RegVals[i]);
-    }
+        rc = PSPEmuCoreQueryReg(pThis->hCore, (PSPCOREREG)(paRegs[i] + 1), &pau32RegVals[i]);
 
     return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
@@ -291,7 +286,14 @@ static int pspDbgGdbStubIfTgtRegsRead(GDBSTUBCTX hGdbStubCtx, void *pvUser, uint
  */
 static int pspDbgGdbStubIfTgtRegsWrite(GDBSTUBCTX hGdbStubCtx, void *pvUser, uint32_t *paRegs, uint32_t cRegs, const void *pvSrc)
 {
-    return GDBSTUB_INF_SUCCESS;
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    int rc = 0;
+    uint32_t *pau32RegVals = (uint32_t *)pvSrc;
+    for (uint32_t i = 0; i < cRegs && !rc; i++)
+        rc = PSPEmuCoreSetReg(pThis->hCore, (PSPCOREREG)(paRegs[i] + 1), pau32RegVals[i]);
+
+    return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
 
 
@@ -304,9 +306,27 @@ static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTM
 
     if (enmTpAction != GDBSTUBTPACTION_STOP)
         return GDBSTUB_ERR_NOT_SUPPORTED;
-    if (   enmTpType != GDBSTUBTPTYPE_EXEC_SW
-        && enmTpType != GDBSTUBTPTYPE_EXEC_HW)
-        return GDBSTUB_ERR_NOT_SUPPORTED;
+
+    uint32_t fTraceFlags = 0;
+    switch (enmTpType)
+    {
+        case GDBSTUBTPTYPE_EXEC_SW:
+        case GDBSTUBTPTYPE_EXEC_HW:
+            fTraceFlags = PSPEMU_CORE_TRACE_F_EXEC;
+            break;
+        case GDBSTUBTPTYPE_MEM_READ:
+            fTraceFlags = PSPEMU_CORE_TRACE_F_READ;
+            break;
+        case GDBSTUBTPTYPE_MEM_WRITE:
+            fTraceFlags = PSPEMU_CORE_TRACE_F_WRITE;
+            break;
+        case GDBSTUBTPTYPE_MEM_ACCESS:
+            fTraceFlags = PSPEMU_CORE_TRACE_F_READ | PSPEMU_CORE_TRACE_F_WRITE;
+            break;
+        default:
+            /* Should not happen. */
+            return GDBSTUB_ERR_NOT_SUPPORTED;
+    }
 
     int rcGdbStub = GDBSTUB_INF_SUCCESS;
     PSPADDR PspAddrBp = (PSPADDR)GdbTgtTpAddr;
@@ -317,7 +337,7 @@ static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTM
         pTp->pDbg      = pThis;
         pTp->PspAddrTp = PspAddrBp;
 
-        int rc = PSPEmuCoreTraceRegister(pThis->hCore, PspAddrBp, PspAddrBp, pspDbgTpBpHit, pTp);
+        int rc = PSPEmuCoreTraceRegister(pThis->hCore, PspAddrBp, PspAddrBp, fTraceFlags, pspDbgTpBpHit, pTp);
         if (!rc)
         {
             pTp->pNext = pThis->pTpsHead;
@@ -383,9 +403,9 @@ static int pspDbgGdbStubIfTgtTpClear(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTG
  */
 static const GDBSTUBIF g_PspDbgGdbStubIf =
 {
-    /** cbReg */
-    sizeof(uint32_t),
-    /** papszRegs */
+    /** enmArch */
+    GDBSTUBTGTARCH_ARM,
+    /** paRegs */
     &g_apszPspDbgGdbStubRegs[0],
     /** pfnMemAlloc */
     pspDbgGdbStubIfMemAlloc,
@@ -570,8 +590,12 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
         /*
          * Execute a bunch of instructions, check whether we have data from GDB
          * and act accordingly.
+         *
+         * XXX: Unicorn has problems to sync states properly when a breakpoint is
+         *      hit and we stop the emulation from the callback, so we single step
+         *      through the code when the debugger is enabled.
          */
-        rc = PSPEmuCoreExecRun(pThis->hCore, 100, 0);
+        rc = PSPEmuCoreExecRun(pThis->hCore, 1, 0);
         if (!rc)
         {
             int rcPsx = poll(&PollFd, 1, 0);

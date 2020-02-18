@@ -1,0 +1,8 @@
+.clangd
+CMakeCache.txt
+Makefile
+CMakeFiles
+PSPEmu
+cmake_install.cmake
+compile_commands.json
+

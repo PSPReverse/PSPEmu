@@ -6,9 +6,11 @@ set(CMAKE_THREAD_PREFER_PTHREAD On)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DIN_PSP_EMULATOR")
 find_package (Threads)
 find_package(PkgConfig)
+find_package(ZLIB REQUIRED)
 find_library(m REQUIRED)
 
 pkg_check_modules(PC_LIBPSPPROXY REQUIRED IMPORTED_TARGET libpspproxy)
+pkg_check_modules(PC_OPENSSL     REQUIRED IMPORTED_TARGET openssl)
 
 add_executable(PSPEmu
                       psp-emu.c
@@ -17,14 +19,17 @@ add_executable(PSPEmu
                       psp-dbg.c
                       psp-svc.c
                       psp-flash.c
-                      psp-mmio-dev.c
-                      psp-smn-dev.c
+                      psp-iom.c
+                      psp-dev.c
                       psp-dev-ccp-v5.c
                       psp-dev-timer.c
                       psp-dev-test.c
-                      psp-dev-unknown-0x03010000.c
-                      psp-smn-dev-unknown-0x0005e000.c
-                      psp-smn-dev-unknown-0x0005d0cc.c)
+                      psp-dev-fuse.c
+                      psp-dev-flash.c
+                      psp-dev-smu.c
+                      psp-dev-mmio-unknown.c
+                      psp-dev-smn-unknown.c
+                      psp-dev-x86-unknown.c)
 
 target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/include"
@@ -33,9 +38,12 @@ target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/capstone/include"
                            "${PROJECT_SOURCE_DIR}/libgdbstub"
                            "${LIBPSPPROXY_INCLUDE_DIRS}"
+                           "${ZLIB_INCLUDE_DIRS}"
                            )
 
 target_link_libraries(PSPEmu PkgConfig::PC_LIBPSPPROXY)
+target_link_libraries(PSPEmu PkgConfig::PC_OPENSSL)
+target_link_libraries(PSPEmu ${ZLIB_LIBRARIES})
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/unicorn/libunicorn.a)
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/capstone/libcapstone.a)
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/libgdbstub/libgdbstub.a)

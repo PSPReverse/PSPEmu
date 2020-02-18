@@ -186,6 +186,37 @@ static const int g_aUcRegs[] =
 
 
 /**
+ * Human readable error strings for unicorn status codes.
+ */
+static const char *g_apszUcErr[] =
+{
+    "UC_ERR_OK",
+    "UC_ERR_NOMEM",
+    "UC_ERR_ARCH",
+    "UC_ERR_HANDLE",
+    "UC_ERR_MODE",
+    "UC_ERR_VERSION",
+    "UC_ERR_READ_UNMAPPED",
+    "UC_ERR_WRITE_UNMAPPED",
+    "UC_ERR_FETCH_UNMAPPED",
+    "UC_ERR_HOOK",
+    "UC_ERR_INSN_INVALID",
+    "UC_ERR_MAP",
+    "UC_ERR_WRITE_PROT",
+    "UC_ERR_READ_PROT",
+    "UC_ERR_FETCH_PROT",
+    "UC_ERR_ARG",
+    "UC_ERR_READ_UNALIGNED",
+    "UC_ERR_WRITE_UNALIGNED",
+    "UC_ERR_FETCH_UNALIGNED",
+    "UC_ERR_HOOK_EXIST",
+    "UC_ERR_RESOURCE",
+    "UC_ERR_EXCEPTION",
+    "UC_ERR_TIMEOUT"
+};
+
+
+/**
  * Converts the PSP core register enum to the unicorn equivalent.
  *
  * @returns Unicorn register number.
@@ -208,7 +239,7 @@ static int pspEmuCoreErrConvertFromUcErr(uc_err rcUc)
     if (rcUc == UC_ERR_OK)
         return 0;
 
-    printf("rcUc=%u\n", rcUc);
+    printf("rcUc=%u (%s)\n", rcUc, rcUc < ELEMENTS(g_apszUcErr) ? g_apszUcErr[rcUc] : "<UNKNOWN>");
     return -1; /** @todo */
 }
 
@@ -227,6 +258,25 @@ static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32
     PCPSPCORETRACEHOOK pHook = (PCPSPCORETRACEHOOK)pvUser;
 
     pHook->pfnTrace(pHook->pPspCore, (PSPADDR)uAddr, cbInsn, pHook->pvUser);
+}
+
+
+/**
+ * The memory trace hook wrapper called by unicorn.
+ *
+ * @returns nothing.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   uMemType                Memory type.
+ * @param   uAddr                   The address of the instruction triggering the hook.
+ * @param   cb                      Size of the memory access.
+ * @param   i64Val                  Value written during a write, ignored for a read.
+ * @param   pvUser                  Opaque user data.
+ */
+static void pspEmuCoreUcHookMemWrapper(uc_engine *pUcEngine, uc_mem_type uMemType, uint64_t uAddr, int32_t cb, int64_t i64Val, void *pvUser)
+{
+    PCPSPCORETRACEHOOK pHook = (PCPSPCORETRACEHOOK)pvUser;
+
+    pHook->pfnTrace(pHook->pPspCore, (PSPADDR)uAddr, cb, pHook->pvUser);
 }
 
 
@@ -421,6 +471,12 @@ int PSPEmuCoreSetReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t uVal)
 
     uint64_t uTmp = uVal;
     uc_err rcUc = uc_reg_write(pThis->pUcEngine, pspEmuCoreReg2Uc(enmReg), &uTmp);
+    if (   rcUc == UC_ERR_OK
+        && enmReg == PSPCOREREG_PC)
+    {
+        /* Set the next address to execute to the written value. */
+        pThis->PspAddrExecNext = (PSPADDR)uVal;
+    }
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
@@ -489,10 +545,17 @@ int PSPEmuCoreExecStop(PSPCORE hCore)
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
-int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd, PFNPSPCORETRACE pfnTrace, void *pvUser)
+int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd,
+                            uint32_t fFlags, PFNPSPCORETRACE pfnTrace, void *pvUser)
 {
     PPSPCOREINT pThis = hCore;
     int rc = 0;
+
+    /* Exec and memory read/write hooks can't be mixed. */
+    if (   (fFlags & PSPEMU_CORE_TRACE_F_EXEC)
+        && (   (fFlags & PSPEMU_CORE_TRACE_F_READ)
+            || (fFlags & PSPEMU_CORE_TRACE_F_WRITE)))
+        return -1;
 
     /* Try to register a new hook. */
     PPSPCORETRACEHOOK pHook = (PPSPCORETRACEHOOK)calloc(1, sizeof(*pHook));
@@ -504,9 +567,21 @@ int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAd
         pHook->pfnTrace     = pfnTrace;
         pHook->pvUser       = pvUser;
 
-        uc_err rcUc = uc_hook_add(pThis->pUcEngine, &pHook->hUcHook, UC_HOOK_CODE,
-                                  (void *)(uintptr_t)pspEmuCoreUcHookWrapper, pHook,
-                                  uPspAddrStart, uPspAddrEnd);
+        uc_hook_type fHook = fFlags & PSPEMU_CORE_TRACE_F_EXEC ? UC_HOOK_CODE : 0;
+        void *pfnHook = (void *)(uintptr_t)pspEmuCoreUcHookWrapper;
+        if (fFlags & PSPEMU_CORE_TRACE_F_READ)
+        {
+            pfnHook = (void *)(uintptr_t)pspEmuCoreUcHookMemWrapper;
+            fHook |= UC_HOOK_MEM_READ;
+        }
+        if (fFlags & PSPEMU_CORE_TRACE_F_WRITE)
+        {
+            pfnHook = (void *)(uintptr_t)pspEmuCoreUcHookMemWrapper;
+            fHook |= UC_HOOK_MEM_WRITE;
+        }
+
+        uc_err rcUc = uc_hook_add(pThis->pUcEngine, &pHook->hUcHook, fHook,
+                                  pfnHook, pHook, uPspAddrStart, uPspAddrEnd);
         rc = pspEmuCoreErrConvertFromUcErr(rcUc);
         if (!rc)
         {
