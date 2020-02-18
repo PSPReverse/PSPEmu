@@ -33,6 +33,13 @@
 #include <string.h>
 
 #include <openssl/evp.h>
+
+/* OpenSSL version 1.0.x support */
+# if OPENSSL_VERSION_NUMBER < 0x10100000 // = OpenSSL 1.1.0
+#  define EVP_MD_CTX_new EVP_MD_CTX_create
+#  define EVP_MD_CTX_free EVP_MD_CTX_destroy
+# endif
+
 #include <zlib.h>
 
 /* Missing in zlib.h */
