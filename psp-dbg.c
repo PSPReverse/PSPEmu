@@ -590,8 +590,12 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
         /*
          * Execute a bunch of instructions, check whether we have data from GDB
          * and act accordingly.
+         *
+         * XXX: Unicorn has problems to sync states properly when a breakpoint is
+         *      hit and we stop the emulation from the callback, so we single step
+         *      through the code when the debugger is enabled.
          */
-        rc = PSPEmuCoreExecRun(pThis->hCore, 100, 0);
+        rc = PSPEmuCoreExecRun(pThis->hCore, 1, 0);
         if (!rc)
         {
             int rcPsx = poll(&PollFd, 1, 0);
