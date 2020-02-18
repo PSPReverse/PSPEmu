@@ -1407,45 +1407,47 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
  * Handles register read from a specific queue.
  *
  * @returns nothing.
+ * @param   pThis               The CCP device instance data.
  * @param   pQueue              The queue to read a register from.
  * @param   offRegQ             The register offset to read from.
  * @param   pu32Dst             Whereto store the register content.
  */
-static void pspDevCcpMmioQueueRegRead(PCCPQUEUE pQueue, uint32_t offRegQ, uint32_t *pu32Dst)
+static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32_t offRegQ, uint32_t *pu32Dst)
 {
     switch (offRegQ)
     {
         case CCP_V5_Q_REG_CTRL:
-            *pu32Dst = pQueue->u32RegCtrl;
-            break;
-        case CCP_V5_Q_REG_HEAD:
-            *pu32Dst = pQueue->u32RegReqHead;
-            break;
-        case CCP_V5_Q_REG_TAIL:
-            *pu32Dst = pQueue->u32RegReqTail;
-            break;
-        case CCP_V5_Q_REG_STATUS:
-            *pu32Dst = pQueue->u32RegSts;
-            break;
-    }
-}
-
-
-/**
- * Handles a register write to a specific queue.
- *
- * @returns nothing.
- * @param   pThis               The CCP device instance data.
- * @param   pQueue              The queue to write to.
- * @param   offRegQ             Offset of the register to write.
- * @param   u32Val              The value to write
- */
-static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32_t offRegQ, uint32_t u32Val)
-{
-    switch (offRegQ)
-    {
-        case CCP_V5_Q_REG_CTRL:
-            pQueue->u32RegCtrl = u32Val;
+            /*
+             * This used to be in the write handler where it would make probably more sense
+             * but this caused a fatal stack overwrite during the last CCP request of the on chip bootloader
+             * to presumably overwrite some scratch buffer with data. The request is triggered by the
+             * function at address 0xffff48c8 in our on chip bootloader version from a 1st gen Epyc CPU.
+             *
+             * The request looks like the following:
+             * CCP Request 0x0003f900:
+             *     u32Dw0:             0x00500011 (Engine: PASSTHROUGH, ByteSwap: NOOP, Bitwise: NOOP, Reflect: 0)
+             *     cbSrc:              27160
+             *     u32AddrSrcLow:      0x00000000
+             *     u16AddrSrcHigh:     0x00000000
+             *     u16SrcMemType:      0x000001d2 (MemType: 2, LsbCtxId: 116, Fixed: 0)
+             *     u32AddrDstLow:      0x00038500
+             *     u16AddrDstHigh:     0x00000000
+             *     u16DstMemType:      0x00000002 (MemType: 2, Fixed: 0)
+             *     u32AddrKeyLow:      0x00000000
+             *     u16AddrKeyHigh:     0x00000000
+             *     u16KeyMemType:      0x00000000
+             *
+             * The CCP writes 27160 bytes starting at 0x38500 which spills into the stack of the on chip bootloader
+             * ranging from 0x3efff down to 0x3ef00. This will overwrite the stack return address of the on_chip_bl_ccp_start_cmd()
+             * function at 0xffff7878 with an invalid value causing a CPU exception.
+             *
+             * The only reason this doesn't blows up on real hardware is the asynchronous nature of the CCP. When the request is started
+             * the ARM core will execute the return instruction before the CCP can trash the stack frame and leave the dangerous zone.
+             * The code called afterwards to wait for the CCP to finish doesn't need any stack and everything else is preserved making
+             * the on chip bootloader survive and successfully call into the off chip bootloader. So the obvious fix with our synchronous
+             * CCP implementation is to defer the request until the bootloader polls the control register to wait for the CCP to halt again.
+             * Thanks AMD!
+             */
             if (pQueue->u32RegCtrl & CCP_V5_Q_REG_CTRL_RUN) /* Running bit set? Process requests. */
             {
                 /* Clear halt and running bit. */
@@ -1482,6 +1484,36 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
                 pQueue->u32RegReqTail = u32ReqTail;
                 pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
             }
+            *pu32Dst = pQueue->u32RegCtrl;
+            break;
+        case CCP_V5_Q_REG_HEAD:
+            *pu32Dst = pQueue->u32RegReqHead;
+            break;
+        case CCP_V5_Q_REG_TAIL:
+            *pu32Dst = pQueue->u32RegReqTail;
+            break;
+        case CCP_V5_Q_REG_STATUS:
+            *pu32Dst = pQueue->u32RegSts;
+            break;
+    }
+}
+
+
+/**
+ * Handles a register write to a specific queue.
+ *
+ * @returns nothing.
+ * @param   pThis               The CCP device instance data.
+ * @param   pQueue              The queue to write to.
+ * @param   offRegQ             Offset of the register to write.
+ * @param   u32Val              The value to write
+ */
+static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32_t offRegQ, uint32_t u32Val)
+{
+    switch (offRegQ)
+    {
+        case CCP_V5_Q_REG_CTRL:
+            pQueue->u32RegCtrl = u32Val;
             break;
         case CCP_V5_Q_REG_HEAD:
             pQueue->u32RegReqHead = u32Val;
@@ -1516,7 +1548,7 @@ static void pspDevCcpMmioRead(PSPADDR offMmio, size_t cbRead, void *pvDst, void 
         if (uQueue > 0)
             printf("%s: offMmio=%#x cbRead=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbRead, uQueue);
         else
-            pspDevCcpMmioQueueRegRead(&pThis->Queue, offRegQ, (uint32_t *)pvDst);
+            pspDevCcpMmioQueueRegRead(pThis, &pThis->Queue, offRegQ, (uint32_t *)pvDst);
     }
     else
     {
