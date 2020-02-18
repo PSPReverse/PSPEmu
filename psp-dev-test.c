@@ -77,6 +77,7 @@ typedef PSPDEVTEST  *PPSPDEVTEST;
 
 static void pspDevTestMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
+
     if (cbRead != sizeof(uint32_t))
     {
         printf("%s: offMmio=%#x cbRead=%zu -> Unsupported access width\n", __FUNCTION__, offMmio, cbRead);
@@ -158,7 +159,7 @@ static int pspDevTestInit(PPSPDEV pDev)
     setvbuf(stdout, NULL, _IONBF ,0);
 
     /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x04000000, 16,
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03133700, 16,
                                      pspDevTestMmioRead, pspDevTestMmioWrite, pThis,
                                      &pThis->hMmio);
     return rc;
@@ -177,7 +178,7 @@ const PSPDEVREG g_DevRegTest =
     /** pszName */
     "test",
     /** pszDesc */
-    "Test device starting at 0x04000000",
+    "Test device starting at 0x03133700",
     /** cbInstance */
     sizeof(PSPDEVTEST),
     /** pfnInit */
