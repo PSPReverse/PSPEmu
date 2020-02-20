@@ -125,6 +125,7 @@ typedef PSPCOREMMIOREGION *PPSPCOREMMIOREGION;
 /** Pointer to a const trace hook. */
 typedef const PSPCOREMMIOREGION *PCPSPCOREMMIOREGION;
 
+
 /**
  * A single PSP core executing.
  */
@@ -134,6 +135,8 @@ typedef struct PSPCOREINT
     PSPCOREMODE             enmMode;
     /** The unicorn engine pointer. */
     uc_engine               *pUcEngine;
+    /** The svc interrupt hook. */
+    uc_hook                 pUcHookSvc;
     /** The SRAM region. */
     void                    *pvSram;
     /** Size of the SRAM region. */
@@ -149,6 +152,9 @@ typedef struct PSPCOREINT
     PPSPCORETRACEHOOK       pTraceHooksHead;
     /** Head of MMIO regions. */
     PPSPCOREMMIOREGION      pMmioRegionsHead;
+
+    /** Flag whether an SVC call is pending. */
+    bool                    fSvcPending;
 
     /** The x86 mapping for the privileged DRAM region where the SEV app state is saved. */
     PSPX86MEMCACHEDMAPPING  X86MappingPrivState;
@@ -357,6 +363,28 @@ static void pspEmuCoreMmioWrite(struct uc_struct* pUcEngine, void *pvUser, uint6
 }
 
 
+/**
+ * The SVC instruction wrapper to transition back to supervisor mode.
+ *
+ * @returns nothing.
+ * @param   pUcEngine           Pointer to the unicorn engine instance.
+ * @param   uIntNo              Interrupt/Exception number, should be always 2.
+ * @param   pvUser              Opaque user data passed when adding the hook.
+ */
+static void pspEmuCoreSvcWrapper(uc_engine *pUcEngine, uint32_t uIntNo, void *pvUser)
+{
+    PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
+
+    /*
+     * Set SVC pending flag and stop emulation, we don't alter the vital CPU state
+     * (PC, CPSR, etc.) here as unicorn seems to be rather fragile in this regard
+     * when done from any hook callback.
+     */
+    pThis->fSvcPending = true;
+    uc_emu_stop(pUcEngine);
+}
+
+
 int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
 {
     int rc = 0;
@@ -371,6 +399,7 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
         pThis->enmMode          = enmMode;
         pThis->cbSram           = _256K;
         pThis->pvSram           = calloc(1, pThis->cbSram);
+        pThis->fSvcPending      = false;
         if (pThis->pvSram)
         {
             /* Initialize unicorn engine in ARM mode. */
@@ -386,9 +415,14 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
                       * with an explicit mapping.
                       */
                     uc_mem_map(pThis->pUcEngine, 0x50000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE);
+                    uc_mem_map(pThis->pUcEngine, 0x60000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE);
 
-                    *phCore = pThis;
-                    return 0;
+                    err = uc_hook_add(pThis->pUcEngine, &pThis->pUcHookSvc, UC_HOOK_INTR, (void *)(uintptr_t)pspEmuCoreSvcWrapper, pThis, 1, 0);
+                    if (!err)
+                    {
+                        *phCore = pThis;
+                        return 0;
+                    }
                 }
 
                 uc_close(pThis->pUcEngine);
@@ -506,34 +540,81 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
     PPSPCOREINT pThis = hCore;
 
     int rc = 0;
-    uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff /** @todo */, msExec, cInsnExec);
-    if (rcUc == UC_ERR_OK)
-    {
-        /* Query the next address to execute and set it. */
-        uint64_t uTmp = 0;
-        uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uTmp);
-        if (rcUc2 == UC_ERR_OK)
-        {
-            size_t ucCpuMode = 0;
 
-            /*
-             * Unicorn doesn't use the CPSR Thumb state bit but switches to the instruction set
-             * based on bit 0 of the address (like for a blx instruction for instance).
-             */
-            uc_err rcUc2 = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+    if (!cInsnExec)
+        cInsnExec = UINT32_MAX;
+    if (!msExec) /** @todo: Proper timekeeping for the loop. */
+        msExec = UINT32_MAX;
+
+    while (!rc && cInsnExec && msExec)
+    {
+        uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff, msExec, cInsnExec);
+        if (rcUc == UC_ERR_OK)
+        {
+            cInsnExec--; /* Executed at least one instruction. */
+
+            /* Query the PC. */
+            uint32_t uPc = 0;
+            uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
             if (rcUc2 == UC_ERR_OK)
             {
-                uTmp |= ucCpuMode == UC_MODE_THUMB ? 1 : 0;
-                pThis->PspAddrExecNext = (PSPADDR)uTmp;
+                if (pThis->fSvcPending)
+                {
+                    /* Set new PC (assuming the exception table starting at 0x100 here), LR, CPSR and SPSR. */
+                    uint32_t uCpsrOld;
+                    uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
+
+                    uint16_t uInsnSvc;
+                    uc_mem_read(pThis->pUcEngine, uPc - 2, &uInsnSvc, sizeof(uint16_t));
+                    if (((uInsnSvc >> 8) & 0xff) == 0xdf)
+                    {
+                        uint32_t idxSyscall = uInsnSvc & 0xff;
+                        printf("SYSCALL %#x pending\n", idxSyscall);
+                    }
+
+                    /* Set supervisor mode. */
+                    uint32_t uCpsr = (uCpsrOld & ~0xf) | 0x3; /** @todo Proper defines! */
+                    if (rcUc2 == UC_ERR_OK)
+                        rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsr);
+                    if (rcUc2 == UC_ERR_OK)
+                        rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_SPSR, &uCpsrOld); /* Save CPSR into SPSR after switching modes. */
+                    if (rcUc2 == UC_ERR_OK)
+                        rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_LR, &uPc); /* PC is advanced already. */
+
+                    /** @todo Determine base of exception table from VBAR register. */
+                    uPc = 0x100 + 2 * sizeof(uint32_t); /* Switches to ARM mode. */
+                    if (rcUc2 == UC_ERR_OK)
+                        rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
+                    if (rcUc2 == UC_ERR_OK)
+                        pThis->PspAddrExecNext = (PSPADDR)uPc;
+
+                    pThis->fSvcPending = false;
+                    if (rcUc2 != UC_ERR_OK)
+                        rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+                }
+                else
+                {
+                    /* Query the mode to execute and set the next address to execute. */
+                    size_t ucCpuMode = 0;
+
+                    /*
+                     * Unicorn doesn't use the CPSR Thumb state bit but switches to the instruction set
+                     * based on bit 0 of the address (like for a blx instruction for instance).
+                     */
+                    uc_err rcUc2 = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+                    if (rcUc2 == UC_ERR_OK)
+                    {
+                        uPc |= ucCpuMode == UC_MODE_THUMB ? 1 : 0;
+                        pThis->PspAddrExecNext = (PSPADDR)uPc;
+                    }
+                    else
+                        rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+                }
             }
-            else
-                rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
         }
         else
-            rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+            rc = pspEmuCoreErrConvertFromUcErr(rcUc);
     }
-    else
-        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
 
     return rc;
 }
