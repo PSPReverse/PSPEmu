@@ -32,7 +32,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <openssl/bn.h>
 #include <openssl/evp.h>
+#include <openssl/rsa.h>
 
 /* OpenSSL version 1.0.x support (see https://www.openssl.org/docs/man1.1.0/man3/EVP_MD_CTX_new.html#HISTORY) */
 # if OPENSSL_VERSION_NUMBER < 0x10100000 // = OpenSSL 1.1.0
@@ -733,6 +735,54 @@ static int pspDevCcpKeyQueryPointerFromReq(PPSPDEVCCP pThis, PCCCP5REQ pReq, siz
 
 
 /**
+ * Copies the key material pointed to by the request into a supplied buffer.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to get the key address from.
+ * @param   cbKey               Size of the key buffer.
+ * @param   pvKey               Where to store the key material.
+ */
+static int pspDevCcpKeyCopyFromReq(PPSPDEVCCP pThis, PCCCP5REQ pReq, size_t cbKey, void *pvKey)
+{
+    int rc = 0;
+
+    if (CCP_V5_MEM_TYPE_GET(pReq->u16KeyMemType) == CCP_V5_MEM_TYPE_LOCAL)
+    {
+        CCPADDR CcpAddrKey = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow);
+
+        rc = pspDevCcpXferMemLocalRead(pThis, CcpAddrKey, pvKey, cbKey);
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
+/**
+ * Reverses the data in the given buffer.
+ *
+ * @returns nothing.
+ * @param   pbBuf                   The buffer to reverse the data in.
+ * @param   cbBuf                   Size of the buffer to reverse.
+ */
+static void pspDevCcpReverseBuf(uint8_t *pbBuf, size_t cbBuf)
+{
+    uint8_t *pbBufTop = pbBuf + cbBuf - 1;
+
+    while (pbBuf < pbBufTop)
+    {
+        uint8_t bTmp = *pbBuf;
+        *pbBuf = *pbBufTop;
+        *pbBufTop = bTmp;
+        pbBuf++;
+        pbBufTop--;
+    }
+}
+
+
+/**
  * Returns the string representation of the given CCP request engine field.
  *
  * @returns Engine description.
@@ -1347,9 +1397,83 @@ static int pspDevCcpReqZlibProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uF
 static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
                                   bool fInit, bool fEom)
 {
-    int      rc    = -1;
-    uint16_t uSz   = CCP_V5_ENGINE_AES_SZ_GET(uFunc);
-    uint8_t  uMode = CCP_V5_ENGINE_AES_MODE_GET(uFunc);
+    int      rc    = 0;
+    uint16_t uSz   = CCP_V5_ENGINE_RSA_SZ_GET(uFunc);
+    uint8_t  uMode = CCP_V5_ENGINE_RSA_MODE_GET(uFunc);
+
+    if (   uMode == 0
+        && uSz == 256
+        && pReq->cbSrc == 512)
+    {
+        /* The key contains the exponent as a 2048bit integer. */
+        uint8_t abExp[256];
+        rc = pspDevCcpKeyCopyFromReq(pThis, pReq, sizeof(abExp), &abExp[0]);
+        if (!rc)
+        {
+            bool fFreeBignums = true;
+            BIGNUM *pExp = BN_lebin2bn(&abExp[0], sizeof(abExp) / 2, NULL);
+            RSA *pRsaPubKey = RSA_new();
+            if (pExp && pRsaPubKey)
+            {
+                CCPXFERCTX XferCtx;
+                rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/, uSz,
+                                          false /*fWriteRev*/);
+                if (!rc)
+                {
+                    /*
+                     * The source buffer contains the modulus as a 2048bit integer in little endian format
+                     * followed by the message the process (why the modulus is not part of the key buffer
+                     * remains a mystery).
+                     */
+                    uint8_t abData[512];
+
+                    rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], sizeof(abData), NULL);
+                    if (!rc)
+                    {
+                        BIGNUM *pMod = BN_lebin2bn(&abData[0], sizeof(abData) / 2, NULL);
+                        if (pMod)
+                        {
+                            uint8_t abResult[256];
+
+                            RSA_set0_key(pRsaPubKey, pMod, pExp, NULL);
+
+                            /* The RSA public key structure has taken over the memory and freeing it will free the exponent and modulus as well. */
+                            fFreeBignums = false;
+
+                            /* Need to convert to little endian format. */
+                            pspDevCcpReverseBuf(&abData[256], sizeof(abData) / 2);
+                            size_t cbEnc = RSA_public_encrypt(sizeof(abData) / 2, &abData[256], &abResult[0], pRsaPubKey, RSA_NO_PADDING);
+                            if (cbEnc == sizeof(abResult))
+                            {
+                                /* Need to swap endianess of result buffer as well. */
+                                pspDevCcpReverseBuf(&abResult[0], sizeof(abResult));
+                                rc = pspDevCcpXferCtxWrite(&XferCtx, &abResult[0], sizeof(abResult), NULL);
+                            }
+                            else
+                                rc = -1;
+
+                            if (fFreeBignums)
+                                BN_clear_free(pMod);
+                        }
+                        else
+                            rc = -1;
+                    }
+                }
+            }
+            else
+                rc = -1;
+
+            if (pRsaPubKey)
+                RSA_free(pRsaPubKey);
+            if (fFreeBignums && pExp)
+                BN_clear_free(pExp);
+        }
+    }
+    else
+    {
+        printf("CCP: RSA ERROR uMode=%u uSz=%u not implemented yet!\n", uMode, uSz);
+        rc = -1;
+    }
 
     return rc;
 }
