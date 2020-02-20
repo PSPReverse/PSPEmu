@@ -109,6 +109,7 @@ static const GDBSTUBREG g_apszPspDbgGdbStubRegs[] =
     { "lr",   32, GDBSTUBREGTYPE_CODE_PTR  },
     { "pc",   32, GDBSTUBREGTYPE_PC        },
     { "cpsr", 32, GDBSTUBREGTYPE_STATUS    },
+    { "spsr", 32, GDBSTUBREGTYPE_STATUS    },
     { NULL,    0, GDBSTUBREGTYPE_INVALID   }
 };
 

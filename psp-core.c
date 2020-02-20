@@ -181,7 +181,8 @@ static const int g_aUcRegs[] =
     UC_ARM_REG_SP,
     UC_ARM_REG_LR,
     UC_ARM_REG_PC,
-    UC_ARM_REG_CPSR
+    UC_ARM_REG_CPSR,
+    UC_ARM_REG_SPSR
 };
 
 
@@ -703,24 +704,24 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
     PPSPCOREINT pThis = hCore;
 
     PSPCOREREG enmReg = PSPCOREREG_R0;
-    uint32_t au32Reg[PSPCOREREG_CPSR + 1];
+    uint32_t au32Reg[PSPCOREREG_SPSR + 1];
 
-    while (enmReg <= PSPCOREREG_CPSR)
+    while (enmReg <= PSPCOREREG_SPSR)
     {
         PSPEmuCoreQueryReg(hCore, enmReg, &au32Reg[enmReg]);
         enmReg++;
     }
 
-    printf( "R0  > 0x%08x | R1 > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
-            "R4  > 0x%08x | R5 > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
-            "R8  > 0x%08x | R9 > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
-            "R12 > 0x%08x | SP > 0x%08x | LR > 0x%08x | PC > 0x%08x\n"
-            "CPSR> 0x%08x\n",
-            au32Reg[PSPCOREREG_R0], au32Reg[PSPCOREREG_R1], au32Reg[PSPCOREREG_R2], au32Reg[PSPCOREREG_R3],
-            au32Reg[PSPCOREREG_R4], au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6], au32Reg[PSPCOREREG_R7],
-            au32Reg[PSPCOREREG_R8], au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
-            au32Reg[PSPCOREREG_R12], au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR], au32Reg[PSPCOREREG_PC],
-            au32Reg[PSPCOREREG_CPSR]);
+    printf( "R0  > 0x%08x | R1  > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
+            "R4  > 0x%08x | R5  > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
+            "R8  > 0x%08x | R9  > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
+            "R12 > 0x%08x | SP  > 0x%08x | LR > 0x%08x | PC > 0x%08x\n"
+            "CPSR> 0x%08x | SPSR> 0x%08x\n",
+            au32Reg[PSPCOREREG_R0],   au32Reg[PSPCOREREG_R1], au32Reg[PSPCOREREG_R2],  au32Reg[PSPCOREREG_R3],
+            au32Reg[PSPCOREREG_R4],   au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6],  au32Reg[PSPCOREREG_R7],
+            au32Reg[PSPCOREREG_R8],   au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
+            au32Reg[PSPCOREREG_R12],  au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR],  au32Reg[PSPCOREREG_PC],
+            au32Reg[PSPCOREREG_CPSR], au32Reg[PSPCOREREG_SPSR]);
 
     /* Dump a few instructions. */
     uint8_t abInsn[5 * sizeof(uint32_t)];
