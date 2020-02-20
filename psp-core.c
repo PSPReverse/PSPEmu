@@ -611,6 +611,8 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                         rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
                 }
             }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
         }
         else
             rc = pspEmuCoreErrConvertFromUcErr(rcUc);
