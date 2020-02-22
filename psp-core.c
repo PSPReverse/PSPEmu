@@ -962,19 +962,18 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
     rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_SP], &au32Stack[0], sizeof(au32Stack));
     if (!rc)
     {
-      printf( "Stack:\n"
-              "\t0x%08x: 0x%08x <= SP\n"
-              "\t0x%08x: 0x%08x\n"
-              "\t0x%08x: 0x%08x\n"
-              "\t0x%08x: 0x%08x\n"
-              "\t0x%08x: 0x%08x\n"
-              "\t0x%08x: 0x%08x\n"
-              "\t0x%08x: 0x%08x\n"
-              "\t0x%08x: 0x%08x\n",
-              au32Reg[PSPCOREREG_SP], au32Stack[0], au32Reg[PSPCOREREG_SP] + 4, au32Stack[1], 
-              au32Reg[PSPCOREREG_SP] + 8, au32Stack[2], au32Reg[PSPCOREREG_SP] + 12, au32Stack[3],
-              au32Reg[PSPCOREREG_SP] + 16, au32Stack[4],au32Reg[PSPCOREREG_SP] + 20, au32Stack[5],
-              au32Reg[PSPCOREREG_SP] + 24, au32Stack[6], au32Reg[PSPCOREREG_SP] + 28,au32Stack[7] );
-
+        printf("Stack:\n"
+               "\t0x%08x: 0x%08x <= SP\n"
+               "\t0x%08x: 0x%08x\n"
+               "\t0x%08x: 0x%08x\n"
+               "\t0x%08x: 0x%08x\n"
+               "\t0x%08x: 0x%08x\n"
+               "\t0x%08x: 0x%08x\n"
+               "\t0x%08x: 0x%08x\n"
+               "\t0x%08x: 0x%08x\n",
+               au32Reg[PSPCOREREG_SP],      au32Stack[0], au32Reg[PSPCOREREG_SP] +  4, au32Stack[1],
+               au32Reg[PSPCOREREG_SP] + 8,  au32Stack[2], au32Reg[PSPCOREREG_SP] + 12, au32Stack[3],
+               au32Reg[PSPCOREREG_SP] + 16, au32Stack[4], au32Reg[PSPCOREREG_SP] + 20, au32Stack[5],
+               au32Reg[PSPCOREREG_SP] + 24, au32Stack[6], au32Reg[PSPCOREREG_SP] + 28, au32Stack[7]);
     }
 }
