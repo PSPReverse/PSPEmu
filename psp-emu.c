@@ -34,6 +34,7 @@
 #include <psp-iom.h>
 #include <psp-devs.h>
 #include <psp-cfg.h>
+#include <psp-svc.h>
 
 
 /**
@@ -285,6 +286,7 @@ int main(int argc, char *argv[])
                     {
                         /** @todo Proper initialization,instantiation of attached devices. */
                         PPSPDEV pDev = NULL;
+                        PSPSVC hSvc = NULL;
 
                         rc = PSPEmuDevCreate(hIoMgr, &g_DevRegCcpV5, &Cfg, &pDev);
                         if (!rc)
@@ -318,6 +320,7 @@ int main(int argc, char *argv[])
                             case PSPCOREMODE_APP:
                             {
                                 PspAddrStartExec = 0x15100;
+                                rc = PSPEmuSvcStateCreate(&hSvc, hCore);
                                 break;
                             }
                             case PSPCOREMODE_SYSTEM:
@@ -331,7 +334,8 @@ int main(int argc, char *argv[])
                                 rc = -1;
                         }
 
-                        rc = PSPEmuCoreExecSetStartAddr(hCore, PspAddrStartExec);
+                        if (!rc)
+                            rc = PSPEmuCoreExecSetStartAddr(hCore, PspAddrStartExec);
                         if (!rc)
                         {
                             if (Cfg.uDbgPort)
