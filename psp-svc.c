@@ -190,13 +190,14 @@ static bool pspEmuSvcAppExit(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
     int rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, SVC_GET_STATE_BUFFER, pThis->cbStateRegion, 0, 0, 0, &PspAddrStateRegion);
     if (rc)
         printf("Mapping memory region state failed with %d\n", rc);
-#if 0
+#if 0 /** @todo */
     rc = PSPProxyCtxPspMemWrite(pThis->hProxyCtx, PspAddrStateRegion, pThis->X86MappingPrivState.pvMapping, pThis->cbStateRegion);
     if (rc)
         printf("Syncing SEV state to privileged DRAM failed with %d\n", rc);
 #endif
 
-    return 0;
+    PSPEmuCoreExecStop(hCore);
+    return true;
 }
 
 
@@ -206,14 +207,14 @@ static bool pspEmuSvcAppInit(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
     (void)idxSyscall;
 
     uint32_t uSts = 0;
-    PSPADDR  uStackTop = 0x52000;
+    PSPADDR  uStackTop = 0x62000;
     PSPADDR  UsrPtrStackAddr = 0;
 
     int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R2, &UsrPtrStackAddr);
     if (!rc)
     {
         /* Map stack. */
-        rc = PSPEmuCoreMemAddRegion(pThis->hPspCore, 0x50000, 2 * _4K);
+        /*rc = PSPEmuCoreMemAddRegion(pThis->hPspCore, 0x60000, 2 * _4K);*/ /** @todo Done already in the core for the other emulation modes. */
         if (!rc)
             rc = PSPEmuCoreMemWrite(pThis->hPspCore, UsrPtrStackAddr, &uStackTop, sizeof(uStackTop));
         else
@@ -225,61 +226,89 @@ static bool pspEmuSvcAppInit(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
     if (!rc)
         rc = PSPEmuCoreSetReg(pThis->hPspCore, PSPCOREREG_R0, uSts);
 
-    return rc;
+    return true;
 }
 
 static bool pspEmuSvcSmnMapEx(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-#if 0
+    PPSPSVCINT pThis = (PPSPSVCINT)pvUser;
+
     uint32_t uSmnAddr = 0;
     uint32_t idCcdTgt = 0;
     uint32_t uSmnAddrMapped = 0;
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R0, &uSmnAddr);
+    if (!rc)
+        rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R1, &idCcdTgt);
+    if (!rc)
+    {
+        printf("Mapping SMN address %#x on CCD %#x\n", uSmnAddr, idCcdTgt);
 
-    uc_reg_read(uc, UC_ARM_REG_R0, &uSmnAddr);
-    uc_reg_read(uc, UC_ARM_REG_R1, &idCcdTgt);
-    printf("Mapping SMN address %#x on CCD %#x\n", uSmnAddr, idCcdTgt);
+        rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, uSmnAddr, idCcdTgt, 0, 0, &uSmnAddrMapped);
+        if (rc)
+            printf("Mapping SMN address failed with %d\n", rc);
+    }
 
-    int rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, uSmnAddr, idCcdTgt, 0, 0, &uSmnAddrMapped);
-    if (rc)
-        printf("Mapping SMN address failed with %d\n", rc);
-    uc_reg_write(uc, UC_ARM_REG_R0, &uSmnAddrMapped);
-#endif
+    PSPEmuCoreSetReg(pThis->hPspCore, PSPCOREREG_R0, uSmnAddrMapped);
+    return true;
 }
 
 static bool pspEmuSvcSmnMap(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
+    PPSPSVCINT pThis = (PPSPSVCINT)pvUser;
 
+    uint32_t uSmnAddr = 0;
+    uint32_t uSmnAddrMapped = 0;
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R0, &uSmnAddr);
+    if (!rc)
+    {
+        printf("Mapping SMN address %#x\n", uSmnAddr);
+
+        rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, uSmnAddr, 0, 0, 0, &uSmnAddrMapped);
+        if (rc)
+            printf("Mapping SMN address failed with %d\n", rc);
+    }
+
+    PSPEmuCoreSetReg(pThis->hPspCore, PSPCOREREG_R0, uSmnAddrMapped);
+    return true;
 }
 
 static bool pspEmuSvcSmnUnmap(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-#if 0
+    PPSPSVCINT pThis = (PPSPSVCINT)pvUser;
+
     uint32_t uAddr = 0;
-    uint32_t uSts = 0;
+    uint32_t uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
 
-    uc_reg_read(uc, UC_ARM_REG_R0, &uAddr);
-    printf("Unmapping SMN address %#x\n", uAddr);
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R0, &uAddr);
+    if (!rc)
+    {
+        printf("Unmapping SMN address %#x\n", uAddr);
 
-    int rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, uAddr, 0, 0, 0, &uSts);
-    if (rc)
-        printf("Unmapping SMN address failed with %d\n", rc);
+        rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, uAddr, 0, 0, 0, &uSts);
+        if (rc)
+            printf("Unmapping SMN address failed with %d\n", rc);
+    }
 
-    uc_reg_write(uc, UC_ARM_REG_R0, &uSts);
-#endif
+    PSPEmuCoreSetReg(pThis->hPspCore, PSPCOREREG_R0, uSts);
+    return true;
 }
 
 static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-#if 0
+    PPSPSVCINT pThis = (PPSPSVCINT)pvUser;
+
     /* Log the string. */
     PSPADDR PspAddrStr = 0;
     char achStr[512];
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R0, &PspAddrStr);
+    if (!rc)
+    {
+        PSPEmuCoreMemRead(pThis->hPspCore, PspAddrStr, &achStr[0], 512);
+        achStr[512 - 1] = '\0'; /* Ensure termination. */
+        printf("PSP Log: %s\n", &achStr[0]);
+    }
 
-    uc_reg_read(uc, UC_ARM_REG_R0, &PspAddrStr);
-    uc_mem_read(uc, PspAddrStr, &achStr[0], 512);
-    achStr[512 - 1] = '\0'; /* Ensure termination. */
-    printf("PSP Log: %s\n", &achStr[0]);
-#endif
+    return true;
 }
 
 static bool pspEmuSvcX86MemMap(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
@@ -1120,7 +1149,7 @@ static bool pspEmuSvcQuerySmmRegion(PSPCORE hCore, uint32_t idxSyscall, uint32_t
 #endif
 }
 
-int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore)
+int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore, PSPPROXYCTX hPspProxyCtx)
 {
     int rc = 0;
     PPSPSVCINT pThis = (PPSPSVCINT)malloc(sizeof(*pThis));
@@ -1128,7 +1157,7 @@ int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore)
     if (pThis != NULL)
     {
         pThis->hPspCore  = hPspCore;
-        pThis->hProxyCtx = NULL;
+        pThis->hProxyCtx = hPspProxyCtx;
 
         rc = PSPEmuCoreSvcInjectSet(hPspCore, &g_SvcReg, pThis);
         if (!rc)

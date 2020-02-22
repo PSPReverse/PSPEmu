@@ -53,6 +53,8 @@ typedef struct PSPEMUCFG
     void                    *pvFlashRom;
     /** Size of the flash ROM in bytes. */
     size_t                  cbFlashRom;
+    /** The proxy address if configured. */
+    const char              *pszPspProxyAddr;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;

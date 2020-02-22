@@ -25,6 +25,8 @@
 #include <string.h>
 #include <stdint.h>
 
+#include <libpspproxy.h>
+
 #include <common/cdefs.h>
 #include <psp-fw/boot-rom-svc-page.h>
 
@@ -51,6 +53,7 @@ static struct option g_aOptions[] =
     {"dbg",                  required_argument, 0, 'd'},
     {"load-psp-dir",         no_argument,       0, 'l'},
     {"psp-dbg-mode",         no_argument,       0, 'g'},
+    {"psp-proxy-addr",       required_argument, 0, 'x'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -84,8 +87,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fBinContainsHdr       = false;
     pCfg->uDbgPort              = 0;
     pCfg->fLoadPspDir           = false;
+    pCfg->pszPspProxyAddr       = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -99,6 +103,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --bin-load <path/to/binary/to/load>\n"
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
                        "    --dbg <listening port>\n"
+                       "    --psp-proxy-addr <path/to/proxy/device>\n"
                        "    --load-psp-dir\n",
                        "    --psp-dbg-mode\n",
                        argv[0]);
@@ -141,6 +146,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'g':
                 pCfg->fPspDbgMode = true;
+                break;
+            case 'x':
+                pCfg->pszPspProxyAddr = optarg;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -287,8 +295,13 @@ int main(int argc, char *argv[])
                         /** @todo Proper initialization,instantiation of attached devices. */
                         PPSPDEV pDev = NULL;
                         PSPSVC hSvc = NULL;
+                        PSPPROXYCTX hPspProxyCtx = NULL;
 
-                        rc = PSPEmuDevCreate(hIoMgr, &g_DevRegCcpV5, &Cfg, &pDev);
+                        if (Cfg.pszPspProxyAddr)
+                            rc = PSPProxyCtxCreate(&hPspProxyCtx, Cfg.pszPspProxyAddr);
+
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegCcpV5, &Cfg, &pDev);
                         if (!rc)
                             rc = PSPEmuDevCreate(hIoMgr, &g_DevRegTimer, &Cfg, &pDev);
                         if (!rc)
@@ -320,7 +333,7 @@ int main(int argc, char *argv[])
                             case PSPCOREMODE_APP:
                             {
                                 PspAddrStartExec = 0x15100;
-                                rc = PSPEmuSvcStateCreate(&hSvc, hCore);
+                                rc = PSPEmuSvcStateCreate(&hSvc, hCore, hPspProxyCtx);
                                 break;
                             }
                             case PSPCOREMODE_SYSTEM:
