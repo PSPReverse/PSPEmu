@@ -404,8 +404,8 @@ static void pspEmuCoreSvcWrapper(uc_engine *pUcEngine, uint32_t uIntNo, void *pv
 static int pspEmuCoreSvcBefore(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb, bool *pfSwitchToSvc)
 {
     int rc = 0;
+    bool fHandled = false; /* Default is to switch to supervisor mode in case there is nothing injected. */
 
-    *pfSwitchToSvc = true; /* Default is to switch to supervisor mode in case there is nothing injected. */
     if (pThis->pSvcReg)
     {
         uint32_t idxSyscall = 0;
@@ -446,7 +446,7 @@ static int pspEmuCoreSvcBefore(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb
             /* Any global handlers?. */
             if (   pThis->pSvcReg->GlobalSvc.pfnSvcHnd
                 && pThis->pSvcReg->GlobalSvc.fFlags & PSPEMU_CORE_SVC_F_BEFORE)
-                *pfSwitchToSvc = pThis->pSvcReg->GlobalSvc.pfnSvcHnd(pThis, idxSyscall, PSPEMU_CORE_SVC_F_BEFORE, pThis->pvSvcUser);
+                fHandled = pThis->pSvcReg->GlobalSvc.pfnSvcHnd(pThis, idxSyscall, PSPEMU_CORE_SVC_F_BEFORE, pThis->pvSvcUser);
 
             /* Any per SVC handler set?. */
             if (idxSyscall < pThis->pSvcReg->cSvcDescs)
@@ -454,10 +454,12 @@ static int pspEmuCoreSvcBefore(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb
                 PCPSPCORESVCDESC pSvcDesc = &pThis->pSvcReg->paSvcDescs[idxSyscall];
                 if (   pSvcDesc->pfnSvcHnd
                     && pSvcDesc->fFlags & PSPEMU_CORE_SVC_F_BEFORE)
-                    *pfSwitchToSvc = pSvcDesc->pfnSvcHnd(pThis, idxSyscall, PSPEMU_CORE_SVC_F_BEFORE, pThis->pvSvcUser);
+                    fHandled = pSvcDesc->pfnSvcHnd(pThis, idxSyscall, PSPEMU_CORE_SVC_F_BEFORE, pThis->pvSvcUser);
             }
         }
     }
+
+    *pfSwitchToSvc = fHandled ? false : true;
 
     return rc;
 }
