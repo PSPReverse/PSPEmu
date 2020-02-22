@@ -32,6 +32,7 @@ extern const PSPDEVREG g_DevRegFuse;
 extern const PSPDEVREG g_DevRegFlash;
 extern const PSPDEVREG g_DevRegSmu;
 extern const PSPDEVREG g_DevRegMmioUnk;
+extern const PSPDEVREG g_DevRegTest;
 
 extern const PSPDEVREG g_DevRegSmnUnk;
 
