@@ -48,13 +48,4 @@ int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore);
  */
 void PSPEmuSvcStateDestroy(PSPSVC hSvcState);
 
-/**
- * Executes the given syscall.
- *
- * @returns Status code.
- * @param   hSvcState               The SVC state handle.
- * @param   idxSyscall              The syscall to execute.
- */
-int PSPEmuSvcStateCall(PSPSVC hSvcState, uint32_t idxSyscall);
-
 #endif /* __psp_svc_h */
