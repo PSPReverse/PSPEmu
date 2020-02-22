@@ -153,6 +153,12 @@ typedef struct PSPCOREINT
     /** Head of MMIO regions. */
     PPSPCOREMMIOREGION      pMmioRegionsHead;
 
+    /** The SVC injection registartion record set, NULL if no overrides exist. */
+    PCPSPCORESVCREG         pSvcReg;
+    /** Opaque user data to pass to the SVC handlers. */
+    void                    *pvSvcUser;
+    /** The currently syscall number being executed. */
+    uint32_t                idxSvc;
     /** Flag whether an SVC call is pending. */
     bool                    fSvcPending;
 
@@ -385,6 +391,110 @@ static void pspEmuCoreSvcWrapper(uc_engine *pUcEngine, uint32_t uIntNo, void *pv
 }
 
 
+/**
+ * Execute any injected SVC handlers before possibly passing control to the supervisor code.
+ *
+ * @returns Status code.
+ * @param   pThis               The PSP emulation code instance.
+ * @param   PspAddrSvc          Address of the instruction coming after the SVC instruction.
+ * @param   fThumb              Flag whether the core is currently executing in thumb mode.
+ * @param   pfSwitchToSvc       Where to store the flag whether to switch to supervisor mode after all
+ *                              handlers where executed.
+ */
+static int pspEmuCoreSvcBefore(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb, bool *pfSwitchToSvc)
+{
+    int rc = 0;
+
+    *pfSwitchToSvc = true; /* Default is to switch to supervisor mode in case there is nothing injected. */
+    if (pThis->pSvcReg)
+    {
+        uint32_t idxSyscall = 0;
+
+        if (fThumb)
+        {
+            uint16_t uInsnSvc;
+            uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 2, &uInsnSvc, sizeof(uInsnSvc));
+            if (rcUc == UC_ERR_OK)
+            {
+                if (((uInsnSvc >> 8) & 0xff) == 0xdf)
+                    idxSyscall = uInsnSvc & 0xff;
+                else
+                    rc = -1; /* Should never happen. */
+            }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        }
+        else
+        {
+            uint32_t uInsnSvc;
+            uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 4, &uInsnSvc, sizeof(uInsnSvc));
+            if (rcUc == UC_ERR_OK)
+            {
+                if (((uInsnSvc >> 24) & 0x0f) == 0xf)
+                    idxSyscall = uInsnSvc & 0xffffff;
+                else
+                    rc = -1; /* Should never happen. */
+            }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        }
+
+        if (!rc)
+        {
+            pThis->idxSvc = idxSyscall;
+
+            /* Any global handlers?. */
+            if (   pThis->pSvcReg->GlobalSvc.pfnSvcHnd
+                && pThis->pSvcReg->GlobalSvc.fFlags & PSPEMU_CORE_SVC_F_BEFORE)
+                *pfSwitchToSvc = pThis->pSvcReg->GlobalSvc.pfnSvcHnd(pThis, idxSyscall, PSPEMU_CORE_SVC_F_BEFORE, pThis->pvSvcUser);
+
+            /* Any per SVC handler set?. */
+            if (idxSyscall < pThis->pSvcReg->cSvcDescs)
+            {
+                PCPSPCORESVCDESC pSvcDesc = &pThis->pSvcReg->paSvcDescs[idxSyscall];
+                if (   pSvcDesc->pfnSvcHnd
+                    && pSvcDesc->fFlags & PSPEMU_CORE_SVC_F_BEFORE)
+                    *pfSwitchToSvc = pSvcDesc->pfnSvcHnd(pThis, idxSyscall, PSPEMU_CORE_SVC_F_BEFORE, pThis->pvSvcUser);
+            }
+        }
+    }
+
+    return rc;
+}
+
+
+/**
+ * Execute any injected SVC handlers after control was passed to the supervisor code and control is about to
+ * return to the code invoking the SVC.
+ *
+ * @returns Status code.
+ * @param   pThis               The PSP emulation code instance.
+ */
+static int pspEmuCoreSvcAfter(PPSPCOREINT pThis)
+{
+    int rc = 0;
+
+    if (pThis->pSvcReg)
+    {
+        /* Any global handlers?. */
+        if (   pThis->pSvcReg->GlobalSvc.pfnSvcHnd
+            && pThis->pSvcReg->GlobalSvc.fFlags & PSPEMU_CORE_SVC_F_AFTER)
+            pThis->pSvcReg->GlobalSvc.pfnSvcHnd(pThis, pThis->idxSvc, PSPEMU_CORE_SVC_F_AFTER, pThis->pvSvcUser);
+
+        /* Any per SVC handler set?. */
+        if (pThis->idxSvc < pThis->pSvcReg->cSvcDescs)
+        {
+            PCPSPCORESVCDESC pSvcDesc = &pThis->pSvcReg->paSvcDescs[pThis->idxSvc];
+            if (   pSvcDesc->pfnSvcHnd
+                && pSvcDesc->fFlags & PSPEMU_CORE_SVC_F_AFTER)
+                pSvcDesc->pfnSvcHnd(pThis, pThis->idxSvc, PSPEMU_CORE_SVC_F_AFTER, pThis->pvSvcUser);
+        }
+    }
+
+    return rc;
+}
+
+
 int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
 {
     int rc = 0;
@@ -399,6 +509,8 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
         pThis->enmMode          = enmMode;
         pThis->cbSram           = _256K;
         pThis->pvSram           = calloc(1, pThis->cbSram);
+        pThis->pSvcReg          = NULL;
+        pThis->pvSvcUser        = NULL;
         pThis->fSvcPending      = false;
         if (pThis->pvSram)
         {
@@ -492,6 +604,15 @@ int PSPEmuCoreMemAddRegion(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
     return -1; /** @todo */
 }
 
+int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVCREG pSvcReg, void *pvUser)
+{
+    PPSPCOREINT pThis = hCore;
+
+    pThis->pSvcReg   = pSvcReg;
+    pThis->pvSvcUser = pvUser;
+    return 0;
+}
+
 int PSPEmuCoreSetOnChipBl(PSPCORE hCore, void *pvOnChipBl, size_t cbOnChipBl)
 {
     PPSPCOREINT pThis = hCore;
@@ -553,9 +674,16 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
         {
             cInsnExec--; /* Executed at least one instruction. */
 
-            /* Query the PC. */
+            /* Query the PC and execution mode. */
             uint32_t uPc = 0;
+            bool     fThumb = false;
+            size_t   ucCpuMode = 0;
             uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
+            if (rcUc2 == UC_ERR_OK)
+                rcUc2 = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+
+            fThumb = ucCpuMode == UC_MODE_THUMB ? true : false;
+
             if (rcUc2 == UC_ERR_OK)
             {
                 if (pThis->fSvcPending)
@@ -564,29 +692,39 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                     uint32_t uCpsrOld;
                     uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
 
-                    uint16_t uInsnSvc;
-                    uc_mem_read(pThis->pUcEngine, uPc - 2, &uInsnSvc, sizeof(uint16_t));
-                    if (((uInsnSvc >> 8) & 0xff) == 0xdf)
+                    /* Handle any SVC injections before passing control to any supervisor code. */
+                    bool fSwitchToSvc = true;
+                    if (rcUc2 == UC_ERR_OK)
+                        rcUc2 = pspEmuCoreSvcBefore(pThis, uPc, fThumb, &fSwitchToSvc);
+                    if (rcUc2 == UC_ERR_OK)
                     {
-                        uint32_t idxSyscall = uInsnSvc & 0xff;
-                        printf("SYSCALL %#x pending\n", idxSyscall);
+                        if (fSwitchToSvc) /** @todo Set temporary breakpoint to call SVC injection handlers afterwards. */
+                        {
+                            /* Set supervisor mode. */
+                            uint32_t uCpsr = (uCpsrOld & ~0xf) | 0x3; /** @todo Proper defines! */
+                            if (rcUc2 == UC_ERR_OK)
+                                rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsr);
+                            if (rcUc2 == UC_ERR_OK)
+                                rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_SPSR, &uCpsrOld); /* Save CPSR into SPSR after switching modes. */
+                            if (rcUc2 == UC_ERR_OK)
+                                rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_LR, &uPc); /* PC is advanced already. */
+
+                            /** @todo Determine base of exception table from VBAR register. */
+                            uPc = 0x100 + 2 * sizeof(uint32_t); /* Switches to ARM mode. */
+                            if (rcUc2 == UC_ERR_OK)
+                                rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
+                            if (rcUc2 == UC_ERR_OK)
+                                pThis->PspAddrExecNext = (PSPADDR)uPc;
+                        }
+                        else
+                        {
+                            pspEmuCoreSvcAfter(pThis);
+
+                            /* Return to the caller. */
+                            uPc |= fThumb ? 1 : 0;
+                            pThis->PspAddrExecNext = (PSPADDR)uPc;
+                        }
                     }
-
-                    /* Set supervisor mode. */
-                    uint32_t uCpsr = (uCpsrOld & ~0xf) | 0x3; /** @todo Proper defines! */
-                    if (rcUc2 == UC_ERR_OK)
-                        rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsr);
-                    if (rcUc2 == UC_ERR_OK)
-                        rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_SPSR, &uCpsrOld); /* Save CPSR into SPSR after switching modes. */
-                    if (rcUc2 == UC_ERR_OK)
-                        rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_LR, &uPc); /* PC is advanced already. */
-
-                    /** @todo Determine base of exception table from VBAR register. */
-                    uPc = 0x100 + 2 * sizeof(uint32_t); /* Switches to ARM mode. */
-                    if (rcUc2 == UC_ERR_OK)
-                        rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
-                    if (rcUc2 == UC_ERR_OK)
-                        pThis->PspAddrExecNext = (PSPADDR)uPc;
 
                     pThis->fSvcPending = false;
                     if (rcUc2 != UC_ERR_OK)
@@ -594,21 +732,12 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                 }
                 else
                 {
-                    /* Query the mode to execute and set the next address to execute. */
-                    size_t ucCpuMode = 0;
-
                     /*
                      * Unicorn doesn't use the CPSR Thumb state bit but switches to the instruction set
                      * based on bit 0 of the address (like for a blx instruction for instance).
                      */
-                    uc_err rcUc2 = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
-                    if (rcUc2 == UC_ERR_OK)
-                    {
-                        uPc |= ucCpuMode == UC_MODE_THUMB ? 1 : 0;
-                        pThis->PspAddrExecNext = (PSPADDR)uPc;
-                    }
-                    else
-                        rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+                    uPc |= fThumb ? 1 : 0;
+                    pThis->PspAddrExecNext = (PSPADDR)uPc;
                 }
             }
             else

@@ -102,6 +102,66 @@ typedef enum PSPCOREREG
 
 
 /**
+ * Overriden SVC handler.
+ *
+ * @returns true when the SVC call should be considered handled and execution should return to the caller
+ *          or false to forward the call to the supervisor code.
+ * @param   hCore                   The PSP core handle causing the SVC call.
+ * @param   idxSyscall              The syscall being called.
+ * @param   fFlags                  Flags for this call, see PSPEMU_CORE_SVC_F_XXX.
+ * @param   pvUser                  Opaque user data passed when the handler was registered.
+ */
+typedef bool (FNPSPCORESVCHANDLER)(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
+/** Syscall handler pointer. */
+typedef FNPSPCORESVCHANDLER *PFNPSPCORESVCHANDLER;
+
+
+/**
+ * Syscall descriptor.
+ */
+typedef struct PSPCORESVCDESC
+{
+    /** Syscall name (used for tracing/logging). */
+    const char                  *pszName;
+    /** Pointer to the SVC handler. */
+    PFNPSPCORESVCHANDLER        pfnSvcHnd;
+    /** Flags controlling when this handler is called, see PSPEMU_CORE_SVC_F_XXX. */
+    uint32_t                    fFlags;
+} PSPCORESVCDESC;
+/** Pointer to a syscall descriptor. */
+typedef PSPCORESVCDESC *PPSPCORESVCDESC;
+/** Pointer to a const syscall descriptor. */
+typedef const PSPCORESVCDESC *PCPSPCORESVCDESC;
+
+
+/** The syscall handler is invoked before control is passed to the supervisor code. */
+#define PSPEMU_CORE_SVC_F_BEFORE                BIT(0)
+/** The syscall handler is invoked after control was passed to the supervisor code and is about to return to the caller.
+ * The return value of the handler is of no interest. */
+#define PSPEMU_CORE_SVC_F_AFTER                 BIT(1)
+
+
+/**
+ * Syscall injection registration record.
+ */
+typedef struct PSPCORESVCREG
+{
+    /** Global handler which is called regardless of the syscall being executed. */
+    PSPCORESVCDESC              GlobalSvc;
+    /** Number of per syscall descriptors. */
+    uint32_t                    cSvcDescs;
+    /** Pointer to an array of svc descriptors. The number of entries indicates the maximum
+     * of overriden syscalls. To override only particular syscalls initialize the descriptors
+     * inbetween with NULL entries. */
+    PCPSPCORESVCDESC            paSvcDescs;
+} PSPCORESVCREG;
+/** Pointer to a syscall injection registration record. */
+typedef PSPCORESVCREG *PPSPCORESVCREG;
+/** Pointer to a const syscall injection registration record. */
+typedef const PSPCORESVCREG *PCPSPCORESVCREG;
+
+
+/**
  * Creates a new emulated PSP core.
  *
  * @returns Status code.
@@ -168,6 +228,16 @@ int PSPEmuCoreMemRead(PSPCORE hCore, PSPADDR AddrPspRead, void *pvDst, size_t cb
  * @param   cbRegion                Size of the region in bytes.
  */
 int PSPEmuCoreMemAddRegion(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion);
+
+/**
+ * Sets the SVC injection to use for any executed svc instructions.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   pSvcReg                 The SVC injection registration record, use NULL to deregister.
+ * @param   pvUser                  Opaque user data to pass to the svc handlers.
+ */
+int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVCREG pSvcReg, void *pvUser);
 
 /**
  * Initializes the on chip bootloader ROM region with the given data.
