@@ -120,6 +120,8 @@ typedef struct PSPCOREINT
     PSPSVC                  hSvcState;
     /** The next address to execute instructions from. */
     PSPADDR                 PspAddrExecNext;
+    /** Flag whether the exeuction should stop. */
+    bool                    fExecStop;
 
     /** Head of registered trace hooks. */
     PPSPCORETRACEHOOK       pTraceHooksHead;
@@ -480,6 +482,7 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
         pThis->pSvcReg          = NULL;
         pThis->pvSvcUser        = NULL;
         pThis->fSvcPending      = false;
+        pThis->fExecStop        = false;
         if (pThis->pvSram)
         {
             /* Initialize unicorn engine in ARM mode. */
@@ -635,7 +638,9 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
     if (!msExec) /** @todo: Proper timekeeping for the loop. */
         msExec = UINT32_MAX;
 
-    while (!rc && cInsnExec && msExec)
+    pThis->fExecStop = false;
+
+    while (!rc && cInsnExec && msExec && !pThis->fExecStop)
     {
         uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff, msExec, cInsnExec);
         if (rcUc == UC_ERR_OK)
@@ -722,6 +727,7 @@ int PSPEmuCoreExecStop(PSPCORE hCore)
 {
     PPSPCOREINT pThis = hCore;
 
+    pThis->fExecStop = true;
     int rcUc = uc_emu_stop(pThis->pUcEngine);
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
