@@ -683,96 +683,144 @@ static bool pspEmuSvcSmuMsg(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags,
 
 static bool pspEmuSvc0x32Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-#if 0
+    PPSPSVCINT pThis = (PPSPSVCINT)pvUser;
+
     PSPADDR  PspAddrUnk = 0;
     uint32_t cbUnk = 0;
     uint32_t uSts = 0;
 
-    uc_reg_read(uc, UC_ARM_REG_R0, &PspAddrUnk);
-    uc_reg_read(uc, UC_ARM_REG_R1, &cbUnk);
-
-    void *pvTmp = malloc(cbUnk);
-
-    uc_mem_read(pThis->pUcEngine, PspAddrUnk, pvTmp, cbUnk);
-    PSPProxyCtxPspMemWrite(pThis->hProxyCtx, 0x20000, pvTmp, cbUnk);
-
-    int rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, 0x20000, cbUnk, 0, 0, &uSts);
-    if (!rc && uSts == 0)
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R0, &PspAddrUnk);
+    if (!rc)
+        rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R1, &cbUnk);
+    if (!rc)
     {
-        /* Sync memory back. */
-        PSPProxyCtxPspMemRead(pThis->hProxyCtx, 0x20000, pvTmp, cbUnk);
-        uc_mem_write(pThis->pUcEngine, PspAddrUnk, pvTmp, cbUnk);
+        void *pvTmp = malloc(cbUnk);
+        if (pvTmp)
+        {
+            rc = PSPEmuCoreMemRead(pThis->hPspCore, PspAddrUnk, pvTmp, cbUnk);
+            if (!rc)
+            {
+                PSPADDR PspAddrProxy;
+                rc = PSPProxyCtxScratchSpaceAlloc(pThis->hProxyCtx, cbUnk, &PspAddrProxy);
+                if (!rc)
+                {
+                    rc = PSPProxyCtxPspMemWrite(pThis->hProxyCtx, PspAddrProxy, pvTmp, cbUnk);
+                    if (!rc)
+                    {
+                        rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, PspAddrProxy, cbUnk, 0, 0, &uSts);
+                        if (!rc && uSts == 0)
+                        {
+                            /* Sync memory back. */
+                            rc = PSPProxyCtxPspMemRead(pThis->hProxyCtx, PspAddrProxy, pvTmp, cbUnk);
+                            if (!rc)
+                            {
+                                rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrUnk, pvTmp, cbUnk);
+                                if (rc)
+                                    uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+                            }
+                            else
+                                uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+                        }
+                        else
+                        {
+                            printf("Syscall failed with rc=%d uSts=%#x\n", rc, uSts);
+                            if (rc)
+                                uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+                        }
+                    }
+                    else
+                        uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+
+                    PSPProxyCtxScratchSpaceFree(pThis->hProxyCtx, PspAddrProxy, cbUnk);
+                }
+                else
+                    uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+            }
+            else
+                uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+
+            free(pvTmp);
+        }
+        else
+            uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
     }
     else
-    {
-        printf("Syscall failed with %d uSts=%#x\n", rc, uSts);
-        if (rc)
-            uSts = 0x9;
-    }
+        uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
 
-    free(pvTmp);
-    uc_reg_write(uc, UC_ARM_REG_R0, &uSts);
-#endif
+    PSPEmuCoreSetReg(pThis->hPspCore, PSPCOREREG_R0, uSts);
+    return true;
 }
 
 static bool pspEmuSvc0x33Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-#if 0
-    uint32_t PspAddrUnk = 0;
+    PPSPSVCINT pThis = (PPSPSVCINT)pvUser;
+
+    PSPADDR  PspAddrUnk = 0;
     uint32_t cbUnk = 0;
     uint32_t uSts = 0;
 
-    print_ctx(pThis->pUcEngine);
-    uc_reg_read(uc, UC_ARM_REG_R0, &PspAddrUnk);
-    uc_reg_read(uc, UC_ARM_REG_R1, &cbUnk);
-    printf("Unknown syscall 0x33 with parameters: PspAddrUnk=%#x cbUnk=%#x\n", PspAddrUnk, cbUnk);
-
-    void *pvTmp = malloc(cbUnk);
-    if (pvTmp)
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R0, &PspAddrUnk);
+    if (!rc)
+        rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R1, &cbUnk);
+    if (!rc)
     {
-        if (uc_mem_read(pThis->pUcEngine, PspAddrUnk, pvTmp, cbUnk))
-            printf("Failed to read memory from unicorn\n");
-        int rc = PSPProxyCtxPspMemWrite(pThis->hProxyCtx, 0x21e2c, pvTmp, cbUnk);
-        if (!rc)
+        printf("Unknown syscall 0x33 with parameters: PspAddrUnk=%#x cbUnk=%#x\n", PspAddrUnk, cbUnk);
+
+        void *pvTmp = malloc(cbUnk);
+        if (pvTmp)
         {
-            rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, 0x21e2c /*Psp scratch addr*/, cbUnk, 0, 0, &uSts);
-            if (rc || uSts != 0)
-                printf("Syscall 0x33 rc=%d uSts=%#x\n", rc, uSts);
-            else
+            rc = PSPEmuCoreMemRead(pThis->hPspCore, PspAddrUnk, pvTmp, cbUnk);
+            if (!rc)
             {
-                rc = PSPProxyCtxPspMemRead(pThis->hProxyCtx, 0x21e2c, pvTmp, cbUnk);
+                PSPADDR PspAddrProxy;
+                rc = PSPProxyCtxScratchSpaceAlloc(pThis->hProxyCtx, cbUnk, &PspAddrProxy);
                 if (!rc)
                 {
-                    static int i = 0;
-                    char szBuf[128];
-                    snprintf(szBuf, sizeof(szBuf), "/home/alex/svc_0x33_%u.bin", i++);
-                    PSPEmuWriteData(szBuf, pvTmp, cbUnk);
-                    if (uc_mem_write(pThis->pUcEngine, PspAddrUnk, pvTmp, cbUnk))
-                        printf("Failed to write memory to unicorn\n");
+                    rc = PSPProxyCtxPspMemWrite(pThis->hProxyCtx, PspAddrProxy, pvTmp, cbUnk);
+                    if (!rc)
+                    {
+                        rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, PspAddrProxy, cbUnk, 0, 0, &uSts);
+                        if (!rc && uSts == 0)
+                        {
+                            /* Sync memory back. */
+                            rc = PSPProxyCtxPspMemRead(pThis->hProxyCtx, PspAddrProxy, pvTmp, cbUnk);
+                            if (!rc)
+                            {
+                                rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrUnk, pvTmp, cbUnk);
+                                if (rc)
+                                    uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+                            }
+                            else
+                                uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+                        }
+                        else
+                        {
+                            printf("Syscall failed with rc=%d uSts=%#x\n", rc, uSts);
+                            if (rc)
+                                uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+                        }
+                    }
+                    else
+                        uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+
+                    PSPProxyCtxScratchSpaceFree(pThis->hProxyCtx, PspAddrProxy, cbUnk);
                 }
                 else
-                {
-                    printf("Failed to read memory from PSP with %d\n", rc);
-                    uSts = 0x9;
-                }
+                    uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
             }
+            else
+                uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
+
+            free(pvTmp);
         }
         else
-        {
-            printf("Failed writing memory to proxied PSP with %d\n", rc);
-            uSts = 0x9;
-        }
-        free(pvTmp);
+            uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
     }
     else
-    {
-        printf("Out of memory allocating %#x bytes\n", cbUnk);
-        uSts = 0x9;
-    }
+        uSts = PSPSTATUS_GENERAL_MEMORY_ERROR;
 
-    printf("uSts=%#x\n", uSts);
-    uc_reg_write(uc, UC_ARM_REG_R0, &uSts);
-#endif
+    PSPEmuCoreSetReg(pThis->hPspCore, PSPCOREREG_R0, uSts);
+    return true;
 }
 
 static bool pspEmuSvcPlatformReset(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
