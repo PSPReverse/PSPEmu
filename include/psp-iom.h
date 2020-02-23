@@ -70,6 +70,12 @@ typedef void (FNPSPIOMX86MMIOWRITE)(X86PADDR offX86Mmio, size_t cbRead, const vo
 typedef FNPSPIOMX86MMIOWRITE *PFNPSPIOMX86MMIOWRITE;
 
 
+/** X86 memory fetch handler. */
+typedef void (FNPSPIOMX86MEMFETCH)(X86PADDR offX86Mem, size_t cbFetch, void *pvDst, void *pvUser);
+/** X86 memory fetch handler pointer. */
+typedef FNPSPIOMX86MEMFETCH *PFNPSPIOMX86MEMFETCH;
+
+
 /**
  * Initializes the I/O manager returning a handle.
  *
@@ -141,7 +147,51 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
 
 
 /**
- * Deregisters the region of the given handle (MMIO or SMN).
+ * Registers a X86 memory backed region.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   PhysX86AddrMemStart     The X86 start address of the memory region to register.
+ * @param   cbX86Mem                Size of the X86 memory region in bytes.
+ * @param   pfnFetch                Callback to call on a first read access to dynamically initialize the memory content,
+ *                                  optional (NULL means reads return 0 on first access).
+ * @param   pvUser                  Opaque user data passed in the fetch callback.
+ * @param   phX86Mem                Where to store the handle to the X86 memory region on success.
+ */
+int PSPEmuIoMgrX86MemRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMemStart, size_t cbX86Mem,
+                              PFNPSPIOMX86MEMFETCH pfnFetch, void *pvUser,
+                              PPSPIOMREGIONHANDLE phX86Mem);
+
+
+/**
+ * Reads data from the given X86 memory region.
+ *
+ * @returns Status code.
+ * @param   hX86Mem                 The X86 memory region to read from.
+ * @param   offX86Mem               The offset from the start of the region to read from.
+ * @param   pvDst                   Where to store the result.
+ * @param   cbRead                  Number of bytes to read.
+ *
+ * @note This might invoke the fetch handler if given during registration and the accessed area of the region
+ *       was not initialized yet.
+ */
+int PSPEmuIoMgrX86MemRead(PSPIOMREGIONHANDLE hX86Mem, X86PADDR offX86Mem, void *pvDst, size_t cbRead);
+
+
+/**
+ * Writes data to the given X86 memory region.
+ *
+ * @returns Status code.
+ * @param   hX86Mem                 The X86 memory region to write to.
+ * @param   offX86Mem               The offset from the start of the region to write to.
+ * @param   pvSrc                   The data to write.
+ * @param   cbWrite                 Number of bytes to write.
+ */
+int PSPEmuIoMgrX86MemWrite(PSPIOMREGIONHANDLE hX86Mem, X86PADDR offX86Mem, const void *pvSrc, size_t cbWrite);
+
+
+/**
+ * Deregisters the region of the given handle (MMIO, SMN or X86 MMIO/Mem).
  *
  * @returns Status code.
  * @param   hRegion                 The region handle to deregister.
