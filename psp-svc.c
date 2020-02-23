@@ -38,6 +38,30 @@
 typedef struct PSPSVCINT *PPSPSVCINT;
 
 /**
+ * x86 memory mapping slot.
+ */
+typedef struct PSPSVCX86MAPPING
+{
+    /** The base X86 address being mapped (aligned to a 64MB boundary). */
+    X86PADDR                PhysX86AddrBase;
+    /** The base PSP address returned from the proxied PSP (used for syncing the mappings). */
+    PSPADDR                 PspAddrProxyBase;
+    /** The memory type being used. */
+    uint32_t                uMemType;
+    /** Reference counter for this mapping, the mapping gets cleaned up if it reaches 0. */
+    uint32_t                cRefs;
+    /** The region handle associated with the active mapping. */
+    PSPIOMREGIONHANDLE      hIoMgrRegion;
+    /** Reference to the internal SVC state (used in the fetch callback). */
+    PPSPSVCINT              pThis;
+} PSPSVCX86MAPPING;
+/** Pointer to an x86 memory mapping slot. */
+typedef PSPSVCX86MAPPING *PPSPSVCX86MAPPING;
+/** Pointer to a const x86 memory mapping slot. */
+typedef const PSPSVCX86MAPPING *PCPSPSVCX86MAPPING;
+
+
+/**
  * Emulated supervisor firmware state.
  */
 typedef struct PSPSVCINT
@@ -50,6 +74,8 @@ typedef struct PSPSVCINT
     PSPPROXYCTX             hProxyCtx;
     /** Size of the state region. */
     uint32_t                cbStateRegion;
+    /** x86 memory mapping slots. */
+    PSPSVCX86MAPPING        aX86MapSlots[15];
 } PSPSVCINT;
 
 
@@ -313,10 +339,153 @@ static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags,
     return true;
 }
 
+
+/**
+ * The fetch callback for an existing x86 memory backing.
+ *
+ * @returns nothing.
+ * @param   offX86Mem               Offset to fetch from the beginning of the mapping.
+ * @param   cbFetch                 Number of bytes to fetch.
+ * @param   pvDst                   Where to store the fetched data.
+ * @param   pvUser                  Opqaue user data passed during region creation.
+ */
+static void pspEmuIoMgrX86MappingFetch(X86PADDR offX86Mem, size_t cbFetch, void *pvDst, void *pvUser)
+{
+    PPSPSVCX86MAPPING pMapping = (PPSPSVCX86MAPPING)pvUser;
+
+    int rc = PSPProxyCtxPspMemRead(pMapping->pThis->hProxyCtx, pMapping->PspAddrProxyBase + (uint32_t)offX86Mem, pvDst, cbFetch);
+    if (rc)
+        printf("Fetching memory content from %#lx failed with %rc\n", pMapping->PspAddrProxyBase + (uint32_t)offX86Mem, rc);
+}
+
+
+/**
+ * Worker for the x86 memory mapping syscalls.
+ *
+ * @returns Status code.
+ * @param   pThis                   The SVC state instance.
+ * @param   u32PhysX86AddrLow       Low part of the physical x86 address to map.
+ * @param   u32PhysX86AddrHigh      High part of the physical x86 address to map.
+ * @param   uMemType                The type of memory to map (presumably).
+ * @param   pPspAddrMapped          Where to store the virtual PSP address of the mapping on success.
+ */
+static int pspEmuSvcX86MemMapWorker(PPSPSVCINT pThis, uint32_t u32PhysX86AddrLow, uint32_t u32PhysX86AddrHigh, uint32_t uMemType,
+                                    PSPADDR *pPspAddrMapped)
+{
+    int rc = -1;
+    X86PADDR PhysX86Addr = (((uint64_t)u32PhysX86AddrLow << 32) | u32PhysX86AddrHigh);
+    X86PADDR PhysX86AddrBase = (PhysX86Addr & ~(_64M - 1));
+    uint32_t offStart = PhysX86Addr - PhysX86AddrBase;
+    size_t cbMapping = (PhysX86AddrBase + _64M) - PhysX86Addr;
+    printf("Mapping x86 address %#lx (64MB aligned base %#lx, memory target %u)\n", PhysX86Addr, PhysX86AddrBase, uMemType);
+
+    /* Search for a free mapping slot (unlike the real off chip bootloader we treat all slots equal). */
+    PPSPSVCX86MAPPING pMapping = NULL;
+    uint32_t idxSlot = 0;
+    for (uint32_t i = 0; i < ELEMENTS(pThis->aX86MapSlots); i++)
+    {
+        if (   pThis->aX86MapSlots[i].PhysX86AddrBase == NIL_X86PADDR
+            && pThis->aX86MapSlots[i].cRefs == 0)
+        {
+            pMapping = &pThis->aX86MapSlots[i];
+            idxSlot = i;
+            break;
+        }
+    }
+
+    if (pMapping)
+    {
+        /* Map the address into the proxied PSP before creating the actual mapping. */
+        PSPADDR PspAddrProxyMap;
+        rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, SVC_X86_HOST_MEMORY_MAP, u32PhysX86AddrLow, u32PhysX86AddrHigh, uMemType, 0, &PspAddrProxyMap);
+        if (   !rc
+            && PspAddrProxyMap != 0)
+        {
+            pMapping->cRefs            = 1;
+            pMapping->uMemType         = uMemType;
+            pMapping->PhysX86AddrBase  = PhysX86Addr; /* We cheat here and don't use the full 64MB mapping but cover only what the caller asked for. */
+            pMapping->PspAddrProxyBase = PspAddrProxyMap;
+
+            /* Create the x86 memory region. */
+            rc = PSPEmuIoMgrX86MemRegister(pThis->hIoMgr, PhysX86Addr, cbMapping,
+                                           pspEmuIoMgrX86MappingFetch, pMapping, &pMapping->hIoMgrRegion);
+            if (!rc)
+            {
+                /*
+                 * This emulates the real behavior of the off chip bootloader, we program the x86 mapping registers
+                 * of the emulated x86 mapping engine to point to our created x86 memory mapping.
+                 */
+                PSPADDR PspAddrSlotBase = 0x03230000 + idxSlot * 4 * sizeof(uint32_t);
+                uint32_t uTmp = 0;
+
+                /* Program base address. */
+                uTmp = ((PhysX86AddrBase >> 32) << 6) | ((PhysX86AddrBase >> 26) & 0x3f);
+                rc = PSPEmuIoMgrPspAddrWrite(pThis->hIoMgr, PspAddrSlotBase + 0, &uTmp, sizeof(uTmp));
+                /* Unknown but fixed value. */
+                uTmp = 0x12;
+                if (!rc)
+                    rc = PSPEmuIoMgrPspAddrWrite(pThis->hIoMgr, PspAddrSlotBase + 4, &uTmp, sizeof(uTmp));
+                if (!rc)
+                    rc = PSPEmuIoMgrPspAddrWrite(pThis->hIoMgr, PspAddrSlotBase + 8, &uMemType, sizeof(uMemType));
+                if (!rc)
+                    rc = PSPEmuIoMgrPspAddrWrite(pThis->hIoMgr, PspAddrSlotBase + 12, &uMemType, sizeof(uMemType));
+
+                uTmp = 0xffffffff;
+                if (!rc)
+                    rc = PSPEmuIoMgrPspAddrWrite(pThis->hIoMgr, 0x032303e0 + idxSlot * sizeof(uint32_t), &uTmp, sizeof(uTmp));
+                uTmp = 0xc0000000;
+                if (!rc)
+                    rc = PSPEmuIoMgrPspAddrWrite(pThis->hIoMgr, 0x032304d8 + idxSlot * sizeof(uint32_t), &uTmp, sizeof(uTmp));
+                if (!rc)
+                    *pPspAddrMapped = 0x04000000 + idxSlot * _64M + offStart;
+                else
+                {
+                    /* Something went wrong... */
+                    /** @todo Undo everything. */
+                    printf("Programming the x86 mapping control registers failed with %d\n", rc);
+                }
+            }
+            else
+            {
+                uint32_t uSts = 0;
+                int rc2 = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, SVC_X86_HOST_MEMORY_UNMAP, PspAddrProxyMap, 0, 0, 0, &uSts);
+                printf("Creating the x86 memory region failed with %d (Unmapping proxied memory yielded rc=%d uSts=%#x)\n", rc, rc2, uSts);
+            }
+        }
+        else
+            printf("Mapping %#lx on the proxied PSP failed with rc=%d PspAddrProxyMap=%#x\n", rc, PspAddrProxyMap);
+    }
+    else
+    {
+        /* This should never happen as the real PSP has only 15 mapping slots. */
+        /** @todo Unmap the mapping on the proxied PSP. */
+        printf("Ran out of x86 mapping slots, impossible!\n");
+        rc = -1;
+    }
+
+    return rc;
+}
+
+
 static bool pspEmuSvcX86MemMap(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-#if 0
-#endif
+    PPSPSVCINT pThis = (PPSPSVCINT)pvUser;
+
+    uint32_t u32PhysX86AddrLow = 0;
+    uint32_t u32PhysX86AddrHigh = 0;
+    PSPADDR  PspAddrMap = 0;
+
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R0, &u32PhysX86AddrLow);
+    if (!rc)
+        rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R1, &u32PhysX86AddrHigh);
+    if (!rc)
+        rc = pspEmuSvcX86MemMapWorker(pThis, u32PhysX86AddrLow, u32PhysX86AddrHigh, 4 /*From off chip bootloader*/,
+                                      &PspAddrMap);
+    if (rc)
+        PspAddrMap = 0;
+
+    PSPEmuCoreSetReg(pThis->hPspCore, PSPCOREREG_R0, PspAddrMap);
+    return true;
 }
 
 static bool pspEmuSvcX86MemUnmap(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
@@ -382,69 +551,29 @@ static bool pspEmuSvcX86CopyFromPsp(PSPCORE hCore, uint32_t idxSyscall, uint32_t
 #endif
 }
 
+
 static bool pspEmuSvcX86MemMapEx(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-#if 0
-    uint32_t uPhysX86AddrLow = 0;
-    uint32_t uPhysX86AddrHigh = 0;
+    PPSPSVCINT pThis = (PPSPSVCINT)pvUser;
+
+    uint32_t u32PhysX86AddrLow = 0;
+    uint32_t u32PhysX86AddrHigh = 0;
     uint32_t uMemType = 0;
-    uint32_t uAddr = 0;
+    PSPADDR  PspAddrMap = 0;
 
-    uc_reg_read(uc, UC_ARM_REG_R0, &uPhysX86AddrLow);
-    uc_reg_read(uc, UC_ARM_REG_R1, &uPhysX86AddrHigh);
-    uc_reg_read(uc, UC_ARM_REG_R2, &uMemType);
-
-    X86PADDR PhysX86AddrBase = (((uint64_t)uPhysX86AddrHigh << 32) | uPhysX86AddrLow);
-    printf("Mapping x86 address %#lx (memory target %u)\n", PhysX86AddrBase, uMemType);
-
-
-    int rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, idxSyscall, uPhysX86AddrLow, uPhysX86AddrHigh, uMemType, 0, &uAddr);
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R0, &u32PhysX86AddrLow);
+    if (!rc)
+        rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R1, &u32PhysX86AddrHigh);
+    if (!rc)
+        rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_R2, &uMemType);
+    if (!rc)
+        rc = pspEmuSvcX86MemMapWorker(pThis, u32PhysX86AddrLow, u32PhysX86AddrHigh, uMemType,
+                                      &PspAddrMap);
     if (rc)
-    {
-        printf("Mapping x86 address failed with %d\n", rc);
-        uAddr = 0;
-    }
-    else
-    {
-        PPSPX86MEMCACHEDMAPPING pMapping = NULL;
+        PspAddrMap = 0;
 
-        /* Search for a free mapping slot and create an MMIO mapping covering the base till the end of the 64MB slot. */
-        for (uint32_t i = 0; i < ELEMENTS(pThis->aX86Mappings); i++)
-        {
-            if (pThis->aX86Mappings[i].PhysX86AddrBase == NIL_X86PADDR)
-            {
-                pMapping = &pThis->aX86Mappings[i];
-                break;
-            }
-        }
-
-        if (pMapping)
-        {
-            pMapping->PhysX86AddrBase       = PhysX86AddrBase;
-            pMapping->PspAddrBase4K         = uAddr & ~(uint32_t)0xfff;
-            pMapping->PspAddrBase           = uAddr;
-            pMapping->PspAddrCached         = pMapping->PspAddrBase4K;
-            pMapping->PspAddrHighestWritten = 0;
-            pMapping->pPspCore              = pThis;
-            pMapping->cbAlloc               = 0;
-            pMapping->cbMapped              = ((PhysX86AddrBase & ~(_64M - 1)) + _64M) - PhysX86AddrBase;
-            pMapping->cbMapped4K            = (pMapping->cbMapped + _4K) & ~(uint32_t)0xfff;
-            pMapping->pvMapping             = NULL;
-
-            /* x86 mapping space. */
-            uc_mmio_map(pThis->pUcEngine, pMapping->PspAddrBase4K, pMapping->cbMapped4K, pspEmuX86MapRead, pspEmuX86MapWrite, pMapping);
-        }
-        else
-        {
-            /* This should never happen as the real PSP has only 8 mapping slots. */
-            /** @todo Unmap the mapping on the proxied PSP. */
-            printf("Ran out of x86 mapping slots, impossible!\n");
-            uAddr = 0;
-        }
-    }
-
-    uc_reg_write(uc, UC_ARM_REG_R0, &uAddr);
-#endif
+    PSPEmuCoreSetReg(pThis->hPspCore, PSPCOREREG_R0, PspAddrMap);
+    return true;
 }
 
 static bool pspEmuSvcSmuMsg(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
@@ -1245,13 +1374,22 @@ static bool pspEmuSvcQuerySmmRegion(PSPCORE hCore, uint32_t idxSyscall, uint32_t
 int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore, PSPIOM hIoMgr, PSPPROXYCTX hPspProxyCtx)
 {
     int rc = 0;
-    PPSPSVCINT pThis = (PPSPSVCINT)malloc(sizeof(*pThis));
+    PPSPSVCINT pThis = (PPSPSVCINT)calloc(1, sizeof(*pThis));
 
     if (pThis != NULL)
     {
         pThis->hPspCore  = hPspCore;
         pThis->hIoMgr    = hIoMgr;
         pThis->hProxyCtx = hPspProxyCtx;
+
+        for (uint32_t i = 0; i < ELEMENTS(pThis->aX86MapSlots); i++)
+        {
+            pThis->aX86MapSlots[i].PhysX86AddrBase  = NIL_X86PADDR;
+            pThis->aX86MapSlots[i].cRefs            = 0;
+            pThis->aX86MapSlots[i].PspAddrProxyBase = 0;
+            pThis->aX86MapSlots[i].uMemType         = 0;
+            pThis->aX86MapSlots[i].pThis            = pThis;
+        }
 
         rc = PSPEmuCoreSvcInjectSet(hPspCore, &g_SvcReg, pThis);
         if (!rc)
