@@ -1131,8 +1131,57 @@ int PSPEmuIoMgrX86MemWrite(PSPIOMREGIONHANDLE hX86Mem, X86PADDR offX86Mem, const
 
 int PSPEmuIoMgrDeregister(PSPIOMREGIONHANDLE hRegion)
 {
-    /** @todo */
-    return -1;
+    PPSPIOMREGIONHANDLEINT pRegion = hRegion;
+    PPSPIOMINT pThis = pRegion->pIoMgr;
+    PPSPIOMREGIONHANDLEINT *ppList = NULL;
+
+    /* Get correct list head pointer from the region type. */
+    switch (pRegion->enmType)
+    {
+        case PSPIOMREGIONTYPE_PSP_MMIO:
+            ppList = &pThis->pMmioHead;
+            break;
+        case PSPIOMREGIONTYPE_SMN:
+            ppList = &pThis->pSmnHead;
+            break;
+        case PSPIOMREGIONTYPE_X86_MMIO:
+        case PSPIOMREGIONTYPE_X86_MEM:
+            ppList = &pThis->pX86Head;
+            break;
+        default:
+            return -1;
+    }
+
+    /* Search for the region in the list and unlink it. */
+    PPSPIOMREGIONHANDLEINT pPrev = NULL;
+    PPSPIOMREGIONHANDLEINT pCur = *ppList;
+
+    while (   pCur
+           && pCur != pRegion)
+    {
+        pPrev = pCur;
+        pCur = pCur->pNext;
+    }
+
+    if (pCur)
+    {
+        /* Found */
+        if (pPrev)
+            pPrev->pNext = pCur->pNext;
+        else
+            *ppList = pCur->pNext;
+
+        /* For X86 memory regions we have to destroy the backing memory. */
+        /** @todo Sync mapping? */
+        if (   pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM
+            && pRegion->u.X86.u.Mem.pvMapping)
+            free(pRegion->u.X86.u.Mem.pvMapping);
+        free(pRegion);
+    }
+    else /* Not found? */
+        return -1;
+
+    return 0;
 }
 
 
