@@ -44,6 +44,8 @@ typedef struct PSPSVCINT
 {
     /** Pointer to the PSP emulation core. */
     PSPCORE                 hPspCore;
+    /** The I/O manager handle to manage x86 memory mappings. */
+    PSPIOM                  hIoMgr;
     /** The PSP proxy to forward requests to. */
     PSPPROXYCTX             hProxyCtx;
     /** Size of the state region. */
@@ -1240,7 +1242,7 @@ static bool pspEmuSvcQuerySmmRegion(PSPCORE hCore, uint32_t idxSyscall, uint32_t
     return true;
 }
 
-int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore, PSPPROXYCTX hPspProxyCtx)
+int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore, PSPIOM hIoMgr, PSPPROXYCTX hPspProxyCtx)
 {
     int rc = 0;
     PPSPSVCINT pThis = (PPSPSVCINT)malloc(sizeof(*pThis));
@@ -1248,6 +1250,7 @@ int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore, PSPPROXYCTX hPspP
     if (pThis != NULL)
     {
         pThis->hPspCore  = hPspCore;
+        pThis->hIoMgr    = hIoMgr;
         pThis->hProxyCtx = hPspProxyCtx;
 
         rc = PSPEmuCoreSvcInjectSet(hPspCore, &g_SvcReg, pThis);

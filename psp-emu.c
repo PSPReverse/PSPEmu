@@ -333,7 +333,7 @@ int main(int argc, char *argv[])
                             case PSPCOREMODE_APP:
                             {
                                 PspAddrStartExec = 0x15100;
-                                rc = PSPEmuSvcStateCreate(&hSvc, hCore, hPspProxyCtx);
+                                rc = PSPEmuSvcStateCreate(&hSvc, hCore, hIoMgr, hPspProxyCtx);
                                 break;
                             }
                             case PSPCOREMODE_SYSTEM:

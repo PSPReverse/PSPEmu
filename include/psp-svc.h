@@ -27,6 +27,7 @@
 #include <libpspproxy.h>
 
 #include "psp-core.h"
+#include "psp-iom.h"
 
 /** Opaque PSP SVC state handle. */
 typedef struct PSPSVCINT *PSPSVC;
@@ -39,9 +40,10 @@ typedef PSPSVC *PPSPSVC;
  * @returns Status code.
  * @param   phSvcState              Where to store the SVC state handle on success.
  * @param   hPspCore                The PSP core handle.
+ * @param   hIoMgr                  The I/O manager handle associated with the given PSP core.
  * @param   hPspProxyCtx            PSP proxy context to use for SVC emulation.
  */
-int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore, PSPPROXYCTX hPspProxyCtx);
+int PSPEmuSvcStateCreate(PPSPSVC phSvcState, PSPCORE hPspCore, PSPIOM hIoMgr, PSPPROXYCTX hPspProxyCtx);
 
 /**
  * Destroys a given PSP sueprvisor state.
