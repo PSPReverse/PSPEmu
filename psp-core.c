@@ -46,33 +46,6 @@ typedef struct PSPCOREINT *PPSPCOREINT;
 /** Pointer to a const PSP core instance. */
 typedef const struct PSPCOREINT *PCPSPCOREINT;
 
-/**
- * Cached x86 memory mapping
- */
-typedef struct PSPX86MEMCACHEDMAPPING
-{
-    /** Pointer to the owning PSP core instance. */
-    PCPSPCOREINT        pPspCore;
-    /** X86 Mapped base address, NIL_X86PADDR if mapping is not used. */
-    X86PADDR            PhysX86AddrBase;
-    /** 4K aligned base address of the mapping (for unicorn). */
-    PSPADDR             PspAddrBase4K;
-    /** PSP base address of the mapping. */
-    PSPADDR             PspAddrBase;
-    /** Highest cached address so far (exclusive, defines the memory span initialized). */
-    PSPADDR             PspAddrCached;
-    /** Highest address written so far (exclusive, defines range of memory we have to sync back on unmap). */
-    PSPADDR             PspAddrHighestWritten;
-    /** Size of mapped area. */
-    size_t              cbMapped;
-    /** 4K aligned mapping size (for unicorn). */
-    size_t              cbMapped4K;
-    /** Amount of memory allocated. */
-    size_t              cbAlloc;
-    /** Pointer to the memory caching the mapping. */
-    void                *pvMapping;
-} PSPX86MEMCACHEDMAPPING;
-typedef PSPX86MEMCACHEDMAPPING *PPSPX86MEMCACHEDMAPPING;
 
 /**
  * A single trace hook.
@@ -161,13 +134,6 @@ typedef struct PSPCOREINT
     uint32_t                idxSvc;
     /** Flag whether an SVC call is pending. */
     bool                    fSvcPending;
-
-    /** The x86 mapping for the privileged DRAM region where the SEV app state is saved. */
-    PSPX86MEMCACHEDMAPPING  X86MappingPrivState;
-    /** Size of the state region. */
-    uint32_t                cbStateRegion;
-    /** Cached temporary x86 mappings. */
-    PSPX86MEMCACHEDMAPPING  aX86Mappings[8];
 } PSPCOREINT;
 
 
