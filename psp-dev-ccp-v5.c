@@ -362,7 +362,7 @@ typedef struct CCPLSB
         {
             /** 32byte data. */
             uint8_t                 abData[32];
-        } aSlots[65];
+        } aSlots[128];
         /* Contiguous view of the complete LSB. */
         uint8_t                     abLsb[1];
     } u;
