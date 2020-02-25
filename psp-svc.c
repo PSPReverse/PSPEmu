@@ -32,6 +32,7 @@
 
 #include <psp-svc.h>
 #include <psp-core.h>
+#include <psp-trace.h>
 #include <libpspproxy.h>
 
 /** Pointer to the emulated supervisor firmware state. */
@@ -79,6 +80,8 @@ typedef struct PSPSVCINT
     /** x86 memory mapping slots. */
     PSPSVCX86MAPPING        aX86MapSlots[15];
 } PSPSVCINT;
+
+static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
 
 
 static bool pspEmuSvcAppExit(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
@@ -197,17 +200,29 @@ static const PSPCORESVCREG g_SvcReg =
     /** GlobalSvc */
     {
         /** pszName */
-        NULL,
+        "Trace",
         /** pfnSvcHnd */
-        NULL,
+        pspEmuSvcTrace,
         /** fFlags */
-        0
+        PSPEMU_CORE_SVC_F_BEFORE | PSPEMU_CORE_SVC_F_AFTER
     },
     /** cSvcDescs */
     ELEMENTS(g_aSvcDescs),
     /** paSvcDescs */
     &g_aSvcDescs[0]
 };
+
+
+static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
+{
+    PSPEMuTraceEvtAddSvc(NULL, PSPTRACEEVTTYPE_SVC, idxSyscall,
+                           (fFlags & PSPEMU_CORE_SVC_F_BEFORE)
+                         ? true
+                         : false /* fEntry*/,
+                         NULL /*pszMsg*/);
+    return false;
+}
+
 
 static bool pspEmuSvcAppExit(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
