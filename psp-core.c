@@ -198,6 +198,32 @@ static const char *g_apszUcErr[] =
 
 
 /**
+ * The register set during a batch query for the state dump method.
+ */
+static const PSPCOREREG g_aenmRegQueryBatch[] =
+{
+    PSPCOREREG_R0,
+    PSPCOREREG_R1,
+    PSPCOREREG_R2,
+    PSPCOREREG_R3,
+    PSPCOREREG_R4,
+    PSPCOREREG_R5,
+    PSPCOREREG_R6,
+    PSPCOREREG_R7,
+    PSPCOREREG_R8,
+    PSPCOREREG_R9,
+    PSPCOREREG_R10,
+    PSPCOREREG_R11,
+    PSPCOREREG_R12,
+    PSPCOREREG_SP,
+    PSPCOREREG_LR,
+    PSPCOREREG_PC,
+    PSPCOREREG_CPSR,
+    PSPCOREREG_SPSR
+};
+
+
+/**
  * Converts the PSP core register enum to the unicorn equivalent.
  *
  * @returns Unicorn register number.
@@ -617,6 +643,34 @@ int PSPEmuCoreQueryReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t *puVal)
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
+int PSPEmuCoreQueryRegBatch(PSPCORE hCore, const PSPCOREREG *paenmReg, uint32_t cRegs, uint32_t *pauVal)
+{
+    PPSPCOREINT pThis = hCore;
+    int aUcRegs[PSPCOREREG_LAST + 1];
+    uint64_t au64Vals[PSPCOREREG_LAST + 1];
+    void *apvVals[PSPCOREREG_LAST + 1];
+
+    /* Don't support querying the same register multiple times. */
+    if (cRegs > ELEMENTS(aUcRegs))
+        return -1;
+
+    for (uint32_t i = 0; i < cRegs; i++)
+    {
+        au64Vals[i] = 0;
+        aUcRegs[i] = pspEmuCoreReg2Uc(paenmReg[i]);
+        apvVals[i] = &au64Vals[i];
+    }
+
+    uc_err rcUc = uc_reg_read_batch(pThis->pUcEngine, &aUcRegs[0], &apvVals[0], cRegs);
+    if (rcUc == UC_ERR_OK)
+    {
+        for (uint32_t i = 0; i < cRegs; i++)
+            pauVal[i] = (uint32_t)au64Vals[i];
+    }
+
+    return pspEmuCoreErrConvertFromUcErr(rcUc);
+}
+
 int PSPEmuCoreExecSetStartAddr(PSPCORE hCore, PSPADDR AddrExecStart)
 {
     PPSPCOREINT pThis = hCore;
@@ -889,63 +943,61 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
 {
     PPSPCOREINT pThis = hCore;
 
-    PSPCOREREG enmReg = PSPCOREREG_R0;
-    uint32_t au32Reg[PSPCOREREG_SPSR + 1];
-
-    while (enmReg <= PSPCOREREG_SPSR)
-    {
-        PSPEmuCoreQueryReg(hCore, enmReg, &au32Reg[enmReg]);
-        enmReg++;
-    }
-
-    printf( "R0  > 0x%08x | R1  > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
-            "R4  > 0x%08x | R5  > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
-            "R8  > 0x%08x | R9  > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
-            "R12 > 0x%08x | SP  > 0x%08x | LR > 0x%08x | PC > 0x%08x\n"
-            "CPSR> 0x%08x | SPSR> 0x%08x\n",
-            au32Reg[PSPCOREREG_R0],   au32Reg[PSPCOREREG_R1], au32Reg[PSPCOREREG_R2],  au32Reg[PSPCOREREG_R3],
-            au32Reg[PSPCOREREG_R4],   au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6],  au32Reg[PSPCOREREG_R7],
-            au32Reg[PSPCOREREG_R8],   au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
-            au32Reg[PSPCOREREG_R12],  au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR],  au32Reg[PSPCOREREG_PC],
-            au32Reg[PSPCOREREG_CPSR], au32Reg[PSPCOREREG_SPSR]);
-
-    /* Dump a few instructions. */
-    uint8_t abInsn[5 * sizeof(uint32_t)];
-    char achBuf[_1K];
-    int rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_PC], &abInsn[0], sizeof(abInsn));
+    uint32_t au32Reg[ELEMENTS(g_aenmRegQueryBatch) + 1];
+    int rc = PSPEmuCoreQueryRegBatch(hCore, &g_aenmRegQueryBatch[0], ELEMENTS(g_aenmRegQueryBatch), &au32Reg[1]);
     if (!rc)
     {
-        size_t ucCpuMode = 0;
+        printf( "R0  > 0x%08x | R1  > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
+                "R4  > 0x%08x | R5  > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
+                "R8  > 0x%08x | R9  > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
+                "R12 > 0x%08x | SP  > 0x%08x | LR > 0x%08x | PC > 0x%08x\n"
+                "CPSR> 0x%08x | SPSR> 0x%08x\n",
+                au32Reg[PSPCOREREG_R0],   au32Reg[PSPCOREREG_R1], au32Reg[PSPCOREREG_R2],  au32Reg[PSPCOREREG_R3],
+                au32Reg[PSPCOREREG_R4],   au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6],  au32Reg[PSPCOREREG_R7],
+                au32Reg[PSPCOREREG_R8],   au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
+                au32Reg[PSPCOREREG_R12],  au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR],  au32Reg[PSPCOREREG_PC],
+                au32Reg[PSPCOREREG_CPSR], au32Reg[PSPCOREREG_SPSR]);
 
-        uc_err rcUc = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
-        if (rcUc == UC_ERR_OK)
+        /* Dump a few instructions. */
+        uint8_t abInsn[5 * sizeof(uint32_t)];
+        char achBuf[_1K];
+        int rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_PC], &abInsn[0], sizeof(abInsn));
+        if (!rc)
         {
-            rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC], ucCpuMode == UC_MODE_THUMB ? true : false);
-            if (!rc)
-                printf("Disasm:\n"
-                       "%s", &achBuf[0]);
-        }
-        else
-            fprintf(stderr, "Querying CPU mode failed with %d\n", pspEmuCoreErrConvertFromUcErr(rcUc));
-    }
+            size_t ucCpuMode = 0;
 
-    /* Dump last 0x20 bytes of stack memory */
-    uint32_t au32Stack[8];
-    rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_SP], &au32Stack[0], sizeof(au32Stack));
-    if (!rc)
-    {
-        printf("Stack:\n"
-               "\t0x%08x: 0x%08x <= SP\n"
-               "\t0x%08x: 0x%08x\n"
-               "\t0x%08x: 0x%08x\n"
-               "\t0x%08x: 0x%08x\n"
-               "\t0x%08x: 0x%08x\n"
-               "\t0x%08x: 0x%08x\n"
-               "\t0x%08x: 0x%08x\n"
-               "\t0x%08x: 0x%08x\n",
-               au32Reg[PSPCOREREG_SP],      au32Stack[0], au32Reg[PSPCOREREG_SP] +  4, au32Stack[1],
-               au32Reg[PSPCOREREG_SP] + 8,  au32Stack[2], au32Reg[PSPCOREREG_SP] + 12, au32Stack[3],
-               au32Reg[PSPCOREREG_SP] + 16, au32Stack[4], au32Reg[PSPCOREREG_SP] + 20, au32Stack[5],
-               au32Reg[PSPCOREREG_SP] + 24, au32Stack[6], au32Reg[PSPCOREREG_SP] + 28, au32Stack[7]);
+            uc_err rcUc = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+            if (rcUc == UC_ERR_OK)
+            {
+                rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC], ucCpuMode == UC_MODE_THUMB ? true : false);
+                if (!rc)
+                    printf("Disasm:\n"
+                           "%s", &achBuf[0]);
+            }
+            else
+                fprintf(stderr, "Querying CPU mode failed with %d\n", pspEmuCoreErrConvertFromUcErr(rcUc));
+        }
+
+        /* Dump last 0x20 bytes of stack memory */
+        uint32_t au32Stack[8];
+        rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_SP], &au32Stack[0], sizeof(au32Stack));
+        if (!rc)
+        {
+            printf("Stack:\n"
+                   "\t0x%08x: 0x%08x <= SP\n"
+                   "\t0x%08x: 0x%08x\n"
+                   "\t0x%08x: 0x%08x\n"
+                   "\t0x%08x: 0x%08x\n"
+                   "\t0x%08x: 0x%08x\n"
+                   "\t0x%08x: 0x%08x\n"
+                   "\t0x%08x: 0x%08x\n"
+                   "\t0x%08x: 0x%08x\n",
+                   au32Reg[PSPCOREREG_SP],      au32Stack[0], au32Reg[PSPCOREREG_SP] +  4, au32Stack[1],
+                   au32Reg[PSPCOREREG_SP] + 8,  au32Stack[2], au32Reg[PSPCOREREG_SP] + 12, au32Stack[3],
+                   au32Reg[PSPCOREREG_SP] + 16, au32Stack[4], au32Reg[PSPCOREREG_SP] + 20, au32Stack[5],
+                   au32Reg[PSPCOREREG_SP] + 24, au32Stack[6], au32Reg[PSPCOREREG_SP] + 28, au32Stack[7]);
+        }
     }
+    else
+        printf("Querying the register set failed with %d\n", rc);
 }

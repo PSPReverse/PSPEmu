@@ -89,7 +89,8 @@ typedef enum PSPCOREREG
     PSPCOREREG_LR,
     PSPCOREREG_PC,
     PSPCOREREG_CPSR,
-    PSPCOREREG_SPSR
+    PSPCOREREG_SPSR,
+    PSPCOREREG_LAST = PSPCOREREG_SPSR
 } PSPCOREREG;
 
 
@@ -268,6 +269,17 @@ int PSPEmuCoreSetReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t uVal);
  * @param   puVal                   Where to store the value of the register on success.
  */
 int PSPEmuCoreQueryReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t *puVal);
+
+/**
+ * Queries the content of a set of registers.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   paenmReg                Array of registers to query.
+ * @param   cRegs                   Number of registers in the array.
+ * @param   pauVal                  Where to store the values of the registers on success.
+ */
+int PSPEmuCoreQueryRegBatch(PSPCORE hCore, const PSPCOREREG *paenmReg, uint32_t cRegs, uint32_t *pauVal);
 
 /**
  * Sets the address to start executing instructions from on the next PSPEmuCoreExecRun() call.
