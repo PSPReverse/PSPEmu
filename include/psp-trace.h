@@ -57,8 +57,10 @@ typedef enum PSPTRACEEVTTYPE
     PSPTRACEEVTTYPE_X86_MEM,
     /** Emulated svc call. */
     PSPTRACEEVTTYPE_SVC,
+    /** Emulated CCP device. */
+    PSPTRACEEVTTYPE_CCP,
     /** Last valid trace event type, MUST be last here!. */
-    PSPTRACEEVTTYPE_LAST = PSPTRACEEVTTYPE_SVC,
+    PSPTRACEEVTTYPE_LAST = PSPTRACEEVTTYPE_CCP,
     /** 32bit hack. */
     PSPTRACEEVTTYPE_32BIT_HACK = 0x7fffffff
 } PSPTRACEEVTTYPE;
@@ -189,5 +191,17 @@ int PSPEmuTraceEvtAddDevRead(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const 
  * @param   cbWritten               Number of bytes being written.
  */
 int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbWrite);
+
+/**
+ * Adds svc event.
+ *
+ * @returns Status code.
+ * @param   hTrace                  The trace handle, NULL means default.
+ * @param   enmEvtType              The event type this belongs to.
+ * @param   idxSvc                  The SVC number being executed.
+ * @param   fEntry                  Flag whether this SVC entry or return.
+ * @param   pszMsg                  Additional message to log.
+ */
+int PSPEMuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, uint32_t idxSvc, bool fEntry, const char *pszMsg);
 
 #endif /* __psp_trace_h */

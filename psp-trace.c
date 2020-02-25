@@ -39,6 +39,8 @@ typedef enum PSPTRACEEVTCONTENTTYPE
     PSPTRACEEVTCONTENTTYPE_XFER,
     /** Content is a device read/write event. */
     PSPTRACEEVTCONTENTTYPE_DEV_XFER,
+    /** Content is a SVC descriptor. */
+    PSPTRACEEVTCONTENTTYPE_SVC,
     /** 32bit hack. */
     PSPTRACEEVTCONTENTTYPE_32BIT_HACK = 0x7fffffff
 } PSPTRACEEVTCONTENTTYPE;
@@ -84,6 +86,26 @@ typedef struct PSPTRACEEVTDEVXFER
 typedef PSPTRACEEVTDEVXFER *PPSPTRACEEVTDEVXFER;
 /** Pointer to a const device /read/write descriptor. */
 typedef const PSPTRACEEVTDEVXFER *PCPSPTRACEEVTDEVXFER;
+
+
+/**
+ * SVC event.
+ */
+typedef struct PSPTRACEEVTSVC
+{
+    /** Flag whether this an entry or exit event. */
+    bool                            fEntry;
+    /** The SVC number. */
+    uint32_t                        idxSvc;
+    /** Arguments for entry, return value for exit event. */
+    uint32_t                        au32ArgsRet[4];
+    /** Message logged - vairable in size. */
+    char                            szMsg[1];
+} PSPTRACEEVTSVC;
+/** Pointer to a SVC event descriptor. */
+typedef PSPTRACEEVTSVC *PPSPTRACEEVTSVC;
+/** Pointer to a const SVC event descriptor. */
+typedef const PSPTRACEEVTSVC *PCPSPTRACEEVTSVC;
 
 
 /**
@@ -488,6 +510,51 @@ static int pspEmuTraceEvtDumpToFile(FILE *pTraceFile, uint32_t fFlags, PCPSPTRAC
             }
             break;
         }
+        case PSPTRACEEVTCONTENTTYPE_SVC:
+        {
+            PPSPTRACEEVTSVC pSvc = (PPSPTRACEEVTSVC)&pEvt->abContent[0];
+
+            rcStr = snprintf(pszCur, cchLeft, "SVC %s %#x ",
+                             pSvc->fEntry ? "ENTRY" : "EXIT ",
+                             pSvc->idxSvc);
+            if (   rcStr < 0
+                || rcStr >= cchLeft)
+                return -1;
+
+            pszCur  += rcStr;
+            cchLeft -= rcStr;
+
+            if (pSvc->fEntry)
+                rcStr = snprintf(pszCur, cchLeft, "%#.8x %#.8x %#.8x %#.8x",
+                                 pSvc->au32ArgsRet[0],
+                                 pSvc->au32ArgsRet[1],
+                                 pSvc->au32ArgsRet[2],
+                                 pSvc->au32ArgsRet[3]);
+            else
+                rcStr = snprintf(pszCur, cchLeft, "%#.8x",
+                                 pSvc->au32ArgsRet[0]);
+
+            if (   rcStr < 0
+                || rcStr >= cchLeft)
+                return -1;
+
+            pszCur  += rcStr;
+            cchLeft -= rcStr;
+
+            if (pSvc->szMsg[0] != '\0')
+            {
+                rcStr = snprintf(pszCur, cchLeft, " %s",
+                                 &pSvc->szMsg[0]);
+
+                if (   rcStr < 0
+                    || rcStr >= cchLeft)
+                    return -1;
+
+                pszCur  += rcStr;
+                cchLeft -= rcStr;
+            }
+            break;
+        }
         default: /* Should not happen */
             return -1;
     }
@@ -691,4 +758,39 @@ int PSPEmuTraceEvtAddDevRead(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const 
 int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbWrite)
 {
     return pspEmuTraceEvtAddDevReadWriteWorker(hTrace, enmEvtType, pszDevId, uAddr, pvData, cbWrite, false /*fRead*/);
+}
+
+int PSPEMuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, uint32_t idxSvc, bool fEntry, const char *pszMsg)
+{
+    int rc = 0;
+    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtType(hTrace, enmEvtType);
+    if (pThis)
+    {
+        PPSPTRACEEVT pEvt;
+        size_t cchMsg = pszMsg ? strlen(pszMsg) + 1 : 0;
+        size_t cbAlloc = sizeof(PSPTRACEEVTSVC) + cchMsg;
+        rc = pspEmuTraceEvtCreateAndLink(pThis, enmEvtType, PSPTRACEEVTCONTENTTYPE_SVC, cbAlloc, &pEvt);
+        if (!rc)
+        {
+            PPSPTRACEEVTSVC pSvc = (PPSPTRACEEVTSVC)&pEvt->abContent[0];
+            pSvc->fEntry = fEntry;
+            pSvc->idxSvc = idxSvc;
+
+            /* Query the arguments from the core. */
+            static const PSPCOREREG s_aSvcRegQuery[] =
+            {
+                PSPCOREREG_R0,
+                PSPCOREREG_R1,
+                PSPCOREREG_R2,
+                PSPCOREREG_R3
+            };
+            PSPEmuCoreQueryRegBatch(pThis->hPspCore, &s_aSvcRegQuery[0], ELEMENTS(s_aSvcRegQuery), &pSvc->au32ArgsRet[0]);
+            if (pszMsg)
+                memcpy(&pSvc->szMsg[0], pszMsg, cchMsg);
+            else
+                pSvc->szMsg[0] = '\0'; /* Make sure it is terminated. */
+        }
+    }
+
+    return rc;
 }
