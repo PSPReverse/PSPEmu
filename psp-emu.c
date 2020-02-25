@@ -37,6 +37,7 @@
 #include <psp-devs.h>
 #include <psp-cfg.h>
 #include <psp-svc.h>
+#include <psp-trace.h>
 
 
 /**
@@ -54,6 +55,7 @@ static struct option g_aOptions[] =
     {"load-psp-dir",         no_argument,       0, 'l'},
     {"psp-dbg-mode",         no_argument,       0, 'g'},
     {"psp-proxy-addr",       required_argument, 0, 'x'},
+    {"trace-log",            required_argument, 0, 't'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -88,6 +90,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->uDbgPort              = 0;
     pCfg->fLoadPspDir           = false;
     pCfg->pszPspProxyAddr       = NULL;
+    pCfg->pszTraceLog           = NULL;
 
     while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:", &g_aOptions[0], &idxOption)) != -1)
     {
@@ -106,6 +109,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --psp-proxy-addr <path/to/proxy/device>\n"
                        "    --load-psp-dir\n",
                        "    --psp-dbg-mode\n",
+                       "    --trace-log <path/to/trace/log>\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -149,6 +153,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'x':
                 pCfg->pszPspProxyAddr = optarg;
+                break;
+            case 't':
+                pCfg->pszTraceLog = optarg;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -351,42 +358,63 @@ int main(int argc, char *argv[])
                             rc = PSPEmuCoreExecSetStartAddr(hCore, PspAddrStartExec);
                         if (!rc)
                         {
-                            if (Cfg.uDbgPort)
-                            {
-                                /*
-                                 * Execute one instruction to initialize the unicorn CPU state properly
-                                 * so the debugger has valid values to work with.
-                                 */
-                                rc = PSPEmuCoreExecRun(hCore, 1, 0);
-                                if (!rc)
-                                {
-                                    PSPDBG hDbg = NULL;
+                            PSPTRACE hTrace = NULL;
 
-                                    rc = PSPEmuDbgCreate(&hDbg, hCore, Cfg.uDbgPort);
+                            if (Cfg.pszTraceLog)
+                            {
+                                /* Set up a tracer. */
+                                rc = PSPEmuTraceCreate(&hTrace, PSPEMU_TRACE_F_DEFAULT, hCore);
+                                if (!rc)
+                                    rc = PSPEmuTraceSetDefault(hTrace);
+                            }
+
+                            if (!rc)
+                            {
+                                if (Cfg.uDbgPort)
+                                {
+                                    /*
+                                     * Execute one instruction to initialize the unicorn CPU state properly
+                                     * so the debugger has valid values to work with.
+                                     */
+                                    rc = PSPEmuCoreExecRun(hCore, 1, 0);
                                     if (!rc)
                                     {
-                                        printf("Debugger is listening on port %u...\n", Cfg.uDbgPort);
-                                        rc = PSPEmuDbgRunloop(hDbg);
-                                        if (rc)
+                                        PSPDBG hDbg = NULL;
+
+                                        rc = PSPEmuDbgCreate(&hDbg, hCore, Cfg.uDbgPort);
+                                        if (!rc)
                                         {
-                                            printf("Debugger runloop failed with %d\n", rc);
-                                            PSPEmuCoreStateDump(hCore);
+                                            printf("Debugger is listening on port %u...\n", Cfg.uDbgPort);
+                                            rc = PSPEmuDbgRunloop(hDbg);
+                                            if (rc)
+                                            {
+                                                printf("Debugger runloop failed with %d\n", rc);
+                                                PSPEmuCoreStateDump(hCore);
+                                            }
                                         }
+                                        else
+                                            fprintf(stderr, "Failed to create debugger instance with %d\n", rc);
                                     }
-                                    else
-                                        fprintf(stderr, "Failed to create debugger instance with %d\n", rc);
-                                }
-                            }
-                            else
-                            {
-                                rc = PSPEmuCoreExecRun(hCore, 0, 0);
-                                if (rc)
-                                {
-                                    fprintf(stderr, "Emulation runloop failed with %d\n", rc);
-                                    PSPEmuCoreStateDump(hCore);
                                 }
                                 else
-                                    PSPEmuCoreStateDump(hCore);
+                                {
+                                    rc = PSPEmuCoreExecRun(hCore, 0, 0);
+                                    if (rc)
+                                    {
+                                        fprintf(stderr, "Emulation runloop failed with %d\n", rc);
+                                        PSPEmuCoreStateDump(hCore);
+                                    }
+                                    else
+                                        PSPEmuCoreStateDump(hCore);
+                                }
+
+                                /* Dump the trace. */
+                                if (hTrace)
+                                {
+                                    rc = PSPEmuTraceDumpToFile(hTrace, Cfg.pszTraceLog);
+                                    if (rc)
+                                        fprintf(stderr, "Dumping to trace log to %s failed with %d\n", Cfg.pszTraceLog, rc);
+                                }
                             }
                         }
                         else
