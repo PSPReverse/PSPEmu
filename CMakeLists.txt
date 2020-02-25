@@ -20,6 +20,7 @@ add_executable(PSPEmu
                       psp-svc.c
                       psp-flash.c
                       psp-iom.c
+                      psp-trace.c
                       psp-dev.c
                       psp-dev-ccp-v5.c
                       psp-dev-timer.c
