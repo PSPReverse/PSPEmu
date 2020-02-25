@@ -18,6 +18,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -351,6 +352,175 @@ static int pspEmuTraceEvtAddDevReadWriteWorker(PSPTRACE hTrace, PSPTRACEEVTTYPE 
 }
 
 
+/**
+ * Dumps the given trace event to the given file.
+ *
+ * @returns Status code.
+ * @param   pTraceFile              The file to dump the event to.
+ * @param   fFlags                  The flags controlling what gets dumped.
+ * @param   pEvt                    The trace event to dump.
+ */
+static int pspEmuTraceEvtDumpToFile(FILE *pTraceFile, uint32_t fFlags, PCPSPTRACEEVT pEvt)
+{
+    char achBuf[_4K];
+    char *pszCur = &achBuf[0];
+    size_t cchLeft = sizeof(achBuf);
+    void *pvData = NULL;
+    size_t cbData = 0;
+    const char *pszEvt = pspEmuTraceGetEvtTypeStr(pEvt->enmEvtType);
+
+    /** @todo This should probably be redone properly someday... */
+    /* Trace ID. */
+    int rcStr = snprintf(pszCur, cchLeft, "%08u ", pEvt->idTraceEvt);
+    if (   rcStr < 0
+        || rcStr >= cchLeft)
+        return -1;
+
+    pszCur  += rcStr;
+    cchLeft -= rcStr;
+
+    /* Timestamp if configured. */
+    if (fFlags & PSPEMU_TRACE_F_TIMESTAMPS)
+    {
+        rcStr = snprintf(pszCur, cchLeft, "%16u ", pEvt->tsTraceEvtNs);
+        if (   rcStr < 0
+            || rcStr >= cchLeft)
+            return -1;
+
+        pszCur  += rcStr;
+        cchLeft -= rcStr;
+    }
+
+    /* The event type. */
+    rcStr = snprintf(pszCur, cchLeft, "%16s ", pszEvt);
+    if (   rcStr < 0
+        || rcStr >= cchLeft)
+        return -1;
+
+    pszCur  += rcStr;
+    cchLeft -= rcStr;
+
+    /* The PC if we don't have a full CPU context. */
+    if (!(fFlags & PSPEMU_TRACE_F_FULL_CORE_CTX))
+    {
+        rcStr = snprintf(pszCur, cchLeft, "0x%08x ", pEvt->au32CoreRegs[PSPCOREREG_PC]);
+        if (   rcStr < 0
+            || rcStr >= cchLeft)
+            return -1;
+
+        pszCur  += rcStr;
+        cchLeft -= rcStr;
+    }
+
+    /* Now the content specific data. */
+    switch (pEvt->enmContent)
+    {
+        case PSPTRACEEVTCONTENTTYPE_STRING:
+        {
+            rcStr = snprintf(pszCur, cchLeft, "STRING \"%s\"", (const char *)&pEvt->abContent[0]);
+            if (   rcStr < 0
+                || rcStr >= cchLeft)
+                return -1;
+
+            pszCur  += rcStr;
+            cchLeft -= rcStr;
+            break;
+        }
+        case PSPTRACEEVTCONTENTTYPE_XFER:
+        {
+            PPSPTRACEEVTXFER pXfer = (PPSPTRACEEVTXFER)&pEvt->abContent[0];
+            break;
+        }
+        case PSPTRACEEVTCONTENTTYPE_DEV_XFER:
+        {
+            PPSPTRACEEVTDEVXFER pDevXfer = (PPSPTRACEEVTDEVXFER)&pEvt->abContent[0];
+
+            rcStr = snprintf(pszCur, cchLeft, "DEV %s %s %#16lx %u",
+                             pDevXfer->fRead ? "READ " : "WRITE",
+                             pDevXfer->pszDevId,
+                             pDevXfer->uAddrDev,
+                             pDevXfer->cbXfer);
+            if (   rcStr < 0
+                || rcStr >= cchLeft)
+                return -1;
+
+            pszCur  += rcStr;
+            cchLeft -= rcStr;
+
+            if (   pDevXfer->cbXfer == 1
+                || pDevXfer->cbXfer == 2
+                || pDevXfer->cbXfer == 4
+                || pDevXfer->cbXfer == 8)
+            {
+                uint64_t uVal = 0;
+
+                switch (pDevXfer->cbXfer)
+                {
+                    case 1:
+                        uVal = *(uint8_t *)&pDevXfer->abXfer[0];
+                        break;
+                    case 2:
+                        uVal = *(uint16_t *)&pDevXfer->abXfer[0];
+                        break;
+                    case 4:
+                        uVal = *(uint32_t *)&pDevXfer->abXfer[0];
+                        break;
+                    case 8:
+                        uVal = *(uint64_t *)&pDevXfer->abXfer[0];
+                        break;
+                    default: /* Paranoia */
+                        return -1;
+                }
+
+                rcStr = snprintf(pszCur, cchLeft, " 0x%.*lx", pDevXfer->cbXfer * 2, uVal);
+                if (   rcStr < 0
+                    || rcStr >= cchLeft)
+                    return -1;
+
+                pszCur  += rcStr;
+                cchLeft -= rcStr;
+            }
+            else
+            {
+                /* Dump big data below. */
+                pvData = &pDevXfer->abXfer[0];
+                cbData = pDevXfer->cbXfer;
+            }
+            break;
+        }
+        default: /* Should not happen */
+            return -1;
+    }
+
+    if (!cchLeft)
+        return -1;
+
+    /* Convert zero terminator to newline. */
+    *pszCur = '\n';
+    pszCur++;
+    cchLeft--;
+
+    /* Now the full CPU context if available. */
+    if (fFlags & PSPEMU_TRACE_F_FULL_CORE_CTX)
+    {
+        /** @todo */
+    }
+
+    /* Write to file. */
+    size_t cbWritten = fwrite(&achBuf[0], sizeof(achBuf) - cchLeft, 1, pTraceFile);
+    if (cbWritten != 1)
+        return -1;
+
+    /* Now dump any larger data blobs. */
+    if (pvData && cbData)
+    {
+        /** @todo */
+    }
+
+    return 0;
+}
+
+
 int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore)
 {
     int rc = 0;
@@ -365,6 +535,12 @@ int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore)
         pThis->cTraceEvtsMax    = 0;
         pThis->cTraceEvts       = 0;
         pThis->papTraceEvts     = NULL;
+
+        if (fFlags &PSPEMU_TRACE_F_ALL_EVENT_TYPES)
+        {
+            for (uint32_t i = 0; i < ELEMENTS(pThis->afEvtTypesEnabled); i++)
+                pThis->afEvtTypesEnabled[i] = true;
+        }
 
         /** @todo Timestamping. */
 
@@ -429,7 +605,20 @@ int PSPEmuTraceEvtDisable(PSPTRACE hTrace, PSPTRACEEVTTYPE *paEvtTypes, uint32_t
 
 int PSPEmuTraceDumpToFile(PSPTRACE hTrace, const char *pszFilename)
 {
-    return -1;
+    int rc = 0;
+    PPSPTRACEINT pThis = pspEmuTraceGetInstance(hTrace);
+    FILE *pTraceFile = fopen(pszFilename, "wb");
+    if (pTraceFile)
+    {
+        /* Walk the trace events and dump one by one. */
+        for (uint64_t i = 0; i < pThis->cTraceEvts && !rc; i++)
+            rc = pspEmuTraceEvtDumpToFile(pTraceFile, pThis->fFlags, pThis->papTraceEvts[i]);
+        fclose(pTraceFile);
+    }
+    else
+        rc = -1;
+
+    return rc;
 }
 
 

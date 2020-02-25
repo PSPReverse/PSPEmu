@@ -65,9 +65,13 @@ typedef enum PSPTRACEEVTTYPE
 
 
 /** Include timestamps in the resulting logs (might not be supported on all hosts and will be ignored). */
-#define PSPEMU_TRACE_F_TIMESTAMPS    BIT(0)
+#define PSPEMU_TRACE_F_TIMESTAMPS      BIT(0)
 /** Dumps the complete PSP core state for each event (otherwise only the triggering PC is logged). */
-#define PSPEMU_TRACE_F_FULL_CORE_CTX BIT(1)
+#define PSPEMU_TRACE_F_FULL_CORE_CTX   BIT(1)
+/** Enable all event types by default. */
+#define PSPEMU_TRACE_F_ALL_EVENT_TYPES BIT(2)
+/** Default flags (no timestamps and no full context, all event types enabled). */
+#define PSPEMU_TRACE_F_DEFAULT         (PSPEMU_TRACE_F_ALL_EVENT_TYPES)
 
 
 /**
