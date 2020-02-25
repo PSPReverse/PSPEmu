@@ -55,6 +55,8 @@ typedef struct PSPEMUCFG
     size_t                  cbFlashRom;
     /** The proxy address if configured. */
     const char              *pszPspProxyAddr;
+    /** Path to the trace log to write if enabled. */
+    const char              *pszTraceLog;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;
