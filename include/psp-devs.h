@@ -37,6 +37,7 @@ extern const PSPDEVREG g_DevRegTest;
 extern const PSPDEVREG g_DevRegSmnUnk;
 
 extern const PSPDEVREG g_DevRegX86Unk;
+extern const PSPDEVREG g_DevRegX86Uart;
 
 #endif /* __psp_devs_h */
 
