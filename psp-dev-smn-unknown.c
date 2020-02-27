@@ -76,6 +76,20 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hSmn0x010d8034;
     /** 0x0005a088 region handle. */
     PSPIOMREGIONHANDLE          hSmn0x0005a088;
+    /** 0x0005a098 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0005a098;
+    /** 0x01010034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01010034;
+    /** 0x01002034 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x01002034;
+    /** 0x0005b310 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0005b310;
+    /** 0x0005bb10 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0005bb10;
+    /** 0x0005c310 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0005c310;
+    /** 0x0005fb10 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x0005fb10;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -83,8 +97,6 @@ typedef PSPDEVUNK *PPSPDEVUNK;
 
 static void pspDevUnkSmnRead0x0005e000(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
-
     switch (offSmn)
     {
         case 0x0:
@@ -96,8 +108,6 @@ static void pspDevUnkSmnRead0x0005e000(SMNADDR offSmn, size_t cbRead, void *pvVa
 
 static void pspDevUnkSmnRead0x0005d0cc(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
-
     switch (offSmn)
     {
         case 0x0:
@@ -110,8 +120,6 @@ static void pspDevUnkSmnRead0x0005d0cc(SMNADDR offSmn, size_t cbRead, void *pvVa
 
 static void pspDevUnkSmnRead0x01025034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
-
     switch (offSmn)
     {
         case 0x0:
@@ -123,8 +131,6 @@ static void pspDevUnkSmnRead0x01025034(SMNADDR offSmn, size_t cbRead, void *pvVa
 
 static void pspDevUnkSmnRead0x01004034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
-
     switch (offSmn)
     {
         case 0x0:
@@ -136,8 +142,6 @@ static void pspDevUnkSmnRead0x01004034(SMNADDR offSmn, size_t cbRead, void *pvVa
 
 static void pspDevUnkSmnRead0x0102e034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
-
     switch (offSmn)
     {
         case 0x0:
@@ -149,8 +153,6 @@ static void pspDevUnkSmnRead0x0102e034(SMNADDR offSmn, size_t cbRead, void *pvVa
 
 static void pspDevUnkSmnRead0x01046034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
-
     switch (offSmn)
     {
         case 0x0:
@@ -163,8 +165,6 @@ static void pspDevUnkSmnRead0x01046034(SMNADDR offSmn, size_t cbRead, void *pvVa
 
 static void pspDevUnkSmnRead0x18080064(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offSmn=%#x cbRead=%zu\n", __FUNCTION__, offSmn, cbRead);
-
     switch (offSmn)
     {
         case 0x0:
@@ -174,14 +174,24 @@ static void pspDevUnkSmnRead0x18080064(SMNADDR offSmn, size_t cbRead, void *pvVa
     }
 }
 
-static void pspDevUnkSmnWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
+static void pspDevUnkSmnRead0x01002034(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offSmn=%#x cbWrite=%zu\n", __FUNCTION__, offSmn, cbWrite);
-
-    switch (cbWrite)
+    switch (offSmn)
     {
-        case 4:
-            printf("    u32Val=%#x\n", *(uint32_t *)pvVal);
+        case 0x0:
+            /* The Ryzen on chip bootloader waits for bit 13 to become set. */
+            *(uint32_t *)pvVal = BIT(13);
+            break;
+    }
+}
+
+static void pspDevUnkSmnRead0x0005b310(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    switch (offSmn)
+    {
+        case 0x0:
+            /* The Ryzen on chip bootloader waits for bit 4 to become set. */
+            *(uint32_t *)pvVal = BIT(4);
             break;
     }
 }
@@ -192,11 +202,11 @@ static int pspDevUnkInit(PPSPDEV pDev)
     PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
 
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005e000, 4,
-                                    pspDevUnkSmnRead0x0005e000, pspDevUnkSmnWrite, pThis,
+                                    pspDevUnkSmnRead0x0005e000, NULL, pThis,
                                     &pThis->hSmn0x0005e000);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005d0cc, 4,
-                                    pspDevUnkSmnRead0x0005d0cc, pspDevUnkSmnWrite, pThis,
+                                    pspDevUnkSmnRead0x0005d0cc, NULL, pThis,
                                     &pThis->hSmn0x0005d0cc);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01025034, 4,
@@ -278,6 +288,38 @@ static int pspDevUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005a088, 4,
                                     pspDevUnkSmnRead0x0005e000, NULL, pThis,
                                     &pThis->hSmn0x0005a088);
+
+    /* For the Ryzen on chip bootloader, the actual value is not known so far. */
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01010034, 4,
+                                    pspDevUnkSmnRead0x01025034, NULL, pThis,
+                                    &pThis->hSmn0x01010034);
+    /* The Ryzen on chip bootloader waits for the first bit to become 1. */
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005a098, 4,
+                                    pspDevUnkSmnRead0x0005e000, NULL, pThis,
+                                    &pThis->hSmn0x0005a098);
+    /* The Ryzen on chip bootloader waits for bit 13 to become one. */
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01002034, 4,
+                                    pspDevUnkSmnRead0x01002034, NULL, pThis,
+                                    &pThis->hSmn0x01002034);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005b310, 4,
+                                    pspDevUnkSmnRead0x0005b310, NULL, pThis,
+                                    &pThis->hSmn0x0005b310);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005bb10, 4,
+                                    pspDevUnkSmnRead0x0005b310, NULL, pThis,
+                                    &pThis->hSmn0x0005bb10);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005c310, 4,
+                                    pspDevUnkSmnRead0x0005b310, NULL, pThis,
+                                    &pThis->hSmn0x0005c310);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005fb10, 4,
+                                    pspDevUnkSmnRead0x0005b310, NULL, pThis,
+                                    &pThis->hSmn0x0005fb10);
 
     return rc;
 }
