@@ -26,6 +26,45 @@
 
 #include <psp-core.h>
 
+
+/**
+ * Micro architecture the PSP emulated for.
+ */
+typedef enum PSPEMUMICROARCH
+{
+    /** Invalid value. */
+    PSPEMUMICROARCH_INVALID = 0,
+    /** Original Zen. */
+    PSPEMUMICROARCH_ZEN,
+    /* Zen+ */
+    PSPEMUMICROARCH_ZEN_PLUS,
+    /* Zen2 */
+    PSPEMUMICROARCH_ZEN2,
+    /** 32bit hack. */
+    PSPEMUMICROARCH_32BIT_HACK = 0x7fffffff
+} PSPEMUMICROARCH;
+
+
+/**
+ * AMD CPU segment.
+ */
+typedef enum PSPEMUAMDCPUSEGMENT
+{
+    /** Invalid segment. */
+    PSPEMUAMDCPUSEGMENT_INVALID = 0,
+    /** Ryzen (Consumer). */
+    PSPEMUAMDCPUSEGMENT_RYZEN,
+    /** Ryzen Pro (Business). */
+    PSPEMUAMDCPUSEGMENT_RYZEN_PRO,
+    /** Threadripper (HEDT). */
+    PSPEMUAMDCPUSEGMENT_THREADRIPPER,
+    /** Epyc (Server). */
+    PSPEMUAMDCPUSEGMENT_EPYC,
+    /** 32bit hack. */
+    PSPEMUAMDCPUSEGMENT_32BIT_HACK = 0x7fffffff
+} PSPEMUAMDCPUSEGMENT;
+
+
 /**
  * PSP emulator config.
  */
@@ -33,6 +72,10 @@ typedef struct PSPEMUCFG
 {
     /** Emulation mode. */
     PSPCOREMODE             enmMode;
+    /** The micro architecture we are emulating. */
+    PSPEMUMICROARCH         enmMicroArch;
+    /** The CPU segment we are emulating. */
+    PSPEMUAMDCPUSEGMENT     enmCpuSegment;
     /** The flash ROM path. */
     const char              *pszPathFlashRom;
     /** Path to the on chip bootloader if in appropriate mode. */

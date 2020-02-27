@@ -56,6 +56,8 @@ static struct option g_aOptions[] =
     {"psp-dbg-mode",         no_argument,       0, 'g'},
     {"psp-proxy-addr",       required_argument, 0, 'x'},
     {"trace-log",            required_argument, 0, 't'},
+    {"micro-arch",           required_argument, 0, 'a'},
+    {"cpu-segment",          required_argument, 0, 'c'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -91,8 +93,10 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fLoadPspDir           = false;
     pCfg->pszPspProxyAddr       = NULL;
     pCfg->pszTraceLog           = NULL;
+    pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
+    pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
 
-    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:a:c:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -109,7 +113,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --psp-proxy-addr <path/to/proxy/device>\n"
                        "    --load-psp-dir\n",
                        "    --psp-dbg-mode\n",
-                       "    --trace-log <path/to/trace/log>\n",
+                       "    --trace-log <path/to/trace/log>\n"
+                       "    --micro-arch <zen|zen+|zen2>\n"
+                       "    --cpu-segment <ryzen|ryzen-pro|threadripper|epyc>\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -157,6 +163,38 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 't':
                 pCfg->pszTraceLog = optarg;
                 break;
+            case 'a':
+            {
+                if (!strcasecmp(optarg, "zen"))
+                    pCfg->enmMicroArch = PSPEMUMICROARCH_ZEN;
+                else if (!strcasecmp(optarg, "zen+"))
+                    pCfg->enmMicroArch = PSPEMUMICROARCH_ZEN_PLUS;
+                else if (!strcasecmp(optarg, "zen2"))
+                    pCfg->enmMicroArch = PSPEMUMICROARCH_ZEN2;
+                else
+                {
+                    fprintf(stderr, "Unrecognised micro architecure: %s\n", optarg);
+                    return -1;
+                }
+                break;
+            }
+            case 'c':
+            {
+                if (!strcasecmp(optarg, "ryzen"))
+                    pCfg->enmCpuSegment = PSPEMUAMDCPUSEGMENT_RYZEN;
+                else if (!strcasecmp(optarg, "ryzen-pro"))
+                    pCfg->enmCpuSegment = PSPEMUAMDCPUSEGMENT_RYZEN_PRO;
+                else if (!strcasecmp(optarg, "threadripper"))
+                    pCfg->enmCpuSegment = PSPEMUAMDCPUSEGMENT_THREADRIPPER;
+                else if (!strcasecmp(optarg, "epyc"))
+                    pCfg->enmCpuSegment = PSPEMUAMDCPUSEGMENT_EPYC;
+                else
+                {
+                    fprintf(stderr, "Unrecognised CPU segment: %s\n", optarg);
+                    return -1;
+                }
+                break;
+            }
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
