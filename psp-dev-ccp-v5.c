@@ -1087,7 +1087,9 @@ static int pspDevCcpReqPassthruProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_
     }
     else
     {
-        printf("CCP: PASSTHRU ERROR uBitwise=%u, uByteSwap=%u and uReflect=%u not implemented yet!\n", uBitwise, uByteSwap, uReflect);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: PASSTHRU ERROR uBitwise=%u, uByteSwap=%u and uReflect=%u not implemented yet!\n",
+                                uBitwise, uByteSwap, uReflect);
         rc = -1;
     }
 
@@ -1173,8 +1175,9 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     }
     else
     {
-        printf("CCP: SHA ERROR uShaType=%u fInit=%u fEom=%u u32ShaBitsHigh=%u u32ShaBitsLow=%u not implemented yet!\n",
-               uShaType, fInit, fEom, pReq->Op.Sha.u32ShaBitsHigh, pReq->Op.Sha.u32ShaBitsLow);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: SHA ERROR uShaType=%u fInit=%u fEom=%u u32ShaBitsHigh=%u u32ShaBitsLow=%u not implemented yet!\n",
+                                uShaType, fInit, fEom, pReq->Op.Sha.u32ShaBitsHigh, pReq->Op.Sha.u32ShaBitsLow);
         rc = -1;
     }
 
@@ -1340,8 +1343,9 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     }
     else
     {
-        printf("CCP: AES ERROR uAesType=%u uMode=%u fEncrypt=%u uSz=%u not implemented yet!\n",
-               uAesType, uMode, fEncrypt, uSz);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: AES ERROR uAesType=%u uMode=%u fEncrypt=%u uSz=%u not implemented yet!\n",
+                                uAesType, uMode, fEncrypt, uSz);
         rc = -1;
     }
 
@@ -1510,7 +1514,9 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     }
     else
     {
-        printf("CCP: RSA ERROR uMode=%u uSz=%u not implemented yet!\n", uMode, uSz);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: RSA ERROR uMode=%u uSz=%u not implemented yet!\n",
+                                uMode, uSz);
         rc = -1;
     }
 
