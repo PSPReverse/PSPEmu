@@ -592,13 +592,25 @@ static void pspEmuIoMgrMmioSmnCtrlWrite(PSPADDR offMmio, size_t cbWrite, const v
             /* Each 4 byte access programs two slots. */
             uint32_t idxSlotBase = (offMmio / 4) * 2;
             uint32_t uSmnBaseVal = *(uint32_t *)pvVal;
-            printf("MMIO/SMN: Mapping slot %u and %u to 0x%08x\n", idxSlotBase, idxSlotBase + 1, uSmnBaseVal);
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_SMN,
+                                    "MMIO/SMN: Mapping slot %u and %u to 0x%08x\n", idxSlotBase, idxSlotBase + 1, uSmnBaseVal);
             pThis->aSmnAddrBaseSlots[idxSlotBase]     = (uSmnBaseVal & 0xffff) << 20;
             pThis->aSmnAddrBaseSlots[idxSlotBase + 1] = (uSmnBaseVal >> 16) << 20;
             break;
         }
+        case 2:
+        {
+            /* Each 4 byte access programs two slots. */
+            uint32_t idxSlotBase = offMmio / 2;
+            uint16_t uSmnBaseVal = *(uint16_t *)pvVal;
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_SMN,
+                                    "MMIO/SMN: Mapping slot %u to 0x%08x\n", idxSlotBase, uSmnBaseVal);
+            pThis->aSmnAddrBaseSlots[idxSlotBase] = uSmnBaseVal << 20;
+            break;
+        }
         default:
-            printf("Invalid write size %zu\n", cbWrite);
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_SMN,
+                                    "Invalid write size %zu", cbWrite);
     }
 }
 
