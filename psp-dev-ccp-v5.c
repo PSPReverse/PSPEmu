@@ -52,6 +52,7 @@
 #include <common/cdefs.h>
 
 #include <psp-devs.h>
+#include <psp-trace.h>
 
 
 /*********************************************************************************************************************************
@@ -392,8 +393,8 @@ typedef struct PSPDEVCCP
      * so the code will only every process one SHA operation at a time.
      */
     EVP_MD_CTX                      *pOsslSha256Ctx;
-    /** The openssl aes256 context currently in use, same note as above applies. */
-    EVP_CIPHER_CTX                  *pOsslAes256Ctx;
+    /** The openssl AES context currently in use, same note as above applies. */
+    EVP_CIPHER_CTX                  *pOsslAesCtx;
     /** The zlib decompression state. */
     z_stream                        Zlib;
 } PSPDEVCCP;
@@ -1201,16 +1202,54 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     uint8_t uAesType = CCP_V5_ENGINE_AES_TYPE_GET(uFunc);
 
     if (   uSz == 0
-        && fEncrypt == 1
-        && uMode == CCP_V5_ENGINE_AES_MODE_ECB
-        && uAesType == CCP_V5_ENGINE_AES_TYPE_256)
+        && (   uMode == CCP_V5_ENGINE_AES_MODE_ECB
+            || uMode == CCP_V5_ENGINE_AES_MODE_CBC)
+        && (   uAesType == CCP_V5_ENGINE_AES_TYPE_256
+            || uAesType == CCP_V5_ENGINE_AES_TYPE_128))
     {
-        const EVP_CIPHER *pOsslEvpAes256 = EVP_aes_256_ecb();
+        const EVP_CIPHER *pOsslEvpAes = NULL;
         size_t cbLeft = pReq->cbSrc;
+        size_t cbKey = 0;
         CCPXFERCTX XferCtx;
 
-        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, true /*fSha*/, pReq->cbSrc /**@todo Correct? */,
-                                  false /*fWriteRev*/);
+        if (uAesType == CCP_V5_ENGINE_AES_TYPE_256)
+        {
+            cbKey = 256 / 8;
+
+            if (uMode == CCP_V5_ENGINE_AES_MODE_ECB)
+                pOsslEvpAes = EVP_aes_256_ecb();
+            else if (uMode == CCP_V5_ENGINE_AES_MODE_CBC)
+                pOsslEvpAes = EVP_aes_256_cbc();
+            else
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_CCP, "CCP: Internal AES error");
+                rc = -1;
+            }
+
+        }
+        else if (uAesType == CCP_V5_ENGINE_AES_TYPE_128)
+        {
+            cbKey = 128 / 8;
+
+            if (uMode == CCP_V5_ENGINE_AES_MODE_ECB)
+                pOsslEvpAes = EVP_aes_128_ecb();
+            else if (uMode == CCP_V5_ENGINE_AES_MODE_CBC)
+                pOsslEvpAes = EVP_aes_128_cbc();
+            else
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_CCP, "CCP: Internal AES error");
+                rc = -1;
+            }
+        }
+        else
+        {
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_CCP, "CCP: Internal AES error");
+            rc = -1;
+        }
+
+        if (!rc)
+            rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, true /*fSha*/, pReq->cbSrc /**@todo Correct? */,
+                                      false /*fWriteRev*/);
         if (!rc)
         {
             /*
@@ -1220,24 +1259,24 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
             if (fInit)
             {
                 const uint8_t *pbKey = NULL;
-                rc = pspDevCcpKeyQueryPointerFromReq(pThis, pReq, 256 / 8, &pbKey);
+                rc = pspDevCcpKeyQueryPointerFromReq(pThis, pReq, cbKey, &pbKey);
                 if (!rc)
                 {
-                    pThis->pOsslAes256Ctx = EVP_CIPHER_CTX_new();
-                    if (!pThis->pOsslAes256Ctx)
+                    pThis->pOsslAesCtx = EVP_CIPHER_CTX_new();
+                    if (!pThis->pOsslAesCtx)
                         rc = -1;
                     else if (fEncrypt)
                     {
-                        if (EVP_EncryptInit_ex(pThis->pOsslAes256Ctx, pOsslEvpAes256, NULL, pbKey, NULL) != 1)
+                        if (EVP_EncryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, pbKey, NULL) != 1)
                             rc = -1;
                     }
                     else
                     {
-                        if (EVP_DecryptInit_ex(pThis->pOsslAes256Ctx, pOsslEvpAes256, NULL, pbKey, NULL) != 1)
+                        if (EVP_DecryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, pbKey, NULL) != 1)
                             rc = -1;
                     }
 
-                    if (EVP_CIPHER_CTX_set_padding(pThis->pOsslAes256Ctx, 0) != 1)
+                    if (EVP_CIPHER_CTX_set_padding(pThis->pOsslAesCtx, 0) != 1)
                         rc = -1;
                 }
             }
@@ -1255,12 +1294,12 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 {
                     if (fEncrypt)
                     {
-                        if (EVP_EncryptUpdate(pThis->pOsslAes256Ctx, &abDataOut[0], &cbOut, &abDataIn[0], cbThisProc) != 1)
+                        if (EVP_EncryptUpdate(pThis->pOsslAesCtx, &abDataOut[0], &cbOut, &abDataIn[0], cbThisProc) != 1)
                             rc = -1;
                     }
                     else
                     {
-                        if (EVP_DecryptUpdate(pThis->pOsslAes256Ctx, &abDataOut[0], &cbOut, &abDataIn[0], cbThisProc) != 1)
+                        if (EVP_DecryptUpdate(pThis->pOsslAesCtx, &abDataOut[0], &cbOut, &abDataIn[0], cbThisProc) != 1)
                             rc = -1;
                     }
                 }
@@ -1281,12 +1320,12 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
                 if (fEncrypt)
                 {
-                    if (EVP_EncryptFinal_ex(pThis->pOsslAes256Ctx, &abDataOut[0], &cbOut) != 1)
+                    if (EVP_EncryptFinal_ex(pThis->pOsslAesCtx, &abDataOut[0], &cbOut) != 1)
                         rc = -1;
                 }
                 else
                 {
-                    if (EVP_DecryptFinal_ex(pThis->pOsslAes256Ctx, &abDataOut[0], &cbOut) != 1)
+                    if (EVP_DecryptFinal_ex(pThis->pOsslAesCtx, &abDataOut[0], &cbOut) != 1)
                         rc = -1;
                 }
 
@@ -1294,8 +1333,8 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                     && cbOut)
                     rc = pspDevCcpXferCtxWrite(&XferCtx, &abDataOut[0], cbOut, NULL);
 
-                EVP_CIPHER_CTX_free(pThis->pOsslAes256Ctx);
-                pThis->pOsslAes256Ctx = NULL;
+                EVP_CIPHER_CTX_free(pThis->pOsslAesCtx);
+                pThis->pOsslAesCtx = NULL;
             }
         }
     }
