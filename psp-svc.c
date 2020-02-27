@@ -215,7 +215,7 @@ static const PSPCORESVCREG g_SvcReg =
 
 static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-    PSPEMuTraceEvtAddSvc(NULL, PSPTRACEEVTTYPE_SVC, idxSyscall,
+    PSPEMuTraceEvtAddSvc(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SVC, idxSyscall,
                            (fFlags & PSPEMU_CORE_SVC_F_BEFORE)
                          ? true
                          : false /* fEntry*/,

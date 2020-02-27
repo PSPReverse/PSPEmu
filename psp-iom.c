@@ -269,17 +269,19 @@ static SMNADDR pspEmuIomGetSmnAddrFromSlotAndOffset(PPSPIOMINT pThis, PSPADDR of
  *
  * @returns nothing.
  * @param   pThis                   I/O manager instance.
- * @param   enmEvtType              The trace event type.
+ * @param   enmSeverity             The trace event severity.
+ * @param   enmOrigin               The trace event origin.
  * @param   pszDevId                The device the read accessed, NULL means unknown.
  * @param   u64Addr                 The address of the region being read from.
  * @param   pvDst                   The data being read.
  * @param   cbRead                  Number of bytes read.
  */
-static void pspEmuIomTraceRegionRead(PPSPIOMINT pThis, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t u64Addr, const void *pvDst, size_t cbRead)
+static void pspEmuIomTraceRegionRead(PPSPIOMINT pThis, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                                     const char *pszDevId, uint64_t u64Addr, const void *pvDst, size_t cbRead)
 {
     if (!pszDevId)
         pszDevId = "<UNKNOWN>";
-    PSPEmuTraceEvtAddDevRead(NULL, enmEvtType, pszDevId, u64Addr, pvDst, cbRead);
+    PSPEmuTraceEvtAddDevRead(NULL, enmSeverity, enmEvtOrigin, pszDevId, u64Addr, pvDst, cbRead);
 }
 
 
@@ -288,31 +290,33 @@ static void pspEmuIomTraceRegionRead(PPSPIOMINT pThis, PSPTRACEEVTTYPE enmEvtTyp
  *
  * @returns nothing.
  * @param   pThis                   I/O manager instance.
- * @param   enmEvtType              The trace event type.
+ * @param   enmSeverity             The trace event severity.
+ * @param   enmOrigin               The trace event origin.
  * @param   pszDevId                The device the write accessed, NULL means unknown.
  * @param   u64Addr                 The address of the region being written to.
  * @param   pvData                  The data being written.
  * @param   cbWrite                 Number of bytes written.
  */
-static void pspEmuIomTraceRegionWrite(PPSPIOMINT pThis, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t u64Addr, const void *pvData, size_t cbWrite)
+static void pspEmuIomTraceRegionWrite(PPSPIOMINT pThis, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                                      const char *pszDevId, uint64_t u64Addr, const void *pvData, size_t cbWrite)
 {
     if (!pszDevId)
         pszDevId = "<UNKNOWN>";
-    PSPEmuTraceEvtAddDevWrite(NULL, enmEvtType, pszDevId, u64Addr, pvData, cbWrite);
+    PSPEmuTraceEvtAddDevWrite(NULL, enmSeverity, enmEvtOrigin, pszDevId, u64Addr, pvData, cbWrite);
 }
 
 
-static void pspEmuIomUnassignedRegionRead(PPSPIOMINT pThis, PSPTRACEEVTTYPE enmEvtType, uint64_t u64Addr, void *pvDst, size_t cbRead)
+static void pspEmuIomUnassignedRegionRead(PPSPIOMINT pThis, PSPTRACEEVTORIGIN enmEvtOrigin, uint64_t u64Addr, void *pvDst, size_t cbRead)
 {
     /* Unassigned read, log and return 0. */
     memset(pvDst, 0, cbRead);
-    pspEmuIomTraceRegionRead(pThis, enmEvtType, "<UNASSIGNED>", u64Addr, pvDst, cbRead);
+    pspEmuIomTraceRegionRead(pThis, PSPTRACEEVTSEVERITY_WARNING, enmEvtOrigin, "<UNASSIGNED>", u64Addr, pvDst, cbRead);
 }
 
 
-static void pspEmuIomUnassignedRegionWrite(PPSPIOMINT pThis, PSPTRACEEVTTYPE enmEvtType, uint64_t u64Addr, const void *pvSrc, size_t cbWrite)
+static void pspEmuIomUnassignedRegionWrite(PPSPIOMINT pThis, PSPTRACEEVTORIGIN enmEvtOrigin, uint64_t u64Addr, const void *pvSrc, size_t cbWrite)
 {
-    pspEmuIomTraceRegionWrite(pThis, enmEvtType, "<UNASSIGNED>", u64Addr, pvSrc, cbWrite);
+    pspEmuIomTraceRegionWrite(pThis, PSPTRACEEVTSEVERITY_WARNING, enmEvtOrigin, "<UNASSIGNED>", u64Addr, pvSrc, cbWrite);
 }
 
 
@@ -326,7 +330,7 @@ static void pspEmuIomSmnSlotsRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead
         && pRegion->u.Smn.pfnRead)
         pRegion->u.Smn.pfnRead(SmnAddr - pRegion->u.Smn.SmnAddrStart, cbRead, pvDst, pRegion->pvUser);
     else
-        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTTYPE_SMN, SmnAddr, pvDst, cbRead);
+        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvDst, cbRead);
 }
 
 
@@ -340,7 +344,7 @@ static void pspEmuIomSmnSlotsWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWri
         && pRegion->u.Smn.pfnWrite)
         pRegion->u.Smn.pfnWrite(SmnAddr - pRegion->u.Smn.SmnAddrStart, cbWrite, pvSrc, pRegion->pvUser);
     else
-        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTTYPE_SMN, SmnAddr, pvSrc, cbWrite);
+        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvSrc, cbWrite);
 }
 
 
@@ -354,7 +358,7 @@ static void pspEmuIomMmioRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
         && pRegion->u.Mmio.pfnRead)
         pRegion->u.Mmio.pfnRead(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbRead, pvDst, pRegion->pvUser);
     else
-        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTTYPE_MMIO, uPspAddr, pvDst, cbRead);
+        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvDst, cbRead);
 }
 
 
@@ -368,7 +372,7 @@ static void pspEmuIomMmioWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
         && pRegion->u.Mmio.pfnWrite)
         pRegion->u.Mmio.pfnWrite(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbWrite, pvSrc, pRegion->pvUser);
     else
-        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTTYPE_MMIO, uPspAddr, pvSrc, cbWrite);
+        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvSrc, cbWrite);
 }
 
 
@@ -521,15 +525,15 @@ static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, 
             if (pRegion->u.X86.u.Mmio.pfnRead)
                 pRegion->u.X86.u.Mmio.pfnRead(PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, cbRead, pvDst, pRegion->pvUser);
             else
-                pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTTYPE_X86_MMIO, PhysX86Addr, pvDst, cbRead);
+                pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvDst, cbRead);
         }
         else if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
             pspEmuIoMgrX86MemReadWorker(pThis, pRegion, PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, pvDst, cbRead);
         else /* Huh? */
-            pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTTYPE_X86_MMIO, PhysX86Addr, pvDst, cbRead); /** @todo assert or throw an error. */
+            pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvDst, cbRead); /** @todo assert or throw an error. */
     }
     else
-        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTTYPE_X86_MMIO, PhysX86Addr, pvDst, cbRead);
+        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvDst, cbRead);
 }
 
 
@@ -546,15 +550,15 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
             if (pRegion->u.X86.u.Mmio.pfnWrite)
                 pRegion->u.X86.u.Mmio.pfnWrite(PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, cbWrite, pvSrc, pRegion->pvUser);
             else
-                pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTTYPE_X86_MMIO, PhysX86Addr, pvSrc, cbWrite);
+                pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvSrc, cbWrite);
         }
         else if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
             pspEmuIoMgrX86MemWriteWorker(pThis, pRegion, PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, pvSrc, cbWrite);
         else /* Huh? */
-            pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTTYPE_X86_MMIO, PhysX86Addr, pvSrc, cbWrite); /** @todo assert or throw an error. */
+            pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvSrc, cbWrite); /** @todo assert or throw an error. */
     }
     else
-        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTTYPE_X86_MMIO, PhysX86Addr, pvSrc, cbWrite);
+        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvSrc, cbWrite);
 }
 
 

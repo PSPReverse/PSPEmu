@@ -117,8 +117,10 @@ typedef struct PSPTRACEEVT
     uint64_t                        idTraceEvt;
     /** Event timestamp in nanoseconds since creation of the owning tracer if configured. */
     uint64_t                        tsTraceEvtNs;
-    /** The event type. */
-    PSPTRACEEVTTYPE                 enmEvtType;
+    /** The event severity. */
+    PSPTRACEEVTSEVERITY             enmSeverity;
+    /** The event origin. */
+    PSPTRACEEVTORIGIN               enmOrigin;
     /** The content type. */
     PSPTRACEEVTCONTENTTYPE          enmContent;
     /** The PSP core context when this event happened. */
@@ -147,8 +149,8 @@ typedef struct PSPTRACEINT
     PSPCORE                         hPspCore;
     /** Flags controlling the trace behavior given during creation. */
     uint32_t                        fFlags;
-    /** Array of flags controlling which trace event types are enabled. */
-    bool                            afEvtTypesEnabled[PSPTRACEEVTTYPE_LAST];
+    /** Array of event severities what kind of events are logged for each event origin. */
+    PSPTRACEEVTSEVERITY             aenmEvtTypesSeverity[PSPTRACEEVTORIGIN_LAST];
     /** Number of bytes currently allocated for all stored trace events. */
     size_t                          cbEvtAlloc;
     /** Maximum number of trace events the array below can hold. */
@@ -187,11 +189,12 @@ static inline PPSPTRACEINT pspEmuTraceGetInstance(PSPTRACE hTrace)
  * @param   hTrace                  The tracer handle to use, if NULL the default one is returned.
  * @param   enmEvtType              The event type to check if the tracer has the event type disabled NULL is returned.
  */
-static inline PPSPTRACEINT pspEmuTraceGetInstanceForEvtType(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType)
+static inline PPSPTRACEINT pspEmuTraceGetInstanceForEvtSeverityAndOrigin(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity,
+                                                                         PSPTRACEEVTORIGIN enmOrigin)
 {
     PPSPTRACEINT pThis = pspEmuTraceGetInstance(hTrace);
     if (   pThis
-        && pThis->afEvtTypesEnabled[enmEvtType])
+        && pThis->aenmEvtTypesSeverity[enmOrigin] >= enmOrigin)
         return pThis;
 
     return NULL;
@@ -199,23 +202,23 @@ static inline PPSPTRACEINT pspEmuTraceGetInstanceForEvtType(PSPTRACE hTrace, PSP
 
 
 /**
- * Returns a human readable string for the given event type.
+ * Returns a human readable string for the given event origin.
  *
  * @returns Pointer to const human readable string.
- * @param   enmEvtType              The event type.
+ * @param   enmOrigin               The event origin.
  */
-static const char *pspEmuTraceGetEvtTypeStr(PSPTRACEEVTTYPE enmEvtType)
+static const char *pspEmuTraceGetEvtOriginStr(PSPTRACEEVTORIGIN enmOrigin)
 {
-    switch (enmEvtType)
+    switch (enmOrigin)
     {
-        case PSPTRACEEVTTYPE_INVALID:     return "INVALID";
-        case PSPTRACEEVTTYPE_FATAL_ERROR: return "FATAL_ERROR";
-        case PSPTRACEEVTTYPE_ERROR:       return "ERROR";
-        case PSPTRACEEVTTYPE_MMIO:        return "MMIO";
-        case PSPTRACEEVTTYPE_SMN:         return "SMN";
-        case PSPTRACEEVTTYPE_X86_MMIO:    return "X86_MMIO";
-        case PSPTRACEEVTTYPE_X86_MEM:     return "X86_MEM";
-        case PSPTRACEEVTTYPE_SVC:         return "SVC";
+        case PSPTRACEEVTORIGIN_INVALID:     return "INVALID";
+        case PSPTRACEEVTORIGIN_MMIO:        return "MMIO";
+        case PSPTRACEEVTORIGIN_SMN:         return "SMN";
+        case PSPTRACEEVTORIGIN_X86:         return "X86";
+        case PSPTRACEEVTORIGIN_X86_MMIO:    return "X86_MMIO";
+        case PSPTRACEEVTORIGIN_X86_MEM:     return "X86_MEM";
+        case PSPTRACEEVTORIGIN_SVC:         return "SVC";
+        case PSPTRACEEVTORIGIN_CCP:         return "CCP";
     }
 
     return "<UNKNOWN>";
@@ -223,26 +226,24 @@ static const char *pspEmuTraceGetEvtTypeStr(PSPTRACEEVTTYPE enmEvtType)
 
 
 /**
- * Configures the given event types.
+ * Returns a human readable string for the given event severity.
  *
- * @returns Status code.
- * @param   pThis                   The tracer instance.
- * @param   paEvtTypes              Array of event types to configure.
- * @param   cEvtTypes               Number of events in the array.
- * @param   fEnable                 Flag whether to enable tracing for the event types.
+ * @returns Pointer to const human readable string.
+ * @param   enmSeverity             The event severity.
  */
-static int pspEmuTraceEvtTypeConfigure(PPSPTRACEINT pThis, PSPTRACEEVTTYPE *paEvtTypes, uint32_t cEvtTypes, bool fEnable)
+static const char *pspEmuTraceGetEvtSeverityStr(PSPTRACEEVTSEVERITY enmSeverity)
 {
-    for (uint32_t i = 0; i < cEvtTypes; i++)
+    switch (enmSeverity)
     {
-        PSPTRACEEVTTYPE enmEvtType = paEvtTypes[i];
-        if (enmEvtType < PSPTRACEEVTTYPE_LAST)
-            pThis->afEvtTypesEnabled[enmEvtType] = true;
-        else
-            return -1;
+        case PSPTRACEEVTSEVERITY_INVALID:     return "INVALID";
+        case PSPTRACEEVTSEVERITY_DEBUG:       return "DEBUG";
+        case PSPTRACEEVTSEVERITY_INFO:        return "INFO";
+        case PSPTRACEEVTSEVERITY_WARNING:     return "WARNING";
+        case PSPTRACEEVTSEVERITY_ERROR:       return "ERROR";
+        case PSPTRACEEVTSEVERITY_FATAL_ERROR: return "FATAL_ERROR";
     }
 
-    return 0;
+    return "<UNKNOWN>";
 }
 
 
@@ -285,7 +286,8 @@ static int pspEmuTraceEvtLink(PPSPTRACEINT pThis, PPSPTRACEEVT pEvt)
  *
  * @returns Status code.
  * @param   pThis                   The tracer instance.
- * @param   enmEvtType              The event type.
+ * @param   enmSeverity             The event severity.
+ * @param   enmOrigin               The event origin.
  * @param   enmContent              Content type for the event.
  * @param   cbAlloc                 Number of bytes to allocate for additional data.
  * @param   ppEvt                   Where to store the pointer to the created event on success.
@@ -293,8 +295,8 @@ static int pspEmuTraceEvtLink(PPSPTRACEINT pThis, PPSPTRACEEVT pEvt)
  * @note This method assigns the timestamps and event ID and adds the event record to the given tracer.
  *       Don't do anything which might fail and leave the event record in an invalid state after this succeeded.
  */
-static int pspEmuTraceEvtCreateAndLink(PPSPTRACEINT pThis, PSPTRACEEVTTYPE enmEvtType, PSPTRACEEVTCONTENTTYPE enmContent,
-                                       size_t cbAlloc, PPSPTRACEEVT *ppEvt)
+static int pspEmuTraceEvtCreateAndLink(PPSPTRACEINT pThis, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmOrigin,
+                                       PSPTRACEEVTCONTENTTYPE enmContent, size_t cbAlloc, PPSPTRACEEVT *ppEvt)
 {
     int rc = 0;
     PPSPTRACEEVT pEvt = (PPSPTRACEEVT)calloc(1, sizeof(*pEvt) + cbAlloc);
@@ -302,7 +304,8 @@ static int pspEmuTraceEvtCreateAndLink(PPSPTRACEINT pThis, PSPTRACEEVTTYPE enmEv
     {
         pEvt->idTraceEvt     = 0;
         /*pEvt->tsTraceEvtNs = ...; */ /** @todo */
-        pEvt->enmEvtType     = enmEvtType;
+        pEvt->enmSeverity    = enmSeverity;
+        pEvt->enmOrigin      = enmOrigin;
         pEvt->enmContent     = enmContent;
         pEvt->cbAlloc        = cbAlloc;
 
@@ -338,25 +341,25 @@ static int pspEmuTraceEvtCreateAndLink(PPSPTRACEINT pThis, PSPTRACEEVTTYPE enmEv
  *
  * @returns Status code.
  * @param   hTrace                  The trace handle, NULL means default.
- * @param   enmEvtType              The event type this belongs to.
+ * @param   enmSeverity             The event severity.
+ * @param   enmOrigin               The event origin.
  * @param   pszDevId                The device identifier of the device being accessed.
  * @param   uAddr                   The context specific device address the transfer started at.
  * @param   pvData                  The data being read or written.
  * @param   cbXfer                  Number of bytes being transfered.
  * @param   fRead                   Flag whether this was a read or write event.
  */
-static int pspEmuTraceEvtAddDevReadWriteWorker(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t uAddr,
-                                               const void *pvData, size_t cbXfer, bool fRead)
+static int pspEmuTraceEvtAddDevReadWriteWorker(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmOrigin,
+                                               const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbXfer, bool fRead)
 {
     int rc = 0;
-    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtType(hTrace, enmEvtType);
-
+    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmOrigin);
     if (pThis)
     {
         PPSPTRACEEVT pEvt;
         size_t cchDevId = strlen(pszDevId) + 1; /* Include terminator */
         size_t cbAlloc = sizeof(PSPTRACEEVTDEVXFER) + cbXfer + cchDevId;
-        rc = pspEmuTraceEvtCreateAndLink(pThis, enmEvtType, PSPTRACEEVTCONTENTTYPE_DEV_XFER, cbAlloc, &pEvt);
+        rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmOrigin, PSPTRACEEVTCONTENTTYPE_DEV_XFER, cbAlloc, &pEvt);
         if (!rc)
         {
             PPSPTRACEEVTDEVXFER pDevXfer = (PPSPTRACEEVTDEVXFER)&pEvt->abContent[0];
@@ -389,7 +392,8 @@ static int pspEmuTraceEvtDumpToFile(FILE *pTraceFile, uint32_t fFlags, PCPSPTRAC
     size_t cchLeft = sizeof(achBuf);
     void *pvData = NULL;
     size_t cbData = 0;
-    const char *pszEvt = pspEmuTraceGetEvtTypeStr(pEvt->enmEvtType);
+    const char *pszEvtSeverity = pspEmuTraceGetEvtSeverityStr(pEvt->enmSeverity);
+    const char *pszEvtOrigin = pspEmuTraceGetEvtOriginStr(pEvt->enmOrigin);
 
     /** @todo This should probably be redone properly someday... */
     /* Trace ID. */
@@ -413,8 +417,17 @@ static int pspEmuTraceEvtDumpToFile(FILE *pTraceFile, uint32_t fFlags, PCPSPTRAC
         cchLeft -= rcStr;
     }
 
-    /* The event type. */
-    rcStr = snprintf(pszCur, cchLeft, "%16s ", pszEvt);
+    /* The event severity. */
+    rcStr = snprintf(pszCur, cchLeft, "%16s ", pszEvtSeverity);
+    if (   rcStr < 0
+        || rcStr >= cchLeft)
+        return -1;
+
+    pszCur  += rcStr;
+    cchLeft -= rcStr;
+
+    /* The event origin. */
+    rcStr = snprintf(pszCur, cchLeft, "%16s ", pszEvtOrigin);
     if (   rcStr < 0
         || rcStr >= cchLeft)
         return -1;
@@ -603,10 +616,10 @@ int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore)
         pThis->cTraceEvts       = 0;
         pThis->papTraceEvts     = NULL;
 
-        if (fFlags &PSPEMU_TRACE_F_ALL_EVENT_TYPES)
+        if (fFlags &PSPEMU_TRACE_F_ALL_EVENTS)
         {
-            for (uint32_t i = 0; i < ELEMENTS(pThis->afEvtTypesEnabled); i++)
-                pThis->afEvtTypesEnabled[i] = true;
+            for (uint32_t i = 0; i < ELEMENTS(pThis->aenmEvtTypesSeverity); i++)
+                pThis->aenmEvtTypesSeverity[i] = PSPTRACEEVTSEVERITY_DEBUG;
         }
 
         /** @todo Timestamping. */
@@ -646,25 +659,22 @@ int PSPEmuTraceSetDefault(PSPTRACE hTrace)
 }
 
 
-int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PSPTRACEEVTTYPE *paEvtTypes, uint32_t cEvtTypes)
+int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PSPTRACEEVTORIGIN *paEvtOrigins, PSPTRACEEVTSEVERITY *paEvtSeverities, uint32_t cEvts)
 {
     int rc = 0;
     PPSPTRACEINT pThis = pspEmuTraceGetInstance(hTrace);
 
     if (pThis)
-        rc = pspEmuTraceEvtTypeConfigure(pThis, paEvtTypes, cEvtTypes, true /*fEnable*/);
-
-    return rc;
-}
-
-
-int PSPEmuTraceEvtDisable(PSPTRACE hTrace, PSPTRACEEVTTYPE *paEvtTypes, uint32_t cEvtTypes)
-{
-    int rc = 0;
-    PPSPTRACEINT pThis = pspEmuTraceGetInstance(hTrace);
-
-    if (pThis)
-        rc = pspEmuTraceEvtTypeConfigure(pThis, paEvtTypes, cEvtTypes, false /*fEnable*/);
+    {
+        for (uint32_t i = 0; i < cEvts; i++)
+        {
+            PSPTRACEEVTORIGIN enmOrigin = paEvtOrigins[i];
+            if (enmOrigin < PSPTRACEEVTORIGIN_LAST)
+                pThis->aenmEvtTypesSeverity[enmOrigin] = paEvtSeverities[i];
+            else
+                return -1;
+        }
+    }
 
     return rc;
 }
@@ -689,10 +699,11 @@ int PSPEmuTraceDumpToFile(PSPTRACE hTrace, const char *pszFilename)
 }
 
 
-int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszFmt, va_list hArgs)
+int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                             const char *pszFmt, va_list hArgs)
 {
     int rc = 0;
-    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtType(hTrace, enmEvtType);
+    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmEvtOrigin);
     if (pThis)
     {
         uint8_t szTmp[_4K]; /** @todo Maybe allocate scratch buffer if this turns to be too small (or fix your damn log strings...). */
@@ -702,7 +713,7 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const 
         {
             PPSPTRACEEVT pEvt;
             size_t cbAlloc = rcStr + 1; /* Include terminator. */
-            rc = pspEmuTraceEvtCreateAndLink(pThis, enmEvtType, PSPTRACEEVTCONTENTTYPE_STRING, cbAlloc, &pEvt);
+            rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_STRING, cbAlloc, &pEvt);
             if (!rc)
                 memcpy(&pEvt->abContent[0], &szTmp[0], cbAlloc);
         }
@@ -714,27 +725,29 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const 
 }
 
 
-int PSPEmuTraceEvtAddString(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszFmt, ...)
+int PSPEmuTraceEvtAddString(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                            const char *pszFmt, ...)
 {
     va_list hArgs;
 
     va_start(hArgs, pszFmt);
-    int rc = PSPEmuTraceEvtAddStringV(hTrace, enmEvtType, pszFmt, hArgs);
+    int rc = PSPEmuTraceEvtAddStringV(hTrace, enmSeverity, enmEvtOrigin, pszFmt, hArgs);
     va_end(hArgs);
 
     return rc;
 }
 
 
-int PSPEmuTraceEvtAddXfer(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, uint64_t uAddrSrc, uint64_t uAddrDst, const void *pvBuf, size_t cbXfer)
+int PSPEmuTraceEvtAddXfer(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                          uint64_t uAddrSrc, uint64_t uAddrDst, const void *pvBuf, size_t cbXfer)
 {
     int rc = 0;
-    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtType(hTrace, enmEvtType);
+    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmEvtOrigin);
     if (pThis)
     {
         PPSPTRACEEVT pEvt;
         size_t cbAlloc = sizeof(PSPTRACEEVTXFER) + cbXfer;
-        rc = pspEmuTraceEvtCreateAndLink(pThis, enmEvtType, PSPTRACEEVTCONTENTTYPE_XFER, cbAlloc, &pEvt);
+        rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_XFER, cbAlloc, &pEvt);
         if (!rc)
         {
             PPSPTRACEEVTXFER pXfer = (PPSPTRACEEVTXFER)&pEvt->abContent[0];
@@ -749,27 +762,30 @@ int PSPEmuTraceEvtAddXfer(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, uint64_t 
 }
 
 
-int PSPEmuTraceEvtAddDevRead(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbRead)
+int PSPEmuTraceEvtAddDevRead(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                             const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbRead)
 {
-    return pspEmuTraceEvtAddDevReadWriteWorker(hTrace, enmEvtType, pszDevId, uAddr, pvData, cbRead, true /*fRead*/);
+    return pspEmuTraceEvtAddDevReadWriteWorker(hTrace, enmSeverity, enmEvtOrigin, pszDevId, uAddr, pvData, cbRead, true /*fRead*/);
 }
 
 
-int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbWrite)
+int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                              const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbWrite)
 {
-    return pspEmuTraceEvtAddDevReadWriteWorker(hTrace, enmEvtType, pszDevId, uAddr, pvData, cbWrite, false /*fRead*/);
+    return pspEmuTraceEvtAddDevReadWriteWorker(hTrace, enmSeverity, enmEvtOrigin, pszDevId, uAddr, pvData, cbWrite, false /*fRead*/);
 }
 
-int PSPEMuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, uint32_t idxSvc, bool fEntry, const char *pszMsg)
+int PSPEMuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                         uint32_t idxSvc, bool fEntry, const char *pszMsg)
 {
     int rc = 0;
-    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtType(hTrace, enmEvtType);
+    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmEvtOrigin);
     if (pThis)
     {
         PPSPTRACEEVT pEvt;
         size_t cchMsg = pszMsg ? strlen(pszMsg) + 1 : 0;
         size_t cbAlloc = sizeof(PSPTRACEEVTSVC) + cchMsg;
-        rc = pspEmuTraceEvtCreateAndLink(pThis, enmEvtType, PSPTRACEEVTCONTENTTYPE_SVC, cbAlloc, &pEvt);
+        rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_SVC, cbAlloc, &pEvt);
         if (!rc)
         {
             PPSPTRACEEVTSVC pSvc = (PPSPTRACEEVTSVC)&pEvt->abContent[0];

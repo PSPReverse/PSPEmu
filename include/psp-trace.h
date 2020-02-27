@@ -37,43 +37,63 @@ typedef PSPTRACE *PPSPTRACE;
 
 
 /**
- * Trace event type.
+ * Trace event severity.
  */
-typedef enum PSPTRACEEVTTYPE
+typedef enum PSPTRACEEVTSEVERITY
 {
-    /** Invalid type, do not use. */
-    PSPTRACEEVTTYPE_INVALID = 0,
-    /** Fatal error happened in the emulator possibly affecting the emulation result. */
-    PSPTRACEEVTTYPE_FATAL_ERROR,
-    /** A recoverable error happened. */
-    PSPTRACEEVTTYPE_ERROR,
-    /** PSP MMIO access. */
-    PSPTRACEEVTTYPE_MMIO,
-    /** PSP SMN access. */
-    PSPTRACEEVTTYPE_SMN,
-    /** PSP X86 MMIO access. */
-    PSPTRACEEVTTYPE_X86_MMIO,
-    /** PSP X86 memory access. */
-    PSPTRACEEVTTYPE_X86_MEM,
-    /** Emulated svc call. */
-    PSPTRACEEVTTYPE_SVC,
-    /** Emulated CCP device. */
-    PSPTRACEEVTTYPE_CCP,
-    /** Last valid trace event type, MUST be last here!. */
-    PSPTRACEEVTTYPE_LAST = PSPTRACEEVTTYPE_CCP,
+    /** Invalid severity, do not use. */
+    PSPTRACEEVTSEVERITY_INVALID = 0,
+    /** Debug information (for debugging the PSP emulator). */
+    PSPTRACEEVTSEVERITY_DEBUG,
+    /** General information. */
+    PSPTRACEEVTSEVERITY_INFO,
+    /** Warning related to the emulation. */
+    PSPTRACEEVTSEVERITY_WARNING,
+    /** Error related to the emulation. */
+    PSPTRACEEVTSEVERITY_ERROR,
+    /** Fatal error related to the emulation which impacts the emulation result. */
+    PSPTRACEEVTSEVERITY_FATAL_ERROR,
     /** 32bit hack. */
-    PSPTRACEEVTTYPE_32BIT_HACK = 0x7fffffff
-} PSPTRACEEVTTYPE;
+    PSPTRACEEVTSEVERITY_32BIT_HACK = 0x7fffffff
+} PSPTRACEEVTSEVERITY;
+
+
+/**
+ * Trace event origin.
+ */
+typedef enum PSPTRACEEVTORIGIN
+{
+    /** Invalid origin, do not use. */
+    PSPTRACEEVTORIGIN_INVALID,
+    /** PSP MMIO access related. */
+    PSPTRACEEVTORIGIN_MMIO,
+    /** PSP SMN access related. */
+    PSPTRACEEVTORIGIN_SMN,
+    /** PSP X86 access related (not specified wether MMIO or memory. */
+    PSPTRACEEVTORIGIN_X86,
+    /** PSP X86 MMIO access related. */
+    PSPTRACEEVTORIGIN_X86_MMIO,
+    /** PSP X86 memory access related. */
+    PSPTRACEEVTORIGIN_X86_MEM,
+    /** Syscall emulation related. */
+    PSPTRACEEVTORIGIN_SVC,
+    /** Cryptographic Co-processor related. */
+    PSPTRACEEVTORIGIN_CCP,
+    /** Last valid origin. */
+    PSPTRACEEVTORIGIN_LAST = PSPTRACEEVTORIGIN_CCP,
+    /** 32bit hack. */
+    PSPTRACEEVTORIGIN_32BIT_HACK = 0x7fffffff
+} PSPTRACEEVTORIGIN;
 
 
 /** Include timestamps in the resulting logs (might not be supported on all hosts and will be ignored). */
 #define PSPEMU_TRACE_F_TIMESTAMPS      BIT(0)
 /** Dumps the complete PSP core state for each event (otherwise only the triggering PC is logged). */
 #define PSPEMU_TRACE_F_FULL_CORE_CTX   BIT(1)
-/** Enable all event types by default. */
-#define PSPEMU_TRACE_F_ALL_EVENT_TYPES BIT(2)
-/** Default flags (no timestamps and no full context, all event types enabled). */
-#define PSPEMU_TRACE_F_DEFAULT         (PSPEMU_TRACE_F_ALL_EVENT_TYPES)
+/** Enable all events by default. */
+#define PSPEMU_TRACE_F_ALL_EVENTS      BIT(2)
+/** Default flags (no timestamps and no full context, all events enabled). */
+#define PSPEMU_TRACE_F_DEFAULT         (PSPEMU_TRACE_F_ALL_EVENTS)
 
 
 /**
@@ -103,24 +123,17 @@ void PSPEmuTraceDestroy(PSPTRACE hTrace);
 int PSPEmuTraceSetDefault(PSPTRACE hTrace);
 
 /**
- * Enables tracing of the given event types.
+ * COnfigures tracing of the given event origins.
  *
  * @returns Status code.
  * @param   hTrace                  The trace handle, NULL means default.
- * @param   paEvtTypes              Array of event types to enable.
- * @param   cEvtTypes               Number of events in the array.
+ * @param   paEvtOrigins            Array of event origins to configure.
+ * @param   paEvtSeverities         Array of severities at which events are logging,
+ *                                  PSPTRACEEVTSEVERITY_FATAL_ERROR to log only fatal errors
+ *                                  and nothing else (always logged).
+ * @param   cEvts                   Number of entries in both arrays.
  */
-int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PSPTRACEEVTTYPE *paEvtTypes, uint32_t cEvtTypes);
-
-/**
- * Disables tracing of the given event types.
- *
- * @returns Status code.
- * @param   hTrace                  The trace handle, NULL means default.
- * @param   paEvtTypes              Array of event types to disable.
- * @param   cEvtTypes               Number of events in the array.
- */
-int PSPEmuTraceEvtDisable(PSPTRACE hTrace, PSPTRACEEVTTYPE *paEvtTypes, uint32_t cEvtTypes);
+int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PSPTRACEEVTORIGIN *paEvtOrigins, PSPTRACEEVTSEVERITY *paEvtSeverities, uint32_t cEvts);
 
 /**
  * Dumps the current trace to the given file.
@@ -136,72 +149,84 @@ int PSPEmuTraceDumpToFile(PSPTRACE hTrace, const char *pszFilename);
  *
  * @returns Status code.
  * @param   hTrace                  The trace handle, NULL means default.
- * @param   enmEvtType              The event type this belongs to.
+ * @param   enmSeverity             The severity of the event.
+ * @param   enmOrigin               The origin of the event.
  * @param   pszFmt                  The format string to log.
  * @param   hArgs                   Arguments for the format string.
  */
-int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszFmt, va_list hArgs);
+int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                             const char *pszFmt, va_list hArgs);
 
 /**
  * Adds the given string to the trace.
  *
  * @returns Status code.
  * @param   hTrace                  The trace handle, NULL means default.
- * @param   enmEvtType              The event type this belongs to.
+ * @param   enmSeverity             The severity of the event.
+ * @param   enmOrigin               The origin of the event.
  * @param   pszFmt                  The format string to log.
  * @param   ...                     Arguments for the format string.
  */
-int PSPEmuTraceEvtAddString(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszFmt, ...);
+int PSPEmuTraceEvtAddString(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                            const char *pszFmt, ...);
 
 /**
  * Adds the given data transfer event to the trace.
  *
  * @returns Status code.
  * @param   hTrace                  The trace handle, NULL means default.
- * @param   enmEvtType              The event type this belongs to.
+ * @param   enmSeverity             The severity of the event.
+ * @param   enmOrigin               The origin of the event.
  * @param   uAddrSrc                The context specific address the transfer started reading from.
  * @param   uAddrDst                The context specific address the transfer started writing to.
  * @param   pvBuf                   The transfered data.
  * @param   cbXfer                  The amount of bytes transfered.
  */
-int PSPEmuTraceEvtAddXfer(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, uint64_t uAddrSrc, uint64_t uAddrDst, const void *pvBuf, size_t cbXfer);
+int PSPEmuTraceEvtAddXfer(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                          uint64_t uAddrSrc, uint64_t uAddrDst, const void *pvBuf, size_t cbXfer);
 
 /**
  * Adds a device read event.
  *
  * @returns Status code.
  * @param   hTrace                  The trace handle, NULL means default.
- * @param   enmEvtType              The event type this belongs to.
+ * @param   enmSeverity             The severity of the event.
+ * @param   enmOrigin               The origin of the event.
  * @param   pszDevId                The device identifier read from.
  * @param   uAddr                   The context specific device address the read started from.
  * @param   pvData                  The data being read.
  * @param   cbRead                  Number of bytes being read.
  */
-int PSPEmuTraceEvtAddDevRead(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbRead);
+int PSPEmuTraceEvtAddDevRead(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                             const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbRead);
 
 /**
  * Adds a device write event.
  *
  * @returns Status code.
  * @param   hTrace                  The trace handle, NULL means default.
- * @param   enmEvtType              The event type this belongs to.
+ * @param   enmSeverity             The severity of the event.
+ * @param   enmOrigin               The origin of the event.
  * @param   pszDevId                The device identifier written to.
  * @param   uAddr                   The context specific device address the write started at.
  * @param   pvData                  The data being written.
  * @param   cbWritten               Number of bytes being written.
  */
-int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbWrite);
+int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                              const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbWrite);
 
 /**
  * Adds svc event.
  *
  * @returns Status code.
  * @param   hTrace                  The trace handle, NULL means default.
- * @param   enmEvtType              The event type this belongs to.
+ * @param   enmSeverity             The severity of the event.
+ * @param   enmOrigin               The origin of the event.
  * @param   idxSvc                  The SVC number being executed.
  * @param   fEntry                  Flag whether this SVC entry or return.
  * @param   pszMsg                  Additional message to log.
  */
-int PSPEMuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTTYPE enmEvtType, uint32_t idxSvc, bool fEntry, const char *pszMsg);
+int PSPEMuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                         uint32_t idxSvc, bool fEntry, const char *pszMsg);
 
 #endif /* __psp_trace_h */
