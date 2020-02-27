@@ -226,7 +226,7 @@ int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, 
  * @param   fEntry                  Flag whether this SVC entry or return.
  * @param   pszMsg                  Additional message to log.
  */
-int PSPEMuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+int PSPEmuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
                          uint32_t idxSvc, bool fEntry, const char *pszMsg);
 
 #endif /* __psp_trace_h */

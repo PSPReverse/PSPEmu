@@ -194,7 +194,7 @@ static inline PPSPTRACEINT pspEmuTraceGetInstanceForEvtSeverityAndOrigin(PSPTRAC
 {
     PPSPTRACEINT pThis = pspEmuTraceGetInstance(hTrace);
     if (   pThis
-        && pThis->aenmEvtTypesSeverity[enmOrigin] >= enmOrigin)
+        && pThis->aenmEvtTypesSeverity[enmOrigin] <= enmSeverity)
         return pThis;
 
     return NULL;
@@ -775,7 +775,7 @@ int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, 
     return pspEmuTraceEvtAddDevReadWriteWorker(hTrace, enmSeverity, enmEvtOrigin, pszDevId, uAddr, pvData, cbWrite, false /*fRead*/);
 }
 
-int PSPEMuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+int PSPEmuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
                          uint32_t idxSvc, bool fEntry, const char *pszMsg)
 {
     int rc = 0;

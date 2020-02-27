@@ -215,7 +215,7 @@ static const PSPCORESVCREG g_SvcReg =
 
 static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
-    PSPEMuTraceEvtAddSvc(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SVC, idxSyscall,
+    PSPEmuTraceEvtAddSvc(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SVC, idxSyscall,
                            (fFlags & PSPEMU_CORE_SVC_F_BEFORE)
                          ? true
                          : false /* fEntry*/,
@@ -232,10 +232,11 @@ static bool pspEmuSvcAppExit(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
     /* Stop here as the app exited. */
     uint32_t PspAddrStateRegion = 0;
 
+#if 0 /** @todo */
     int rc = PSPProxyCtxPspSvcCall(pThis->hProxyCtx, SVC_GET_STATE_BUFFER, pThis->cbStateRegion, 0, 0, 0, &PspAddrStateRegion);
     if (rc)
         printf("Mapping memory region state failed with %d\n", rc);
-#if 0 /** @todo */
+
     rc = PSPProxyCtxPspMemWrite(pThis->hProxyCtx, PspAddrStateRegion, pThis->X86MappingPrivState.pvMapping, pThis->cbStateRegion);
     if (rc)
         printf("Syncing SEV state to privileged DRAM failed with %d\n", rc);
