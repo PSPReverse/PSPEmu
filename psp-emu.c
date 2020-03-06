@@ -111,8 +111,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
                        "    --dbg <listening port>\n"
                        "    --psp-proxy-addr <path/to/proxy/device>\n"
-                       "    --load-psp-dir\n",
-                       "    --psp-dbg-mode\n",
+                       "    --load-psp-dir\n"
+                       "    --psp-dbg-mode\n"
                        "    --trace-log <path/to/trace/log>\n"
                        "    --micro-arch <zen|zen+|zen2>\n"
                        "    --cpu-segment <ryzen|ryzen-pro|threadripper|epyc>\n",
