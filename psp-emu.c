@@ -473,6 +473,8 @@ int main(int argc, char *argv[])
                         if (!rc)
                             rc = PSPEmuDevCreate(hIoMgr, &g_DevRegMp2, &Cfg, &pDev);
                         if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegSts, &Cfg, &pDev);
+                        if (!rc)
                             rc = PSPEmuDevCreate(hIoMgr, &g_DevRegTest, &Cfg, &pDev);
                         if (!rc)
                             rc = PSPEmuDevCreate(hIoMgr, &g_DevRegX86Uart, &Cfg, &pDev);

@@ -79,6 +79,8 @@ typedef enum PSPTRACEEVTORIGIN
     PSPTRACEEVTORIGIN_SVC,
     /** Cryptographic Co-processor related. */
     PSPTRACEEVTORIGIN_CCP,
+    /** Status device related. */
+    PSPTRACEEVTORIGIN_STS,
     /** x86 UART related. */
     PSPTRACEEVTORIGIN_X86_UART,
     /** Last valid origin. */
