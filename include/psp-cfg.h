@@ -90,6 +90,8 @@ typedef struct PSPEMUCFG
     bool                    fLoadPspDir;
     /** Flag whether to enable the debug mode inside the PSP firmware disabling signature checks etc. */
     bool                    fPspDbgMode;
+    /** Flag whether to intercept svc 6 in on chip bootloader and system mode. */
+    bool                    fIncptSvc6;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
     /** Pointer to the read flash rom content. */
