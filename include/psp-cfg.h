@@ -92,6 +92,8 @@ typedef struct PSPEMUCFG
     bool                    fPspDbgMode;
     /** Flag whether to intercept svc 6 in on chip bootloader and system mode. */
     bool                    fIncptSvc6;
+    /** Flag whether to to trace all svc calls in on chip bootloader and system mode. */
+    bool                    fTraceSvcs;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
     /** Pointer to the read flash rom content. */

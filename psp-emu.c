@@ -40,6 +40,7 @@
 #include <psp-trace.h>
 
 
+static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
 static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
 
 #define PSPEMU_CORE_SVC_INIT_NULL                   { NULL, NULL, 0 }
@@ -68,11 +69,11 @@ static const PSPCORESVCREG g_Svc6Reg =
     /** GlobalSvc */
     {
         /** pszName */
-        NULL,
+        "Trace",
         /** pfnSvcHnd */
-        NULL,
+        pspEmuSvcTrace,
         /** fFlags */
-        0
+        PSPEMU_CORE_SVC_F_BEFORE | PSPEMU_CORE_SVC_F_AFTER
     },
     /** cSvcDescs */
     ELEMENTS(g_aSvcDescs),
@@ -99,6 +100,7 @@ static struct option g_aOptions[] =
     {"micro-arch",           required_argument, 0, 'a'},
     {"cpu-segment",          required_argument, 0, 'c'},
     {"intercept-svc-6",      no_argument,       0, '6'},
+    {"trace-svcs",           no_argument,       0, 'v'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -111,8 +113,34 @@ static void pspEmuTraceState(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, v
     PSPEmuCoreStateDump(hCore);
 }
 
+
+/**
+ * Syscall tracer callback.
+ */
+static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
+{
+    PPSPEMUCFG pCfg = (PPSPEMUCFG)pvUser;
+
+    if (pCfg->fTraceSvcs)
+        PSPEmuTraceEvtAddSvc(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SVC, idxSyscall,
+                               (fFlags & PSPEMU_CORE_SVC_F_BEFORE)
+                             ? true
+                             : false /* fEntry*/,
+                             NULL /*pszMsg*/);
+    return false;
+}
+
+
+/**
+ * SVC 0x6 (DbgLog) syscall interception handler.
+ */
 static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
+    PPSPEMUCFG pCfg = (PPSPEMUCFG)pvUser;
+
+    if (!pCfg->fIncptSvc6)
+        return false;
+
     /* Log the string. */
     PSPADDR PspAddrStr = 0;
     int rc = PSPEmuCoreQueryReg(hCore, PSPCOREREG_R0, &PspAddrStr);
@@ -149,6 +177,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->uDbgPort              = 0;
     pCfg->fLoadPspDir           = false;
     pCfg->fIncptSvc6            = false;
+    pCfg->fTraceSvcs            = false;
     pCfg->pszPspProxyAddr       = NULL;
     pCfg->pszTraceLog           = NULL;
     pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
@@ -174,7 +203,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --trace-log <path/to/trace/log>\n"
                        "    --micro-arch <zen|zen+|zen2>\n"
                        "    --cpu-segment <ryzen|ryzen-pro|threadripper|epyc>\n"
-                       "    --intercept-svc-6\n",
+                       "    --intercept-svc-6\n"
+                       "    --trace-svcs\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -257,6 +287,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case '6':
                 pCfg->fIncptSvc6 = true;
                 break;
+            case 'v':
+                pCfg->fTraceSvcs = true;
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
@@ -288,6 +321,13 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
         && pCfg->enmMode == PSPCOREMODE_APP)
     {
         fprintf(stderr, "Application mode and explicit SVC 6 interception are mutually exclusive (svc 6 is always intercepted in app mode)\n");
+        return -1;
+    }
+
+    if (   pCfg->fTraceSvcs
+        && pCfg->enmMode == PSPCOREMODE_APP)
+    {
+        fprintf(stderr, "Application mode and SVC tracing are mutually exclusive (svcs are always traced in app mode)\n");
         return -1;
     }
 
@@ -466,8 +506,9 @@ int main(int argc, char *argv[])
                         }
 
                         if (   !rc
-                            && Cfg.fIncptSvc6)
-                            rc = PSPEmuCoreSvcInjectSet(hCore, &g_Svc6Reg, NULL);
+                            && (   Cfg.fIncptSvc6
+                                || Cfg.fTraceSvcs))
+                            rc = PSPEmuCoreSvcInjectSet(hCore, &g_Svc6Reg, &Cfg);
                         if (!rc)
                             rc = PSPEmuCoreExecSetStartAddr(hCore, PspAddrStartExec);
                         if (!rc)
