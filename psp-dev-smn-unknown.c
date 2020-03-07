@@ -90,6 +90,11 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hSmn0x0005c310;
     /** 0x0005fb10 region handle. */
     PSPIOMREGIONHANDLE          hSmn0x0005fb10;
+
+    /** 0x51050 region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x51050;
+    /** 0x5105c region handle. */
+    PSPIOMREGIONHANDLE          hSmn0x5105c;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -194,6 +199,16 @@ static void pspDevUnkSmnRead0x0005b310(SMNADDR offSmn, size_t cbRead, void *pvVa
             *(uint32_t *)pvVal = BIT(4);
             break;
     }
+}
+
+static void pspDevUnkSmnRead0x51050(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0x5a335a33; /* Magic to enable debug logging through x86 port 80h. */
+}
+
+static void pspDevUnkSmnRead0x5105c(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0xc001c001; /* Magic to make ABL1 go further. */
 }
 
 
@@ -320,6 +335,15 @@ static int pspDevUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005fb10, 4,
                                     pspDevUnkSmnRead0x0005b310, NULL, pThis,
                                     &pThis->hSmn0x0005fb10);
+
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x51050, 4,
+                                    pspDevUnkSmnRead0x51050, NULL, pThis,
+                                    &pThis->hSmn0x51050);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5105c, 4,
+                                    pspDevUnkSmnRead0x5105c, NULL, pThis,
+                                    &pThis->hSmn0x5105c);
 
     return rc;
 }
