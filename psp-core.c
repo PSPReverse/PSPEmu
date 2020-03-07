@@ -136,6 +136,8 @@ typedef struct PSPCOREINT
     uint32_t                idxSvc;
     /** Flag whether an SVC call is pending. */
     bool                    fSvcPending;
+    /** The hook for the after SVC breakpoint. */
+    uc_hook                 hUcHookSvcAfter;
 } PSPCOREINT;
 
 
@@ -491,6 +493,28 @@ static int pspEmuCoreSvcAfter(PPSPCOREINT pThis)
 }
 
 
+/**
+ * The after SVC trace hook called by unicorn.
+ *
+ * @returns nothing.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   uAddr                   The address of the instruction triggering the hook.
+ * @param   cbInsn                  Size of the instruction.
+ * @param   pvUser                  Opaque user data.
+ */
+static void pspEmuCoreSvcAfterHook(uc_engine *pUcEngine, uint64_t uAddr, uint32_t cbInsn, void *pvUser)
+{
+    PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
+
+    pspEmuCoreSvcAfter(pThis); /* Handle all after hooks. */
+
+    /* Delete the temporary unicorn hook. */
+    uc_err rcUc = uc_hook_del(pThis->pUcEngine, pThis->hUcHookSvcAfter);
+    /** @todo assert(rcUc == UC_ERR_OK) */
+    pThis->hUcHookSvcAfter = 0;
+}
+
+
 int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
 {
     int rc = 0;
@@ -509,6 +533,7 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
         pThis->pvSvcUser        = NULL;
         pThis->fSvcPending      = false;
         pThis->fExecStop        = false;
+        pThis->hUcHookSvcAfter  = 0;
         if (pThis->pvSram)
         {
             /* Initialize unicorn engine in ARM mode. */
@@ -735,6 +760,14 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                                 rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_SPSR, &uCpsrOld); /* Save CPSR into SPSR after switching modes. */
                             if (rcUc2 == UC_ERR_OK)
                                 rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_LR, &uPc); /* PC is advanced already. */
+
+                            /*
+                             * For the after SVC handlers we have to set up a temporary breakpoint at the PC
+                             * returned to afterwards.
+                             */
+                            if (rcUc2 == UC_ERR_OK)
+                                rcUc2 = uc_hook_add(pThis->pUcEngine, &pThis->hUcHookSvcAfter, UC_HOOK_CODE,
+                                                    pspEmuCoreSvcAfterHook, pThis, uPc, uPc);
 
                             /** @todo Determine base of exception table from VBAR register. */
                             uPc = 0x100 + 2 * sizeof(uint32_t); /* Switches to ARM mode. */
