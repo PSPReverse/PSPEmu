@@ -28,6 +28,7 @@ add_executable(PSPEmu
                       psp-dev-fuse.c
                       psp-dev-flash.c
                       psp-dev-smu.c
+                      psp-dev-mp2.c
                       psp-dev-x86-uart.c
                       psp-dev-mmio-unknown.c
                       psp-dev-smn-unknown.c
