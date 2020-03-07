@@ -37,12 +37,16 @@ typedef struct PSPDEVSMU
     PSPIOMREGIONHANDLE          hSmn;
     /** SMN region handle for the message passing interface. */
     PSPIOMREGIONHANDLE          hSmnMsg;
+    /** SMN region handle for the firmware region. */
+    PSPIOMREGIONHANDLE          hSmnFw;
     /** Message status register. */
     uint32_t                    u32RegMsgSts;
     /** Argument/Return value register. */
     uint32_t                    u32RegMsgArgRet;
     /** Message ID register. */
     uint32_t                    u32RegMsgId;
+    /** The memory the firmware is loaded to residing at SMN address 0x3c00000. */
+    uint8_t                     abFw[_256K];
 } PSPDEVSMU;
 /** Pointer to the device instance data. */
 typedef PSPDEVSMU *PPSPDEVSMU;
@@ -138,6 +142,22 @@ static void pspDevSmuMsgWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal,
 }
 
 
+static void pspDevSmuFwRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pvUser)
+{
+    PPSPDEVSMU pThis = (PPSPDEVSMU)pvUser;
+
+    memcpy(pvDst, &pThis->abFw[offSmn], cbRead);
+}
+
+
+static void pspDevSmuFwWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
+{
+    PPSPDEVSMU pThis = (PPSPDEVSMU)pvUser;
+
+    memcpy(&pThis->abFw[offSmn], pvVal, cbWrite);
+}
+
+
 static int pspDevSmuInit(PPSPDEV pDev)
 {
     PPSPDEVSMU pThis = (PPSPDEVSMU)&pDev->abInstance[0];
@@ -151,6 +171,10 @@ static int pspDevSmuInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10700, 6 * sizeof(uint32_t),
                                     pspDevSmuMsgRead, pspDevSmuMsgWrite, pThis,
                                     &pThis->hSmnMsg);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03c00000, sizeof(pThis->abFw),
+                                    pspDevSmuFwRead, pspDevSmuFwWrite, pThis,
+                                    &pThis->hSmnFw);
     return rc;
 }
 
