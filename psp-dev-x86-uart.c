@@ -156,7 +156,7 @@ static int pspDevX86UartInit(PPSPDEV pDev)
 
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfffdfc0003f8, 8,
-                                        pspDevX86UartRead, pspDevX86UartWrite, pDev,
+                                        pspDevX86UartRead, pspDevX86UartWrite, pThis,
                                         &pThis->hMmio);
     return rc;
 }
