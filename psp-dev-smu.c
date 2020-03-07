@@ -35,6 +35,8 @@ typedef struct PSPDEVSMU
 {
     /** SMN region handle. */
     PSPIOMREGIONHANDLE          hSmn;
+    /** SMN region handle for the interrupt read register? */
+    PSPIOMREGIONHANDLE          hSmnIntrRdy;
     /** SMN region handle for the message passing interface. */
     PSPIOMREGIONHANDLE          hSmnMsg;
     /** SMN region handle for the firmware region. */
@@ -167,6 +169,10 @@ static int pspDevSmuInit(PPSPDEV pDev)
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10034, 4,
                                     pspDevSmuRead, NULL, pThis,
                                     &pThis->hSmn);
+    if (!rc) /* The off chip Ryzen bootloader waits for the interrupt ready flag. */
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10028, 4,
+                                    pspDevSmuRead, NULL, pThis,
+                                    &pThis->hSmnIntrRdy);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10700, 6 * sizeof(uint32_t),
                                     pspDevSmuMsgRead, pspDevSmuMsgWrite, pThis,
