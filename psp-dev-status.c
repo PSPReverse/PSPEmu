@@ -39,6 +39,12 @@ typedef struct PSPDEVSTS
     PSPIOMREGIONHANDLE      hMmio;
     /** X86 MMIO region handle. */
     PSPIOMREGIONHANDLE      hX86Mmio;
+    /** Flag whether the firmware is currently logging a string through port 80h. */
+    bool                    fPort80hLog;
+    /** Next character to write. */
+    uint32_t                offWrite;
+    /** Character buffer holding the string. */
+    char                    achBuf[512];
 } PSPDEVSTS;
 /** Pointer to the device instance data. */
 typedef PSPDEVSTS *PPSPDEVSTS;
@@ -118,23 +124,57 @@ static void pspDevStsX86Write(X86PADDR offMmio, size_t cbWrite, const void *pvVa
 {
     PPSPDEVSTS pThis = (PPSPDEVSTS)pvUser;
 
-    if (cbWrite != sizeof(uint32_t))
+    if (   cbWrite != sizeof(uint32_t)
+        && cbWrite != sizeof(uint8_t))
     {
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_STS,
                                 "Invalid register write size %u cbWrite=%zu", offMmio, cbWrite);
         return;
     }
 
-    uint32_t uVal = *(uint32_t *)pvVal;
-    if (uVal & BIT(26))
-        pspDevStsLogCode(pThis, true /*fX86*/, uVal & 0xff);
+    switch (cbWrite)
+    {
+        case 4:
+        {
+            uint32_t uVal = *(uint32_t *)pvVal;
+            if (uVal == 0x5f535452 /*_STR*/)
+            {
+                /* Marks the beginning of a firmware log entry. */
+                pThis->fPort80hLog = true;
+            }
+            else if (uVal == 0x5f454e44 /*_END*/)
+            {
+                /* Marks the end of a firmware log entry. */
+                pThis->fPort80hLog = false;
+                pThis->achBuf[pThis->offWrite] = '\0'; /* Ensure termination. */
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_STS,
+                                        "%s", &pThis->achBuf[0]);
+            }
+            else
+                pspDevStsLogCode(pThis, true /*fX86*/, uVal & 0xffff);
+            break;
+        }
+        case 1:
+        {
+            if (pThis->fPort80hLog)
+            {
+                if (pThis->offWrite < sizeof(pThis->achBuf) - 1)
+                    pThis->achBuf[pThis->offWrite++] = *(char *)pvVal;
+            }
+            else
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_STS,
+                                        "Invalid register write size %u cbWrite=%zu", offMmio, cbWrite);
+        }
+    }
 }
 
 static int pspDevStsInit(PPSPDEV pDev)
 {
     PPSPDEVSTS pThis = (PPSPDEVSTS)&pDev->abInstance[0];
 
-    pThis->pDev = pDev;
+    pThis->pDev        = pDev;
+    pThis->fPort80hLog = false;
+    pThis->offWrite    = 0;
 
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x32000e8, 4,
