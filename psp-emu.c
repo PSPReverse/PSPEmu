@@ -520,7 +520,8 @@ int main(int argc, char *argv[])
                             if (Cfg.pszTraceLog)
                             {
                                 /* Set up a tracer. */
-                                rc = PSPEmuTraceCreate(&hTrace, PSPEMU_TRACE_F_DEFAULT, hCore);
+                                rc = PSPEmuTraceCreateForFile(&hTrace, PSPEMU_TRACE_F_DEFAULT, hCore,
+                                                              0, Cfg.pszTraceLog);
                                 if (!rc)
                                     rc = PSPEmuTraceSetDefault(hTrace);
                             }
@@ -563,14 +564,6 @@ int main(int argc, char *argv[])
                                     }
                                     else
                                         PSPEmuCoreStateDump(hCore);
-                                }
-
-                                /* Dump the trace. */
-                                if (hTrace)
-                                {
-                                    rc = PSPEmuTraceDumpToFile(hTrace, Cfg.pszTraceLog);
-                                    if (rc)
-                                        fprintf(stderr, "Dumping to trace log to %s failed with %d\n", Cfg.pszTraceLog, rc);
                                 }
                             }
                         }

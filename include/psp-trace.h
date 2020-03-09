@@ -100,6 +100,11 @@ typedef enum PSPTRACEEVTORIGIN
 #define PSPEMU_TRACE_F_DEFAULT         (PSPEMU_TRACE_F_ALL_EVENTS)
 
 
+/** Trace log flush handler. */
+typedef int (FNPSPTRACEFLUSH)(PSPTRACE hTrace, void *pvBuf, size_t cbBuf, void *pvUser);
+/** Trace log flush handler pointer. */
+typedef FNPSPTRACEFLUSH *PFNPSPTRACEFLUSH;
+
 /**
  * Creates a new tracer instance.
  *
@@ -107,8 +112,25 @@ typedef enum PSPTRACEEVTORIGIN
  * @param   phTrace                 Where to store the tracer handle on success.
  * @param   fFlags                  Flags controlling the behavior, see PSPEMU_TRACE_F_XXX.
  * @param   hPspCore                PSP core handle to dump the state from if configured.
+ * @param   cEvtsBuffer             Number of events to buffer before flushing to the log, 0 disables any buffering.
+ * @param   pfnFlush                The flush callback to call when writing log data.
+ * @param   pvUser                  Opauqe user data to pass to the flush callback.
  */
-int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore);
+int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
+                      uint32_t cEvtsBuffer, PFNPSPTRACEFLUSH pfnFlush, void *pvUser);
+
+/**
+ * Creates a file based trace log.
+ *
+ * @returns Status code.
+ * @param   phTrace                 Where to store the tracer handle on success.
+ * @param   fFlags                  Flags controlling the behavior, see PSPEMU_TRACE_F_XXX.
+ * @param   hPspCore                PSP core handle to dump the state from if configured.
+ * @param   cEvtsBuffer             Number of events to buffer before flushing to the log, 0 disables any buffering.
+ * @param   pszFilename             Filename to log to.
+ */
+int PSPEmuTraceCreateForFile(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
+                             uint32_t cEvtsBuffer, const char *pszFilename);
 
 /**
  * Destroys a given tracer handle.
@@ -138,15 +160,6 @@ int PSPEmuTraceSetDefault(PSPTRACE hTrace);
  * @param   cEvts                   Number of entries in both arrays.
  */
 int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PSPTRACEEVTORIGIN *paEvtOrigins, PSPTRACEEVTSEVERITY *paEvtSeverities, uint32_t cEvts);
-
-/**
- * Dumps the current trace to the given file.
- *
- * @returns Status code.
- * @param   hTrace                  The trace handle, NULL means default.
- * @param   pszFilename             The file to dump the trace to.
- */
-int PSPEmuTraceDumpToFile(PSPTRACE hTrace, const char *pszFilename);
 
 /**
  * Adds the given string to the trace.

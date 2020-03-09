@@ -149,8 +149,14 @@ typedef struct PSPTRACEINT
     PSPCORE                         hPspCore;
     /** Flags controlling the trace behavior given during creation. */
     uint32_t                        fFlags;
+    /** Number of events to buffer before flushing. */
+    uint32_t                        cEvtsBuffer;
+    /** Flush callback. */
+    PFNPSPTRACEFLUSH                pfnFlush;
+    /** Opaque user data to pass to the flush callback. */
+    void                            *pvUser;
     /** Array of event severities what kind of events are logged for each event origin. */
-    PSPTRACEEVTSEVERITY             aenmEvtTypesSeverity[PSPTRACEEVTORIGIN_LAST];
+    PSPTRACEEVTSEVERITY             aenmEvtTypesSeverity[PSPTRACEEVTORIGIN_LAST + 1];
     /** Number of bytes currently allocated for all stored trace events. */
     size_t                          cbEvtAlloc;
     /** Maximum number of trace events the array below can hold. */
@@ -339,55 +345,14 @@ static int pspEmuTraceEvtCreateAndLink(PPSPTRACEINT pThis, PSPTRACEEVTSEVERITY e
 
 
 /**
- * Worker for the add device read/write event methods.
- *
- * @returns Status code.
- * @param   hTrace                  The trace handle, NULL means default.
- * @param   enmSeverity             The event severity.
- * @param   enmOrigin               The event origin.
- * @param   pszDevId                The device identifier of the device being accessed.
- * @param   uAddr                   The context specific device address the transfer started at.
- * @param   pvData                  The data being read or written.
- * @param   cbXfer                  Number of bytes being transfered.
- * @param   fRead                   Flag whether this was a read or write event.
- */
-static int pspEmuTraceEvtAddDevReadWriteWorker(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmOrigin,
-                                               const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbXfer, bool fRead)
-{
-    int rc = 0;
-    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmOrigin);
-    if (pThis)
-    {
-        PPSPTRACEEVT pEvt;
-        size_t cchDevId = strlen(pszDevId) + 1; /* Include terminator */
-        size_t cbAlloc = sizeof(PSPTRACEEVTDEVXFER) + cbXfer + cchDevId;
-        rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmOrigin, PSPTRACEEVTCONTENTTYPE_DEV_XFER, cbAlloc, &pEvt);
-        if (!rc)
-        {
-            PPSPTRACEEVTDEVXFER pDevXfer = (PPSPTRACEEVTDEVXFER)&pEvt->abContent[0];
-
-            pDevXfer->uAddrDev = uAddr;
-            pDevXfer->cbXfer   = cbXfer;
-            pDevXfer->fRead    = fRead;
-            pDevXfer->pszDevId = (const char *)&pDevXfer->abXfer[cbXfer];
-            memcpy(&pDevXfer->abXfer[0], pvData, cbXfer);
-            memcpy(&pDevXfer->abXfer[cbXfer], pszDevId, cchDevId);
-        }
-    }
-
-    return rc;
-}
-
-
-/**
  * Dumps the given trace event to the given file.
  *
  * @returns Status code.
- * @param   pTraceFile              The file to dump the event to.
+ * @param   pThis                   The trace log instance data.
  * @param   fFlags                  The flags controlling what gets dumped.
  * @param   pEvt                    The trace event to dump.
  */
-static int pspEmuTraceEvtDumpToFile(FILE *pTraceFile, uint32_t fFlags, PCPSPTRACEEVT pEvt)
+static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT pEvt)
 {
     char achBuf[_4K];
     char *pszCur = &achBuf[0];
@@ -588,9 +553,9 @@ static int pspEmuTraceEvtDumpToFile(FILE *pTraceFile, uint32_t fFlags, PCPSPTRAC
         /** @todo */
     }
 
-    /* Write to file. */
-    size_t cbWritten = fwrite(&achBuf[0], sizeof(achBuf) - cchLeft, 1, pTraceFile);
-    if (cbWritten != 1)
+    /* Flush */
+    int rc = pThis->pfnFlush(pThis, &achBuf[0], sizeof(achBuf) - cchLeft, pThis->pvUser);
+    if (rc != 0)
         return -1;
 
     /* Now dump any larger data blobs. */
@@ -603,7 +568,90 @@ static int pspEmuTraceEvtDumpToFile(FILE *pTraceFile, uint32_t fFlags, PCPSPTRAC
 }
 
 
-int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore)
+/**
+ * Maybe flushes any buffered events.
+ *
+ * @returns Status code.
+ * @param   pThis                   The trace log instance data.
+ */
+static int pspEmuTraceFlushMaybe(PPSPTRACEINT pThis)
+{
+    int rc = 0;
+
+    if (pThis->cEvtsBuffer < pThis->cTraceEvts)
+    {
+        /* Walk the trace events and dump one by one. */
+        for (uint64_t i = 0; i < pThis->cTraceEvts; i++)
+        {
+            PCPSPTRACEEVT pEvt = pThis->papTraceEvts[i];
+
+            pThis->papTraceEvts[i] = NULL;
+            pspEmuTraceEvtDump(pThis, pThis->fFlags, pEvt);
+            pThis->cbEvtAlloc -= pEvt->cbAlloc;
+            free((void *)pEvt);
+        }
+
+        pThis->cTraceEvts = 0;
+    }
+
+    return rc;
+}
+
+
+/**
+ * Worker for the add device read/write event methods.
+ *
+ * @returns Status code.
+ * @param   hTrace                  The trace handle, NULL means default.
+ * @param   enmSeverity             The event severity.
+ * @param   enmOrigin               The event origin.
+ * @param   pszDevId                The device identifier of the device being accessed.
+ * @param   uAddr                   The context specific device address the transfer started at.
+ * @param   pvData                  The data being read or written.
+ * @param   cbXfer                  Number of bytes being transfered.
+ * @param   fRead                   Flag whether this was a read or write event.
+ */
+static int pspEmuTraceEvtAddDevReadWriteWorker(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmOrigin,
+                                               const char *pszDevId, uint64_t uAddr, const void *pvData, size_t cbXfer, bool fRead)
+{
+    int rc = 0;
+    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmOrigin);
+    if (pThis)
+    {
+        PPSPTRACEEVT pEvt;
+        size_t cchDevId = strlen(pszDevId) + 1; /* Include terminator */
+        size_t cbAlloc = sizeof(PSPTRACEEVTDEVXFER) + cbXfer + cchDevId;
+        rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmOrigin, PSPTRACEEVTCONTENTTYPE_DEV_XFER, cbAlloc, &pEvt);
+        if (!rc)
+        {
+            PPSPTRACEEVTDEVXFER pDevXfer = (PPSPTRACEEVTDEVXFER)&pEvt->abContent[0];
+
+            pDevXfer->uAddrDev = uAddr;
+            pDevXfer->cbXfer   = cbXfer;
+            pDevXfer->fRead    = fRead;
+            pDevXfer->pszDevId = (const char *)&pDevXfer->abXfer[cbXfer];
+            memcpy(&pDevXfer->abXfer[0], pvData, cbXfer);
+            memcpy(&pDevXfer->abXfer[cbXfer], pszDevId, cchDevId);
+            rc = pspEmuTraceFlushMaybe(pThis);
+        }
+    }
+    return rc;
+}
+
+
+static int pspEmuTraceFileFlush(PSPTRACE hTrace, void *pvBuf, size_t cbBuf, void *pvUser)
+{
+    size_t cbWritten = fwrite(pvBuf, cbBuf, 1, (FILE *)pvUser);
+    if (cbWritten != 1)
+        return -1;
+
+    fflush((FILE *)pvUser);
+    return 0;
+}
+
+
+int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
+                      uint32_t cEvtsBuffer, PFNPSPTRACEFLUSH pfnFlush, void *pvUser)
 {
     int rc = 0;
     PPSPTRACEINT pThis = (PPSPTRACEINT)calloc(1, sizeof(*pThis));
@@ -613,6 +661,9 @@ int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore)
         pThis->tsTraceCreatedNs = 0;
         pThis->hPspCore         = hPspCore;
         pThis->fFlags           = fFlags;
+        pThis->cEvtsBuffer      = cEvtsBuffer;
+        pThis->pfnFlush         = pfnFlush;
+        pThis->pvUser           = pvUser;
         pThis->cbEvtAlloc       = 0;
         pThis->cTraceEvtsMax    = 0;
         pThis->cTraceEvts       = 0;
@@ -628,6 +679,20 @@ int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore)
 
         *phTrace = pThis;
     }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
+int PSPEmuTraceCreateForFile(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
+                             uint32_t cEvtsBuffer, const char *pszFilename)
+{
+    int rc = 0;
+    FILE *pTraceFile = fopen(pszFilename, "wb");
+    if (pTraceFile)
+        rc = PSPEmuTraceCreate(phTrace, fFlags, hPspCore, cEvtsBuffer, pspEmuTraceFileFlush, pTraceFile);
     else
         rc = -1;
 
@@ -682,25 +747,6 @@ int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PSPTRACEEVTORIGIN *paEvtOrigins, PSPTR
 }
 
 
-int PSPEmuTraceDumpToFile(PSPTRACE hTrace, const char *pszFilename)
-{
-    int rc = 0;
-    PPSPTRACEINT pThis = pspEmuTraceGetInstance(hTrace);
-    FILE *pTraceFile = fopen(pszFilename, "wb");
-    if (pTraceFile)
-    {
-        /* Walk the trace events and dump one by one. */
-        for (uint64_t i = 0; i < pThis->cTraceEvts && !rc; i++)
-            rc = pspEmuTraceEvtDumpToFile(pTraceFile, pThis->fFlags, pThis->papTraceEvts[i]);
-        fclose(pTraceFile);
-    }
-    else
-        rc = -1;
-
-    return rc;
-}
-
-
 int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
                              const char *pszFmt, va_list hArgs)
 {
@@ -717,12 +763,14 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, P
             size_t cbAlloc = rcStr + 1; /* Include terminator. */
             rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_STRING, cbAlloc, &pEvt);
             if (!rc)
+            {
                 memcpy(&pEvt->abContent[0], &szTmp[0], cbAlloc);
+                rc = pspEmuTraceFlushMaybe(pThis);
+            }
         }
         else
             rc = -1;
     }
-
     return rc;
 }
 
@@ -757,6 +805,7 @@ int PSPEmuTraceEvtAddXfer(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPT
             pXfer->uAddrDst = uAddrDst;
             pXfer->cbXfer   = cbXfer;
             memcpy(&pXfer->abXfer[0], pvBuf, cbXfer);
+            rc = pspEmuTraceFlushMaybe(pThis);
         }
     }
 
@@ -802,11 +851,13 @@ int PSPEmuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTR
                 PSPCOREREG_R2,
                 PSPCOREREG_R3
             };
+
             PSPEmuCoreQueryRegBatch(pThis->hPspCore, &s_aSvcRegQuery[0], ELEMENTS(s_aSvcRegQuery), &pSvc->au32ArgsRet[0]);
             if (pszMsg)
                 memcpy(&pSvc->szMsg[0], pszMsg, cchMsg);
             else
                 pSvc->szMsg[0] = '\0'; /* Make sure it is terminated. */
+            rc = pspEmuTraceFlushMaybe(pThis);
         }
     }
 
