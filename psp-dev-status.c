@@ -104,6 +104,9 @@ static void pspDevStsMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVa
     uint32_t uVal = *(uint32_t *)pvVal;
     if (uVal & BIT(8))
         pspDevStsLogCode(pThis, false /*fX86*/, uVal & 0xff);
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_STS,
+                                "PSP STS PORT: %#x", uVal);
 }
 
 static void pspDevStsX86Read(X86PADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
