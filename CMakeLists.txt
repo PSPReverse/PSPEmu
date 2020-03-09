@@ -4,6 +4,7 @@ project(PSPEmu VERSION 0.0.0 DESCRIPTION "PSP emulator")
 
 set(CMAKE_THREAD_PREFER_PTHREAD On)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DIN_PSP_EMULATOR")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
 find_package (Threads)
 find_package(PkgConfig)
 find_package(ZLIB REQUIRED)
