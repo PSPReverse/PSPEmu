@@ -141,6 +141,7 @@ static void pspDevStsX86Write(X86PADDR offMmio, size_t cbWrite, const void *pvVa
             {
                 /* Marks the beginning of a firmware log entry. */
                 pThis->fPort80hLog = true;
+                pThis->offWrite    = 0;
             }
             else if (uVal == 0x5f454e44 /*_END*/)
             {
@@ -149,6 +150,7 @@ static void pspDevStsX86Write(X86PADDR offMmio, size_t cbWrite, const void *pvVa
                 pThis->achBuf[pThis->offWrite] = '\0'; /* Ensure termination. */
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_STS,
                                         "%s", &pThis->achBuf[0]);
+                pThis->offWrite = 0;
             }
             else
                 pspDevStsLogCode(pThis, true /*fX86*/, uVal & 0xffff);
