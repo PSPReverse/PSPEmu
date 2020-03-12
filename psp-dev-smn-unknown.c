@@ -98,6 +98,12 @@ typedef struct PSPDEVUNK
 
     /** 0x5a078 register handle. */
     PSPIOMREGIONHANDLE          hSmn0x5a078;
+    /** 0x5a86c register handle. */
+    PSPIOMREGIONHANDLE          hSmn0x5a86c;
+    /** 0x5a870 register handle. */
+    PSPIOMREGIONHANDLE          hSmn0x5a870;
+    /** 0x501ec register handle. */
+    PSPIOMREGIONHANDLE          hSmn0x501ec;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -206,7 +212,11 @@ static void pspDevUnkSmnRead0x0005b310(SMNADDR offSmn, size_t cbRead, void *pvVa
 
 static void pspDevUnkSmnRead0x51050(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
+#if 0
     *(uint32_t *)pvVal = 0x5a335a33; /* Magic to enable debug logging through x86 port 80h. */
+#else
+    *(uint32_t *)pvVal = 0xb1aab1aa; /* Enables pre-silicon environment. */
+#endif
 }
 
 static void pspDevUnkSmnRead0x5105c(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
@@ -226,6 +236,21 @@ static void pspDevUnkSmnRead0x5a078(SMNADDR offSmn, size_t cbRead, void *pvVal, 
      *      5           Socket ID (0 or 1)
      */
     *(uint32_t *)pvVal = 0x10; /* Physical die and socket ID 0 for now (master PSP). */
+}
+
+static void pspDevUnkSmnRead0x5a86c(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0x00800f12; /* Magic read from an Epyc system read by the ABL1 stage. */
+}
+
+static void pspDevUnkSmnRead0x501ec(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0xffffffff; /* Hopefully disables a few checks for our simulation environment. */
+}
+
+static void pspDevUnkSmnRead0x5a870(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0x1; /* Bitmask of cores being present. */
 }
 
 static int pspDevUnkInit(PPSPDEV pDev)
@@ -364,6 +389,18 @@ static int pspDevUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a078, 4,
                                     pspDevUnkSmnRead0x5a078, NULL, pThis,
                                     &pThis->hSmn0x5a078);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a86c, 4,
+                                    pspDevUnkSmnRead0x5a86c, NULL, pThis,
+                                    &pThis->hSmn0x5a86c);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x501ec, 4,
+                                    pspDevUnkSmnRead0x501ec, NULL, pThis,
+                                    &pThis->hSmn0x501ec);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a870, 4,
+                                    pspDevUnkSmnRead0x5a870, NULL, pThis,
+                                    &pThis->hSmn0x5a870);
 
     return rc;
 }
