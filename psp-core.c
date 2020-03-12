@@ -621,9 +621,34 @@ int PSPEmuCoreMemRead(PSPCORE hCore, PSPADDR AddrPspRead, void *pvDst, size_t cb
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
-int PSPEmuCoreMemAddRegion(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
+int PSPEmuCoreMemRegionAdd(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion, uint32_t fProt,
+                           void *pvBacking)
 {
-    return -1; /** @todo */
+    PPSPCOREINT pThis = hCore;
+    int fUcProt = 0;
+    uc_err rcUc = UC_ERR_OK;
+
+    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_EXEC)
+        fUcProt |= UC_PROT_EXEC;
+    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_READ)
+        fUcProt |= UC_PROT_READ;
+    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_WRITE)
+        fUcProt |= UC_PROT_WRITE;
+
+    if (pvBacking)
+        rcUc = uc_mem_map_ptr(pThis->pUcEngine, AddrStart, cbRegion, fUcProt, pvBacking);
+    else
+        rcUc = uc_mem_map(pThis->pUcEngine, AddrStart, cbRegion, fUcProt);
+
+    return pspEmuCoreErrConvertFromUcErr(rcUc);
+}
+
+int PSPEmuCoreMemRegionRemove(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
+{
+    PPSPCOREINT pThis = hCore;
+
+    uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, AddrStart, cbRegion);
+    return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
 int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVCREG pSvcReg, void *pvUser)

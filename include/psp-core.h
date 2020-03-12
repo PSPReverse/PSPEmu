@@ -102,6 +102,14 @@ typedef enum PSPCOREREG
 #define PSPEMU_CORE_TRACE_F_WRITE               BIT(2)
 
 
+/** The mapped memory region has execute permissions. */
+#define PSPEMU_CORE_MEM_REGION_PROT_F_EXEC      BIT(0)
+/** The mapped memory region has read permissions. */
+#define PSPEMU_CORE_MEM_REGION_PROT_F_READ      BIT(1)
+/** The mapped memory region has write permissions. */
+#define PSPEMU_CORE_MEM_REGION_PROT_F_WRITE     BIT(2)
+
+
 /**
  * Overriden SVC handler.
  *
@@ -220,15 +228,30 @@ int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, const void *pvData, 
 int PSPEmuCoreMemRead(PSPCORE hCore, PSPADDR AddrPspRead, void *pvDst, size_t cbDst);
 
 /**
- * Adds a region of memory not initially backed by memory on the original PSP (used
- * for the emulated PSP syscall interface to initialize the stack mapping).
+ * Adds a region of memory not initially backed by memory on the original PSP
+ * (will be used for executing the TEE stuff located on a secure DRAM region).
  *
  * @returns Status code.
  * @param   hCore                   The PSP core handle.
  * @param   AddrStart               The start address of the region.
  * @param   cbRegion                Size of the region in bytes.
+ * @param   fProt                   Protection flags, see PSPEMU_CORE_MEM_REGION_PROT_F_XXX.
+ * @param   pvBacking               THe backing memory, if NULL a default backing is created.
  */
-int PSPEmuCoreMemAddRegion(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion);
+int PSPEmuCoreMemRegionAdd(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion, uint32_t fProt,
+                           void *pvBacking);
+
+/**
+ * Removes a previously added memory region.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   AddrStart               The start address of the region.
+ * @param   cbRegion                Size of the region in bytes.
+ *
+ * @note AddrStart and cbRegion must exactly match what was given when the region was added.
+ */
+int PSPEmuCoreMemRegionRemove(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion);
 
 /**
  * Sets the SVC injection to use for any executed svc instructions.
