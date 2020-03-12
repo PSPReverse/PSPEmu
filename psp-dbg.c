@@ -224,7 +224,7 @@ static int pspDbgGdbStubIfTgtStep(GDBSTUBCTX hGdbStubCtx, void *pvUser)
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
 
     pThis->fSingleStep = true;
-    int rc = PSPEmuCoreExecRun(pThis->hCore, 1, 0);
+    int rc = PSPEmuCoreExecRun(pThis->hCore, 1, PSPEMU_CORE_EXEC_INDEFINITE);
     pThis->fSingleStep = false;
     return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
@@ -596,7 +596,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
          *      hit and we stop the emulation from the callback, so we single step
          *      through the code when the debugger is enabled.
          */
-        rc = PSPEmuCoreExecRun(pThis->hCore, 1, 0);
+        rc = PSPEmuCoreExecRun(pThis->hCore, 1, PSPEMU_CORE_EXEC_INDEFINITE);
         if (!rc)
         {
             int rcPsx = poll(&PollFd, 1, 0);

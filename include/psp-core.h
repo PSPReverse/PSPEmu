@@ -110,6 +110,10 @@ typedef enum PSPCOREREG
 #define PSPEMU_CORE_MEM_REGION_PROT_F_WRITE     BIT(2)
 
 
+/** Disables any execution timeouts. */
+#define PSPEMU_CORE_EXEC_INDEFINITE             UINT32_MAX
+
+
 /**
  * Overriden SVC handler.
  *
@@ -319,7 +323,8 @@ int PSPEmuCoreExecSetStartAddr(PSPCORE hCore, PSPADDR AddrExecStart);
  * @returns Status code.
  * @param   hCore                   The PSP core handle.
  * @param   cInsnExec               Number of insturctions to execute.
- * @param   msExec                  Number of milliseconds to execute instructions.
+ * @param   msExec                  Number of milliseconds to execute instructions,
+ *                                  use PSPEMU_CORE_EXEC_INDEFINITE to disable any timeouts.
  */
 int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec);
 

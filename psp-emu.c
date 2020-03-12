@@ -562,7 +562,7 @@ int main(int argc, char *argv[])
                                      * Execute one instruction to initialize the unicorn CPU state properly
                                      * so the debugger has valid values to work with.
                                      */
-                                    rc = PSPEmuCoreExecRun(hCore, 1, 0);
+                                    rc = PSPEmuCoreExecRun(hCore, 1, PSPEMU_CORE_EXEC_INDEFINITE);
                                     if (!rc)
                                     {
                                         PSPDBG hDbg = NULL;
@@ -584,7 +584,7 @@ int main(int argc, char *argv[])
                                 }
                                 else
                                 {
-                                    rc = PSPEmuCoreExecRun(hCore, 0, 0);
+                                    rc = PSPEmuCoreExecRun(hCore, 0, PSPEMU_CORE_EXEC_INDEFINITE);
                                     if (rc)
                                     {
                                         fprintf(stderr, "Emulation runloop failed with %d\n", rc);

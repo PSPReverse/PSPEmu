@@ -739,14 +739,15 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
 
     if (!cInsnExec)
         cInsnExec = UINT32_MAX;
-    if (!msExec) /** @todo: Proper timekeeping for the loop. */
-        msExec = UINT32_MAX;
+    if (!msExec)
+        msExec = 1;
 
     pThis->fExecStop = false;
 
     while (!rc && cInsnExec && msExec && !pThis->fExecStop)
     {
-        uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff, msExec, cInsnExec);
+        uint64_t usUcExec = msExec == PSPEMU_CORE_EXEC_INDEFINITE ? 0 : (uint64_t)msExec * 1000;
+        uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff, usUcExec, cInsnExec);
         if (rcUc == UC_ERR_OK)
         {
             cInsnExec--; /* Executed at least one instruction. */
@@ -828,6 +829,8 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
             else
                 rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
         }
+        else if (rcUc == UC_ERR_TIMEOUT)
+            break;
         else
             rc = pspEmuCoreErrConvertFromUcErr(rcUc);
     }
