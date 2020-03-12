@@ -141,6 +141,27 @@ typedef struct PSPIOMREGIONHANDLEINT
 typedef PSPIOMREGIONHANDLEINT *PPSPIOMREGIONHANDLEINT;
 
 
+/** Forward declaration of a X86 mapping control slot pointer. */
+typedef struct PSPIOMX86MAPCTRLSLOT *PPSPIOMX86MAPCTRLSLOT;
+
+/**
+ * X86 split MMIO descriptor.
+ */
+typedef struct PSPIOMX86MMIOSPLIT
+{
+    /** Owning x86 mapping control slot. */
+    PPSPIOMX86MAPCTRLSLOT       pX86MapSlot;
+    /** Start PSP MMIO address of the split region. */
+    PSPADDR                     PspAddrMmioStart;
+    /** Size of the split region. */
+    size_t                      cbMmio;
+} PSPIOMX86MMIOSPLIT;
+/** Pointer to a X86 split MMIO descriptor. */
+typedef PSPIOMX86MMIOSPLIT *PPSPIOMX86MMIOSPLIT;
+/** Pointer to a const X86 split MMIO descriptor. */
+typedef const PSPIOMX86MMIOSPLIT *PCPSPIOMX86MMIOSPLIT;
+
+
 /**
  * X86 mapping control slot.
  */
@@ -152,6 +173,19 @@ typedef struct PSPIOMX86MAPCTRLSLOT
     PSPADDR                         PspAddrMmioStart;
     /** Size of the slot (should be equal for all). */
     size_t                          cbMmio;
+    /** The x86 physical base address currently mapped. */
+    X86PADDR                        PhysX86Base;
+
+    /** The x86 memory region mapped executable,
+     * We only allow only one for now. */
+    PPSPIOMREGIONHANDLEINT          pX86MemExec;
+    /** PSP address the memory region is mapped to. */
+    PSPADDR                         PspAddrMemExecStart;
+    /** Size of the executable memory region. */
+    size_t                          cbMemExec;
+
+    /* Split MMIO region data if any (before and after executable region). */
+    PSPIOMX86MMIOSPLIT              aSplitMmio[2];
 
     /** @name Register interface accessible from MMIO space.
      * @{ */
@@ -163,8 +197,6 @@ typedef struct PSPIOMX86MAPCTRLSLOT
     uint32_t                        u32RegUnk5;
     /** @} */
 } PSPIOMX86MAPCTRLSLOT;
-/** Pointer to a X86 mapping control slot. */
-typedef PSPIOMX86MAPCTRLSLOT *PPSPIOMX86MAPCTRLSLOT;
 
 
 /**
@@ -465,11 +497,30 @@ static PPSPIOMREGIONHANDLEINT pspEmuIomX86MapFindRegion(PPSPIOMINT pThis, X86PAD
 }
 
 
-static X86PADDR pspEmuIomGetPhysX86AddrFromSlotAndOffset(PPSPIOMX86MAPCTRLSLOT pX86MapSlot, PSPADDR offMmio)
+/**
+ * Finds an executable memory region within the given range.
+ *
+ * @returns Pointer to the executable memory region or NULL if none was found.
+ * @param   pThis                   The I/O manager.
+ * @param   PhysX86Addr             The absolute X86 physical address marking the start of the region.
+ * @param   cbX86                   Size of the region.
+ */
+static PPSPIOMREGIONHANDLEINT pspEmuIomX86MapMemExecFindRegion(PPSPIOMINT pThis, X86PADDR PhysX86Addr, size_t cbX86)
 {
-    uint32_t u32RegX86BaseAddr = pX86MapSlot->u32RegX86BaseAddr;
-    X86PADDR PhysX86Base = (X86PADDR)(u32RegX86BaseAddr & 0x3f) << 26 | ((X86PADDR)(u32RegX86BaseAddr >> 6)) << 32;
-    return PhysX86Base | offMmio;
+    X86PADDR PhysX86AddrEnd = PhysX86Addr + cbX86;
+    PPSPIOMREGIONHANDLEINT pCur = pThis->pX86MemExecHead;
+
+    while (pCur)
+    {
+        X86PADDR PhysX86AddrEndCur = pCur->u.X86.PhysX86AddrStart + pCur->u.X86.cbX86;
+        if (   PhysX86Addr < PhysX86AddrEndCur
+            && pCur->u.X86.PhysX86AddrStart < PhysX86AddrEnd)
+            return pCur;
+
+        pCur = pCur->u.X86.u.Mem.pExecNext;
+    }
+
+    return NULL;
 }
 
 
@@ -568,7 +619,7 @@ static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, 
     PPSPIOMX86MAPCTRLSLOT pX86MapSlot = (PPSPIOMX86MAPCTRLSLOT)pvUser;
     PPSPIOMINT pThis = (PPSPIOMINT)pX86MapSlot->pIoMgr;
 
-    X86PADDR PhysX86Addr = pspEmuIomGetPhysX86AddrFromSlotAndOffset(pX86MapSlot, uPspAddr);
+    X86PADDR PhysX86Addr = pX86MapSlot->PhysX86Base | uPspAddr;
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
     if (pRegion)
     {
@@ -596,7 +647,7 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
     PPSPIOMX86MAPCTRLSLOT pX86MapSlot = (PPSPIOMX86MAPCTRLSLOT)pvUser;
     PPSPIOMINT pThis = (PPSPIOMINT)pX86MapSlot->pIoMgr;
 
-    X86PADDR PhysX86Addr = pspEmuIomGetPhysX86AddrFromSlotAndOffset(pX86MapSlot, uPspAddr);
+    X86PADDR PhysX86Addr = pX86MapSlot->PhysX86Base | uPspAddr;
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
     if (pRegion)
     {
@@ -616,6 +667,144 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
         pThis->pfnX86UnassignedWrite(PhysX86Addr, cbWrite, pvSrc, pThis->pvUserX86Unassigned);
     else
         pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvSrc, cbWrite);
+}
+
+
+static void pspEmuIomX86MapReadSplit(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
+{
+    PCPSPIOMX86MMIOSPLIT pX86MmioSplit = (PCPSPIOMX86MMIOSPLIT)pvUser;
+    PPSPIOMX86MAPCTRLSLOT pX86MapSlot = pX86MmioSplit->pX86MapSlot;
+
+    /* Recalculate the MMIO offset. */
+    uPspAddr += pX86MmioSplit->PspAddrMmioStart - pX86MapSlot->PspAddrMmioStart;
+
+    /* Do the call to the worker. */
+    pspEmuIomX86MapRead(hCore, uPspAddr, cbRead, pvDst, pX86MapSlot);
+}
+
+
+static void pspEmuIomX86MapWriteSplit(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser)
+{
+    PCPSPIOMX86MMIOSPLIT pX86MmioSplit = (PCPSPIOMX86MMIOSPLIT)pvUser;
+    PPSPIOMX86MAPCTRLSLOT pX86MapSlot = pX86MmioSplit->pX86MapSlot;
+
+    /* Recalculate the MMIO offset. */
+    uPspAddr += pX86MmioSplit->PspAddrMmioStart - pX86MapSlot->PspAddrMmioStart;
+
+    /* Do the call to the worker. */
+    pspEmuIomX86MapWrite(hCore, uPspAddr, cbWrite, pvSrc, pX86MapSlot);
+}
+
+
+/**
+ * Unmaps any directly mapped x86 memory regions.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager instance.
+ * @param   pX86MapSlot             The x86 mapping slot being restored.
+ */
+static void pspEmuIoMgrX86MapExecMemoryRegionsUnmap(PPSPIOMINT pThis, PPSPIOMX86MAPCTRLSLOT pX86MapSlot)
+{
+    if (pX86MapSlot->pX86MemExec)
+    {
+        int rc = PSPEmuCoreMemRegionRemove(pThis->hPspCore, pX86MapSlot->PspAddrMemExecStart, pX86MapSlot->cbMemExec);
+        /** @todo Assert rc */
+
+        /* Deregister the possibly split MMIO region. */
+        if (pX86MapSlot->aSplitMmio[0].cbMmio)
+            rc = PSPEmuCoreMmioDeregister(pThis->hPspCore, pX86MapSlot->aSplitMmio[0].PspAddrMmioStart,
+                                          pX86MapSlot->aSplitMmio[0].cbMmio);
+        if (pX86MapSlot->aSplitMmio[1].cbMmio)
+            rc = PSPEmuCoreMmioDeregister(pThis->hPspCore, pX86MapSlot->aSplitMmio[1].PspAddrMmioStart,
+                                          pX86MapSlot->aSplitMmio[1].cbMmio);
+
+        /* Restore the old MMIO region. */
+        rc = PSPEmuCoreMmioRegister(pThis->hPspCore, pX86MapSlot->PspAddrMmioStart, pX86MapSlot->cbMmio,
+                                    pspEmuIomX86MapRead, pspEmuIomX86MapWrite,
+                                    pX86MapSlot);
+        /** @todo Assert rc */
+
+        /* Clear important members. */
+        pX86MapSlot->pX86MemExec                    = NULL;
+        pX86MapSlot->PspAddrMemExecStart            = 0;
+        pX86MapSlot->cbMemExec                      = 0;
+        pX86MapSlot->aSplitMmio[0].pX86MapSlot      = NULL;
+        pX86MapSlot->aSplitMmio[0].cbMmio           = 0;
+        pX86MapSlot->aSplitMmio[0].PspAddrMmioStart = 0;
+        pX86MapSlot->aSplitMmio[1].pX86MapSlot      = NULL;
+        pX86MapSlot->aSplitMmio[1].cbMmio           = 0;
+        pX86MapSlot->aSplitMmio[1].PspAddrMmioStart = 0;
+    }
+}
+
+
+/**
+ * Maps any directly mapped x86 memory regions.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager instance.
+ * @param   pX86MapSlot             The x86 mapping slot being changed.
+ */
+static void pspEmuIoMgrX86MapExecMemoryRegionsMapMaybe(PPSPIOMINT pThis, PPSPIOMX86MAPCTRLSLOT pX86MapSlot)
+{
+    /* Check whether the mapping covers an exectuable memory region, otherwise we can skip the shenanigans... */
+    PPSPIOMREGIONHANDLEINT pX86MemExec = pspEmuIomX86MapMemExecFindRegion(pThis, pX86MapSlot->PhysX86Base, pX86MapSlot->cbMmio);
+    if (pX86MemExec)
+    {
+        /* Oh boy, here it goes... */
+
+        /* Ensure that the whole memory region is valid. */
+        int rc = pspEmuIoMgrX86MemEnsureMapping(pX86MemExec, 0, pX86MemExec->u.X86.cbX86);
+        if (!rc)
+        {
+            /* Unmap the default handler for this region first. */
+            rc = PSPEmuCoreMmioDeregister(pThis->hPspCore, pX86MapSlot->PspAddrMmioStart, pX86MapSlot->cbMmio);
+            /** @todo Assert */
+
+            /* Check whether we have to insert a split MMIO handler before the memory region. */
+            X86PADDR offMemExec = pX86MemExec->u.X86.PhysX86AddrStart - pX86MapSlot->PhysX86Base;
+            size_t cbMemExec = pX86MemExec->u.X86.cbX86; /** @todo Handle cut off regions don't fitting into the complete slot. */
+
+            if (offMemExec)
+            {
+                rc = PSPEmuCoreMmioRegister(pThis->hPspCore, pX86MapSlot->PspAddrMmioStart, offMemExec,
+                                            pspEmuIomX86MapReadSplit, pspEmuIomX86MapWriteSplit,
+                                            &pX86MapSlot->aSplitMmio[0]);
+                /** @todo Assert */
+
+                pX86MapSlot->aSplitMmio[0].pX86MapSlot      = pX86MapSlot;
+                pX86MapSlot->aSplitMmio[0].cbMmio           = offMemExec;
+                pX86MapSlot->aSplitMmio[0].PspAddrMmioStart = pX86MapSlot->PspAddrMmioStart;
+            }
+
+            /* Now insert the executable memory region. */
+            rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, pX86MapSlot->PspAddrMmioStart + offMemExec, cbMemExec,
+                                        PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ | PSPEMU_CORE_MEM_REGION_PROT_F_WRITE,
+                                        pX86MemExec->u.X86.u.Mem.pvMapping);
+            /** @todo Assert */
+
+            /* Insert split MMIO region coming after the executable memory region. */
+            if (offMemExec + cbMemExec < pX86MapSlot->cbMmio)
+            {
+                PSPADDR PspAddrMmioAfter = pX86MapSlot->PspAddrMmioStart + offMemExec + cbMemExec;
+                size_t cbMmioAfter = pX86MapSlot->cbMmio - (PspAddrMmioAfter - pX86MapSlot->PspAddrMmioStart);
+
+                rc = PSPEmuCoreMmioRegister(pThis->hPspCore, PspAddrMmioAfter, cbMmioAfter,
+                                            pspEmuIomX86MapReadSplit, pspEmuIomX86MapWriteSplit,
+                                            &pX86MapSlot->aSplitMmio[1]);
+                /** @todo Assert */
+
+                pX86MapSlot->aSplitMmio[1].pX86MapSlot      = pX86MapSlot;
+                pX86MapSlot->aSplitMmio[1].cbMmio           = cbMmioAfter;
+                pX86MapSlot->aSplitMmio[1].PspAddrMmioStart = PspAddrMmioAfter;
+            }
+
+            pX86MapSlot->pX86MemExec                    = pX86MemExec;
+            pX86MapSlot->PspAddrMemExecStart            = pX86MapSlot->PspAddrMmioStart + offMemExec;
+            pX86MapSlot->cbMemExec                      = cbMemExec;
+        }
+        /** @todo else add fatal trace event. */
+    }
 }
 
 
@@ -743,7 +932,22 @@ static void pspEmuIoMgrX86MapCtrlWrite(PSPADDR offMmio, size_t cbWrite, const vo
         {
             case 0:
             {
-                pX86Slot->u32RegX86BaseAddr = *(uint32_t *)pvVal;
+                uint32_t u32RegX86BaseAddrNew = *(uint32_t *)pvVal;
+
+                if (u32RegX86BaseAddrNew != pX86Slot->u32RegX86BaseAddr)
+                {
+                    /* Restore the original mapping in case there is an executable memory region mapped right now. */
+                    pspEmuIoMgrX86MapExecMemoryRegionsUnmap(pThis, pX86Slot);
+
+                    pX86Slot->u32RegX86BaseAddr = u32RegX86BaseAddrNew;
+                    pX86Slot->PhysX86Base = (X86PADDR)(pX86Slot->u32RegX86BaseAddr & 0x3f) << 26 | ((X86PADDR)(pX86Slot->u32RegX86BaseAddr >> 6)) << 32;
+
+                    /*
+                     * In case of executable memory regions in the covered range we have to re-arrange the mapping and
+                     * map the executable memory directly.
+                     */
+                    pspEmuIoMgrX86MapExecMemoryRegionsMapMaybe(pThis, pX86Slot);
+                }
                 break;
             }
             case 4:
@@ -1031,6 +1235,8 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
                     pX86MapSlot->pIoMgr            = pThis;
                     pX86MapSlot->PspAddrMmioStart  = 0x04000000 + i * 64 * _1M;
                     pX86MapSlot->cbMmio            = 64 * _1M;
+                    pX86MapSlot->PhysX86Base       = 0;
+                    pX86MapSlot->pX86MemExec       = NULL;
                     pX86MapSlot->u32RegX86BaseAddr = 0;
                     pX86MapSlot->u32RegUnk1        = 0;
                     pX86MapSlot->u32RegUnk2        = 0;
