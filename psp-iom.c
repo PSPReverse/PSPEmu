@@ -142,12 +142,22 @@ typedef PSPIOMREGIONHANDLEINT *PPSPIOMREGIONHANDLEINT;
  */
 typedef struct PSPIOMX86MAPCTRLSLOT
 {
+    /** Pointer to the owning I/O manager instance. */
+    PPSPIOMINT                      pIoMgr;
+    /** Base MMIO address this slot starts at. */
+    PSPADDR                         PspAddrMmioStart;
+    /** Size of the slot (should be equal for all). */
+    size_t                          cbMmio;
+
+    /** @name Register interface accessible from MMIO space.
+     * @{ */
     uint32_t                        u32RegX86BaseAddr;
     uint32_t                        u32RegUnk1;
     uint32_t                        u32RegUnk2;
     uint32_t                        u32RegUnk3;
     uint32_t                        u32RegUnk4;
     uint32_t                        u32RegUnk5;
+    /** @} */
 } PSPIOMX86MAPCTRLSLOT;
 /** Pointer to a X86 mapping control slot. */
 typedef PSPIOMX86MAPCTRLSLOT *PPSPIOMX86MAPCTRLSLOT;
@@ -449,22 +459,11 @@ static PPSPIOMREGIONHANDLEINT pspEmuIomX86MapFindRegion(PPSPIOMINT pThis, X86PAD
 }
 
 
-static X86PADDR pspEmuIomGetPhysX86AddrFromSlotAndOffset(PPSPIOMINT pThis, PSPADDR offMmio)
+static X86PADDR pspEmuIomGetPhysX86AddrFromSlotAndOffset(PPSPIOMX86MAPCTRLSLOT pX86MapSlot, PSPADDR offMmio)
 {
-    /* Each slot is 64MB big, so get the slot number by shifting the appropriate bits to the right. */
-    uint32_t idxSlot = offMmio >> 26;
-    uint32_t offSlot = offMmio & ((64 * _1M) - 1);
-
-    if (idxSlot < ELEMENTS(pThis->aX86MapCtrlSlots))
-    {
-        uint32_t u32RegX86BaseAddr = pThis->aX86MapCtrlSlots[idxSlot].u32RegX86BaseAddr;
-        X86PADDR PhysX86Base = (X86PADDR)(u32RegX86BaseAddr & 0x3f) << 26 | ((X86PADDR)(u32RegX86BaseAddr >> 6)) << 32;
-        return PhysX86Base | offSlot;
-    }
-    else
-        printf("ERROR: X86 mapping slot index out of range (is %u, max is %u)\n", idxSlot, ELEMENTS(pThis->aX86MapCtrlSlots));
-
-    return 0;
+    uint32_t u32RegX86BaseAddr = pX86MapSlot->u32RegX86BaseAddr;
+    X86PADDR PhysX86Base = (X86PADDR)(u32RegX86BaseAddr & 0x3f) << 26 | ((X86PADDR)(u32RegX86BaseAddr >> 6)) << 32;
+    return PhysX86Base | offMmio;
 }
 
 
@@ -560,9 +559,10 @@ static int pspEmuIoMgrX86MemWriteWorker(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT
 
 static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
 {
-    PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
+    PPSPIOMX86MAPCTRLSLOT pX86MapSlot = (PPSPIOMX86MAPCTRLSLOT)pvUser;
+    PPSPIOMINT pThis = (PPSPIOMINT)pX86MapSlot->pIoMgr;
 
-    X86PADDR PhysX86Addr = pspEmuIomGetPhysX86AddrFromSlotAndOffset(pThis, uPspAddr);
+    X86PADDR PhysX86Addr = pspEmuIomGetPhysX86AddrFromSlotAndOffset(pX86MapSlot, uPspAddr);
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
     if (pRegion)
     {
@@ -587,9 +587,10 @@ static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, 
 
 static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser)
 {
-    PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
+    PPSPIOMX86MAPCTRLSLOT pX86MapSlot = (PPSPIOMX86MAPCTRLSLOT)pvUser;
+    PPSPIOMINT pThis = (PPSPIOMINT)pX86MapSlot->pIoMgr;
 
-    X86PADDR PhysX86Addr = pspEmuIomGetPhysX86AddrFromSlotAndOffset(pThis, uPspAddr);
+    X86PADDR PhysX86Addr = pspEmuIomGetPhysX86AddrFromSlotAndOffset(pX86MapSlot, uPspAddr);
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
     if (pRegion)
     {
@@ -980,10 +981,27 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
                                         pThis);
             if (!rc)
             {
-                /* Register the region where the X86 memory mappings appear in. */
-                rc = PSPEmuCoreMmioRegister(hPspCore, 0x04000000, 15 * 64 * _1M,
-                                            pspEmuIomX86MapRead, pspEmuIomX86MapWrite,
-                                            pThis);
+                /* Initialize the x86 memory mapping slots. */
+                for (uint32_t i = 0; i < ELEMENTS(pThis->aX86MapCtrlSlots) && !rc; i++)
+                {
+                    PPSPIOMX86MAPCTRLSLOT pX86MapSlot = &pThis->aX86MapCtrlSlots[i];
+
+                    pX86MapSlot->pIoMgr            = pThis;
+                    pX86MapSlot->PspAddrMmioStart  = 0x04000000 + i * 64 * _1M;
+                    pX86MapSlot->cbMmio            = 64 * _1M;
+                    pX86MapSlot->u32RegX86BaseAddr = 0;
+                    pX86MapSlot->u32RegUnk1        = 0;
+                    pX86MapSlot->u32RegUnk2        = 0;
+                    pX86MapSlot->u32RegUnk3        = 0;
+                    pX86MapSlot->u32RegUnk4        = 0;
+                    pX86MapSlot->u32RegUnk5        = 0;
+
+                    /* Register the region where the X86 memory mappings appear in. */
+                    rc = PSPEmuCoreMmioRegister(hPspCore, pX86MapSlot->PspAddrMmioStart, pX86MapSlot->cbMmio,
+                                                pspEmuIomX86MapRead, pspEmuIomX86MapWrite,
+                                                pX86MapSlot);
+                }
+
                 if (!rc)
                 {
                     /* Register our SMN mapping control registers into the MMIO region. */
@@ -1018,7 +1036,13 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
                             PSPEmuIoMgrDeregister(pThis->pMmioRegionX86MapCtrl);
                     }
 
-                    PSPEmuCoreMmioDeregister(pThis->hPspCore, 0x04000000, 15 * 64 * _1M);
+                    /* Unregister everything, don't care about errors. */
+                    for (uint32_t i = 0; i < ELEMENTS(pThis->aX86MapCtrlSlots); i++)
+                    {
+                        PPSPIOMX86MAPCTRLSLOT pX86MapSlot = &pThis->aX86MapCtrlSlots[i];
+
+                        PSPEmuCoreMmioDeregister(pThis->hPspCore, pX86MapSlot->PspAddrMmioStart, pX86MapSlot->cbMmio);
+                    }
                 }
 
                 PSPEmuCoreMmioDeregister(pThis->hPspCore, 0x03000000, 0x04000000 - 0x03000000);
