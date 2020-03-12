@@ -33,6 +33,7 @@ add_executable(PSPEmu
                       psp-dev-status.c
                       psp-dev-acpi.c
                       psp-dev-x86-uart.c
+                      psp-dev-x86-mem.c
                       psp-dev-mmio-unknown.c
                       psp-dev-smn-unknown.c
                       psp-dev-x86-unknown.c)
