@@ -66,6 +66,30 @@ typedef enum PSPEMUAMDCPUSEGMENT
 
 
 /**
+ * ACPI sleep state.
+ */
+typedef enum PSPEMUACPISTATE
+{
+    /** Invalid sleep state. */
+    PSPEMUACPISTATE_INVALID = 0,
+    /** S0 state: Working. */
+    PSPEMUACPISTATE_S0,
+    /** S1 state: Sleeping with Processor context maintained. */
+    PSPEMUACPISTATE_S1,
+    /** S2 state: */
+    PSPEMUACPISTATE_S2,
+    /** S3 state: */
+    PSPEMUACPISTATE_S3,
+    /** S4 state: */
+    PSPEMUACPISTATE_S4,
+    /** S5 state: Soft off */
+    PSPEMUACPISTATE_S5,
+    /** 32bit hack. */
+    PSPEMUACPISTATE_32BIT_HACK = 0x7fffffff
+} PSPEMUACPISTATE;
+
+
+/**
  * PSP emulator config.
  */
 typedef struct PSPEMUCFG
@@ -76,6 +100,8 @@ typedef struct PSPEMUCFG
     PSPEMUMICROARCH         enmMicroArch;
     /** The CPU segment we are emulating. */
     PSPEMUAMDCPUSEGMENT     enmCpuSegment;
+    /** ACPI system state the emulator starts from. */
+    PSPEMUACPISTATE         enmAcpiState;
     /** The flash ROM path. */
     const char              *pszPathFlashRom;
     /** Path to the on chip bootloader if in appropriate mode. */

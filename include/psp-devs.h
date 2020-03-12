@@ -35,6 +35,7 @@ extern const PSPDEVREG g_DevRegMp2;
 extern const PSPDEVREG g_DevRegSts;
 extern const PSPDEVREG g_DevRegMmioUnk;
 extern const PSPDEVREG g_DevRegTest;
+extern const PSPDEVREG g_DevRegAcpi;
 
 extern const PSPDEVREG g_DevRegSmnUnk;
 

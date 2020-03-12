@@ -101,6 +101,7 @@ static struct option g_aOptions[] =
     {"cpu-segment",          required_argument, 0, 'c'},
     {"intercept-svc-6",      no_argument,       0, '6'},
     {"trace-svcs",           no_argument,       0, 'v'},
+    {"acpi-state",           required_argument, 0, 'i'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -182,6 +183,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszTraceLog           = NULL;
     pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
     pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
+    pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
 
     while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:a:c:", &g_aOptions[0], &idxOption)) != -1)
     {
@@ -203,6 +205,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --trace-log <path/to/trace/log>\n"
                        "    --micro-arch <zen|zen+|zen2>\n"
                        "    --cpu-segment <ryzen|ryzen-pro|threadripper|epyc>\n"
+                       "    --acpi-state <s0|s1|s1|s2|s3|s4|s5>\n"
                        "    --intercept-svc-6\n"
                        "    --trace-svcs\n",
                        argv[0]);
@@ -280,6 +283,27 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 else
                 {
                     fprintf(stderr, "Unrecognised CPU segment: %s\n", optarg);
+                    return -1;
+                }
+                break;
+            }
+            case 'i':
+            {
+                if (!strcasecmp(optarg, "s0"))
+                    pCfg->enmAcpiState = PSPEMUACPISTATE_S0;
+                else if (!strcasecmp(optarg, "s1"))
+                    pCfg->enmAcpiState = PSPEMUACPISTATE_S1;
+                else if (!strcasecmp(optarg, "s2"))
+                    pCfg->enmAcpiState = PSPEMUACPISTATE_S2;
+                else if (!strcasecmp(optarg, "s3"))
+                    pCfg->enmAcpiState = PSPEMUACPISTATE_S3;
+                else if (!strcasecmp(optarg, "s4"))
+                    pCfg->enmAcpiState = PSPEMUACPISTATE_S4;
+                else if (!strcasecmp(optarg, "s5"))
+                    pCfg->enmAcpiState = PSPEMUACPISTATE_S5;
+                else
+                {
+                    fprintf(stderr, "Unrecognised ACPI state: %s\n", optarg);
                     return -1;
                 }
                 break;
@@ -478,6 +502,8 @@ int main(int argc, char *argv[])
                             rc = PSPEmuDevCreate(hIoMgr, &g_DevRegTest, &Cfg, &pDev);
                         if (!rc)
                             rc = PSPEmuDevCreate(hIoMgr, &g_DevRegX86Uart, &Cfg, &pDev);
+                        if (!rc)
+                            rc = PSPEmuDevCreate(hIoMgr, &g_DevRegAcpi, &Cfg, &pDev);
                         if (rc)
                             printf("Error creating one of the devices: %d\n", rc);
 

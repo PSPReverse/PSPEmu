@@ -81,6 +81,8 @@ typedef enum PSPTRACEEVTORIGIN
     PSPTRACEEVTORIGIN_CCP,
     /** Status device related. */
     PSPTRACEEVTORIGIN_STS,
+    /** ACPI device related. */
+    PSPTRACEEVTORIGIN_ACPI,
     /** x86 UART related. */
     PSPTRACEEVTORIGIN_X86_UART,
     /** Last valid origin. */
