@@ -190,6 +190,27 @@ typedef struct PSPIOMINT
     PPSPIOMREGIONHANDLEINT      pMmioRegionX86MapCtrl3;
     /** X86 mapping control slots. */
     PSPIOMX86MAPCTRLSLOT        aX86MapCtrlSlots[15];
+
+    /** Callback for unassigned MMIO reads. */
+    PFNPSPIOMMMIOREAD           pfnMmioUnassignedRead;
+    /** Callback for unassigned MMIO writes. */
+    PFNPSPIOMMMIOWRITE          pfnMmioUnassignedWrite;
+    /** Opaque user data for the unassigned MMIO read/write callbacks. */
+    void                        *pvUserMmioUnassigned;
+
+    /** Callback for unassigned SMN reads. */
+    PFNPSPIOMSMNREAD            pfnSmnUnassignedRead;
+    /** Callback for unassigned SMN writes. */
+    PFNPSPIOMSMNWRITE           pfnSmnUnassignedWrite;
+    /** Opaque user data for the unassigned SMN read/write callbacks. */
+    void                        *pvUserSmnUnassigned;
+
+    /** Callback for unassigned x86 reads. */
+    PFNPSPIOMX86MMIOREAD        pfnX86UnassignedRead;
+    /** Callback for unassigned x86 writes. */
+    PFNPSPIOMX86MMIOWRITE       pfnX86UnassignedWrite;
+    /** Opaque user data for the unassigned x86 read/write callbacks. */
+    void                        *pvUserX86Unassigned;
 } PSPIOMINT;
 
 
@@ -326,9 +347,15 @@ static void pspEmuIomSmnSlotsRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead
 
     SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
-    if (   pRegion
-        && pRegion->u.Smn.pfnRead)
-        pRegion->u.Smn.pfnRead(SmnAddr - pRegion->u.Smn.SmnAddrStart, cbRead, pvDst, pRegion->pvUser);
+    if (pRegion)
+    {
+        if (pRegion->u.Smn.pfnRead)
+            pRegion->u.Smn.pfnRead(SmnAddr - pRegion->u.Smn.SmnAddrStart, cbRead, pvDst, pRegion->pvUser);
+        else
+            pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvDst, cbRead); /** @todo Technically not unassigned, just write only. */
+    }
+    else if (pThis->pfnSmnUnassignedRead)
+        pThis->pfnSmnUnassignedRead(SmnAddr, cbRead, pvDst, pThis->pvUserSmnUnassigned);
     else
         pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvDst, cbRead);
 }
@@ -340,9 +367,15 @@ static void pspEmuIomSmnSlotsWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWri
 
     SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
-    if (   pRegion
-        && pRegion->u.Smn.pfnWrite)
-        pRegion->u.Smn.pfnWrite(SmnAddr - pRegion->u.Smn.SmnAddrStart, cbWrite, pvSrc, pRegion->pvUser);
+    if (pRegion)
+    {
+        if (pRegion->u.Smn.pfnWrite)
+            pRegion->u.Smn.pfnWrite(SmnAddr - pRegion->u.Smn.SmnAddrStart, cbWrite, pvSrc, pRegion->pvUser);
+        else
+            pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvSrc, cbWrite); /** @todo Technically not unassigned, just read only. */
+    }
+    else if (pThis->pfnSmnUnassignedWrite)
+        pThis->pfnSmnUnassignedWrite(SmnAddr, cbWrite, pvSrc, pThis->pvUserSmnUnassigned);
     else
         pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvSrc, cbWrite);
 }
@@ -354,9 +387,15 @@ static void pspEmuIomMmioRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
 
     uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
-    if (   pRegion
-        && pRegion->u.Mmio.pfnRead)
-        pRegion->u.Mmio.pfnRead(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbRead, pvDst, pRegion->pvUser);
+    if (pRegion)
+    {
+        if (pRegion->u.Mmio.pfnRead)
+            pRegion->u.Mmio.pfnRead(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbRead, pvDst, pRegion->pvUser);
+        else
+            pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvDst, cbRead); /** @todo Technically not unassigned, just write only. */
+    }
+    else if (pThis->pfnMmioUnassignedRead)
+        pThis->pfnMmioUnassignedRead(uPspAddr, cbRead, pvDst, pThis->pvUserMmioUnassigned);
     else
         pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvDst, cbRead);
 }
@@ -368,9 +407,15 @@ static void pspEmuIomMmioWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
 
     uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
-    if (   pRegion
-        && pRegion->u.Mmio.pfnWrite)
-        pRegion->u.Mmio.pfnWrite(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbWrite, pvSrc, pRegion->pvUser);
+    if (pRegion)
+    {
+        if (pRegion->u.Mmio.pfnWrite)
+            pRegion->u.Mmio.pfnWrite(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbWrite, pvSrc, pRegion->pvUser);
+        else
+            pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvSrc, cbWrite); /** @todo Technically not unassigned, just read only. */
+    }
+    else if (pThis->pfnMmioUnassignedWrite)
+        pThis->pfnMmioUnassignedWrite(uPspAddr, cbWrite, pvSrc, pThis->pvUserMmioUnassigned);
     else
         pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvSrc, cbWrite);
 }
@@ -532,6 +577,8 @@ static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, 
         else /* Huh? */
             pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvDst, cbRead); /** @todo assert or throw an error. */
     }
+    else if (pThis->pfnX86UnassignedRead)
+        pThis->pfnX86UnassignedRead(PhysX86Addr, cbRead, pvDst, pThis->pvUserX86Unassigned);
     else
         pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvDst, cbRead);
 }
@@ -557,6 +604,8 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
         else /* Huh? */
             pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvSrc, cbWrite); /** @todo assert or throw an error. */
     }
+    else if (pThis->pfnX86UnassignedWrite)
+        pThis->pfnX86UnassignedWrite(PhysX86Addr, cbWrite, pvSrc, pThis->pvUserX86Unassigned);
     else
         pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvSrc, cbWrite);
 }
@@ -908,6 +957,15 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
         pThis->PhysX86AddrHighest     = 0x0000000000000000;
         pThis->hPspCore               = hPspCore;
         pThis->pMmioRegionSmnCtrl     = NULL;
+        pThis->pfnMmioUnassignedRead  = NULL;
+        pThis->pfnMmioUnassignedWrite = NULL;
+        pThis->pvUserMmioUnassigned   = NULL;
+        pThis->pfnSmnUnassignedRead   = NULL;
+        pThis->pfnSmnUnassignedWrite  = NULL;
+        pThis->pvUserSmnUnassigned    = NULL;
+        pThis->pfnX86UnassignedRead   = NULL;
+        pThis->pfnX86UnassignedWrite  = NULL;
+        pThis->pvUserX86Unassigned    = NULL;
 
         /* Register the MMIO region, where the SMN devices get mapped to (32 slots each 1MiB wide). */
         rc = PSPEmuCoreMmioRegister(hPspCore, 0x01000000, 32 * _1M,
@@ -987,6 +1045,51 @@ int PSPEmuIoMgrDestroy(PSPIOM hIoMgr)
     /** @todo Free devices. */
     free(pThis);
     return rc;
+}
+
+
+int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    /* Allow only one registration currently. */
+    if (pThis->pfnMmioUnassignedRead || pThis->pfnMmioUnassignedWrite)
+        return -1;
+
+    pThis->pfnMmioUnassignedRead  = pfnRead;
+    pThis->pfnMmioUnassignedWrite = pfnWrite;
+    pThis->pvUserMmioUnassigned   = pvUser;
+    return 0;
+}
+
+
+int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    /* Allow only one registration currently. */
+    if (pThis->pfnSmnUnassignedRead || pThis->pfnSmnUnassignedWrite)
+        return -1;
+
+    pThis->pfnSmnUnassignedRead  = pfnRead;
+    pThis->pfnSmnUnassignedWrite = pfnWrite;
+    pThis->pvUserSmnUnassigned   = pvUser;
+    return 0;
+}
+
+
+int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86MMIOREAD pfnRead, PFNPSPIOMX86MMIOWRITE pfnWrite, void *pvUser)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    /* Allow only one registration currently. */
+    if (pThis->pfnX86UnassignedRead || pThis->pfnX86UnassignedWrite)
+        return -1;
+
+    pThis->pfnX86UnassignedRead  = pfnRead;
+    pThis->pfnX86UnassignedWrite = pfnWrite;
+    pThis->pvUserX86Unassigned   = pvUser;
+    return 0;
 }
 
 

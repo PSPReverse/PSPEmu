@@ -37,40 +37,105 @@ typedef struct PSPIOMREGIONHANDLEINT *PSPIOMREGIONHANDLE;
 /** Pointer to a region handle. */
 typedef PSPIOMREGIONHANDLE *PPSPIOMREGIONHANDLE;
 
-/** SMN read handler. */
+/**
+ * SMN read handler.
+ *
+ * @returns nothing.
+ * @param   offSmn                  Offset from the beginning of the registered range the read starts at
+ *                                  (when used as the unassigned region callback this is the absolute address).
+ * @param   cbRead                  Number of bytes to read.
+ * @param   pvVal                   Where to store the read data.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
 typedef void (FNPSPIOMSMNREAD)(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser);
 /** SMN read handler pointer. */
 typedef FNPSPIOMSMNREAD *PFNPSPIOMSMNREAD;
 
-/** SMN write handler. */
+
+/**
+ * SMN write handler.
+ *
+ * @returns nothing.
+ * @param   offSmn                  Offset from the beginning of the registered range the write starts at
+ *                                  (when used as the unassigned region callback this is the absolute address).
+ * @param   cbWrite                 Number of bytes to write.
+ * @param   pvVal                   The data to write.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
 typedef void (FNPSPIOMSMNWRITE)(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser);
 /** SMN write handler pointer. */
 typedef FNPSPIOMSMNWRITE *PFNPSPIOMSMNWRITE;
 
 
-/** MMIO read handler. */
+/**
+ * MMIO read handler.
+ *
+ * @returns nothing.
+ * @param   offMmio                 Offset from the beginning of the registered range the read starts at
+ *                                  (when used as the unassigned region callback this is the absolute address).
+ * @param   cbRead                  Number of bytes to read.
+ * @param   pvVal                   Where to store the read data.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
 typedef void (FNPSPIOMMMIOREAD)(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser);
 /** MMIO read handler pointer. */
 typedef FNPSPIOMMMIOREAD *PFNPSPIOMMMIOREAD;
 
-/** MMIO write handler. */
+
+/**
+ * MMIO write handler.
+ *
+ * @returns nothing.
+ * @param   offMmio                 Offset from the beginning of the registered range the write starts at
+ *                                  (when used as the unassigned region callback this is the absolute address).
+ * @param   cbWrite                 Number of bytes to write.
+ * @param   pvVal                   The data to write.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
 typedef void (FNPSPIOMMMIOWRITE)(PSPADDR offMmio, size_t cbRead, const void *pvVal, void *pvUser);
 /** MMIO write handler pointer. */
 typedef FNPSPIOMMMIOWRITE *PFNPSPIOMMMIOWRITE;
 
 
-/** X86 MMIO read handler. */
+/**
+ * X86 MMIO read handler.
+ *
+ * @returns nothing.
+ * @param   offX86Mmio              Offset from the beginning of the registered range the read starts at
+ *                                  (when used as the unassigned region callback this is the absolute address).
+ * @param   cbRead                  Number of bytes to read.
+ * @param   pvVal                   Where to store the read data.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
 typedef void (FNPSPIOMX86MMIOREAD)(X86PADDR offX86Mmio, size_t cbRead, void *pvVal, void *pvUser);
 /** X86 MMIO read handler pointer. */
 typedef FNPSPIOMX86MMIOREAD *PFNPSPIOMX86MMIOREAD;
 
-/** X86 MMIO write handler. */
+
+/**
+ * X86 MMIO write handler.
+ *
+ * @returns nothing.
+ * @param   offX86Mmio              Offset from the beginning of the registered range the write starts at
+ *                                  (when used as the unassigned region callback this is the absolute address).
+ * @param   cbWrite                 Number of bytes to write.
+ * @param   pvVal                   The data to write.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
 typedef void (FNPSPIOMX86MMIOWRITE)(X86PADDR offX86Mmio, size_t cbRead, const void *pvVal, void *pvUser);
 /** X86 MMIO write handler pointer. */
 typedef FNPSPIOMX86MMIOWRITE *PFNPSPIOMX86MMIOWRITE;
 
 
-/** X86 memory fetch handler. */
+/**
+ * X86 memory fetch handler.
+ *
+ * @returns nothing.
+ * @param   offX86Mem               Offset from the beginning of the registered range to start fetching from.
+ * @param   cbFetch                 Number of bytes to fetch.
+ * @param   pvVal                   Where to store the fetched data.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
 typedef void (FNPSPIOMX86MEMFETCH)(X86PADDR offX86Mem, size_t cbFetch, void *pvDst, void *pvUser);
 /** X86 memory fetch handler pointer. */
 typedef FNPSPIOMX86MEMFETCH *PFNPSPIOMX86MEMFETCH;
@@ -93,6 +158,51 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore);
  * @param   hIoMgr                  The I/O manager handle.
  */
 int PSPEmuIoMgrDestroy(PSPIOM hIoMgr);
+
+
+/**
+ * Sets callbacks for intercepting accesses to unassigned MMIO regions.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   pfnRead                 Callback to call on a read access, optional (NULL means reads don't get intercepted).
+ * @param   pfnWrite                Callback to call on a write access, optional (NULL means writes don't get intercepted).
+ * @param   pvUser                  Opaque user data passed in the callback.
+ *
+ * @note By default there is no callback registered and accesses to unassigned regions get logged, reads return all bits 0
+ *       and writes get ignored otherwise.
+ */
+int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser);
+
+
+/**
+ * Sets callbacks for intercepting accesses to unassigned SMN regions.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   pfnRead                 Callback to call on a read access, optional (NULL means reads don't get intercepted).
+ * @param   pfnWrite                Callback to call on a write access, optional (NULL means writes don't get intercepted).
+ * @param   pvUser                  Opaque user data passed in the callback.
+ *
+ * @note By default there is no callback registered and accesses to unassigned regions get logged, reads return all bits 0
+ *       and writes get ignored otherwise.
+ */
+int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser);
+
+
+/**
+ * Sets callbacks for intercepting accesses to unassigned X86 address regions.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   pfnRead                 Callback to call on a read access, optional (NULL means reads don't get intercepted).
+ * @param   pfnWrite                Callback to call on a write access, optional (NULL means writes don't get intercepted).
+ * @param   pvUser                  Opaque user data passed in the callback.
+ *
+ * @note By default there is no callback registered and accesses to unassigned regions get logged, reads return all bits 0
+ *       and writes get ignored otherwise.
+ */
+int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86MMIOREAD pfnRead, PFNPSPIOMX86MMIOWRITE pfnWrite, void *pvUser);
 
 
 /**
