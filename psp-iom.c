@@ -485,6 +485,7 @@ static int pspEmuIoMgrX86MemEnsureMapping(PPSPIOMREGIONHANDLEINT pX86Region, X86
     {
         /* We cache always at 1K aligned segments. */
         size_t cbFetch = offX86Mem + cbAccess - pX86Region->u.X86.u.Mem.cbValid;
+        cbFetch = MIN((cbFetch + _1K) & ~(_1K - 1), pX86Region->u.X86.cbX86 - pX86Region->u.X86.u.Mem.cbValid);
 
         /* Increase the mapping memory. */
         void *pvNew = realloc(pX86Region->u.X86.u.Mem.pvMapping, pX86Region->u.X86.u.Mem.cbAlloc + cbFetch);
