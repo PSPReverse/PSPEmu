@@ -263,13 +263,14 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
  * @param   hIoMgr                  The I/O manager handle.
  * @param   PhysX86AddrMemStart     The X86 start address of the memory region to register.
  * @param   cbX86Mem                Size of the X86 memory region in bytes.
+ * @param   fCanExec                Flag whether the memory should be made executable to the core.
  * @param   pfnFetch                Callback to call on a first read access to dynamically initialize the memory content,
  *                                  optional (NULL means reads return 0 on first access).
  * @param   pvUser                  Opaque user data passed in the fetch callback.
  * @param   phX86Mem                Where to store the handle to the X86 memory region on success.
  */
 int PSPEmuIoMgrX86MemRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMemStart, size_t cbX86Mem,
-                              PFNPSPIOMX86MEMFETCH pfnFetch, void *pvUser,
+                              bool fCanExec, PFNPSPIOMX86MEMFETCH pfnFetch, void *pvUser,
                               PPSPIOMREGIONHANDLE phX86Mem);
 
 

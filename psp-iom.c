@@ -118,16 +118,20 @@ typedef struct PSPIOMREGIONHANDLEINT
                 /** Memory specific data. */
                 struct
                 {
+                    /** Pointer to the next exectuable memory region (only valid if  fCanExec is true). */
+                    struct PSPIOMREGIONHANDLEINT *pExecNext;
                     /** Fetch callback. */
-                    PFNPSPIOMX86MEMFETCH    pfnFetch;
+                    PFNPSPIOMX86MEMFETCH         pfnFetch;
                     /** Pointer to memory backing this region. */
-                    void                    *pvMapping;
+                    void                         *pvMapping;
                     /** Amount of memory currently allocated. */
-                    size_t                  cbAlloc;
+                    size_t                       cbAlloc;
                     /** Size of the region initialized with valid data so far. */
-                    size_t                  cbValid;
+                    size_t                       cbValid;
                     /** Size of the highest written area so far (exclusive, defines range of memory to sync back). */
-                    size_t                  cbWritten;
+                    size_t                       cbWritten;
+                    /** Flag whether the memory should be made executable to the core. */
+                    bool                         fCanExec;
                 } Mem;
             } u;
         } X86;
@@ -174,6 +178,8 @@ typedef struct PSPIOMINT
     PPSPIOMREGIONHANDLEINT      pSmnHead;
     /** The head of list of X86 regions (@todo AVL tree?). */
     PPSPIOMREGIONHANDLEINT      pX86Head;
+    /** The head of list of X86 memory regions with exec permissions. */
+    PPSPIOMREGIONHANDLEINT      pX86MemExecHead;
     /** Lowest MMIO address assigned to a region (for faster lookup). */
     PSPADDR                     PspAddrMmioLowest;
     /** Highes MMIO address assigned to a region (inclusive). */
@@ -941,6 +947,41 @@ static int pspEmuIomX86RegionInsert(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pRe
     return rc;
 }
 
+
+/**
+ * Inserts the given X86 memory region with exec permissions into the list of executable memory regions.
+ *
+ * @returns Status code.
+ * @param   pThis                   The I/O manager.
+ * @param   pRegion                 The X86 region to insert.
+ */
+static void pspEmuIomX86MemExecInsert(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pRegion)
+{
+    X86PADDR PhysX86AddrStart = pRegion->u.X86.PhysX86AddrStart;
+    size_t cbX86 = pRegion->u.X86.cbX86;
+    int rc = 0;
+
+    PPSPIOMREGIONHANDLEINT pPrev = NULL;
+    PPSPIOMREGIONHANDLEINT pCur = pThis->pX86MemExecHead;
+
+    /* Search where to insert the new device, sorted by starting X86 address. */
+    while (pCur)
+    {
+        if (pCur->u.X86.PhysX86AddrStart > PhysX86AddrStart)
+            break;
+        pPrev = pCur;
+        pCur = pCur->u.X86.u.Mem.pExecNext;
+    }
+
+    /* No sanity checks needed here as it was already done in the general X86 region list insertion step. */
+    pRegion->u.X86.u.Mem.pExecNext = pCur;
+    if (pPrev)
+        pPrev->u.X86.u.Mem.pExecNext = pRegion;
+    else
+        pThis->pX86MemExecHead = pRegion;
+}
+
+
 int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
 {
     int rc = 0;
@@ -951,6 +992,7 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
         pThis->pMmioHead              = NULL;
         pThis->pSmnHead               = NULL;
         pThis->pX86Head               = NULL;
+        pThis->pX86MemExecHead        = NULL;
         pThis->PspAddrMmioLowest      = 0xffffffff;
         pThis->PspAddrMmioHighest     = 0x00000000;
         pThis->SmnAddrLowest          = 0xffffffff;
@@ -1227,7 +1269,7 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
 
 
 int PSPEmuIoMgrX86MemRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMemStart, size_t cbX86Mem,
-                              PFNPSPIOMX86MEMFETCH pfnFetch, void *pvUser,
+                              bool fCanExec, PFNPSPIOMX86MEMFETCH pfnFetch, void *pvUser,
                               PPSPIOMREGIONHANDLE phX86Mem)
 {
     int rc = 0;
@@ -1240,15 +1282,19 @@ int PSPEmuIoMgrX86MemRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMemStart, size_
         pRegion->pvUser                 = pvUser;
         pRegion->u.X86.PhysX86AddrStart = PhysX86AddrMemStart;
         pRegion->u.X86.cbX86            = cbX86Mem;
+        pRegion->u.X86.u.Mem.pExecNext  = NULL;
         pRegion->u.X86.u.Mem.pfnFetch   = pfnFetch;
         pRegion->u.X86.u.Mem.pvMapping  = NULL;
         pRegion->u.X86.u.Mem.cbAlloc    = 0;
         pRegion->u.X86.u.Mem.cbValid    = 0;
         pRegion->u.X86.u.Mem.cbWritten  = 0;
+        pRegion->u.X86.u.Mem.fCanExec   = fCanExec;
 
         rc = pspEmuIomX86RegionInsert(pThis, pRegion);
         if (!rc)
         {
+            if (fCanExec)
+                pspEmuIomX86MemExecInsert(pThis, pRegion);
             *phX86Mem = pRegion;
             return 0;
         }
@@ -1336,9 +1382,35 @@ int PSPEmuIoMgrDeregister(PSPIOMREGIONHANDLE hRegion)
 
         /* For X86 memory regions we have to destroy the backing memory. */
         /** @todo Sync mapping? */
-        if (   pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM
-            && pRegion->u.X86.u.Mem.pvMapping)
-            free(pRegion->u.X86.u.Mem.pvMapping);
+        if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
+        {
+            if (pRegion->u.X86.u.Mem.pvMapping)
+                free(pRegion->u.X86.u.Mem.pvMapping);
+
+            /* Remove from executable list if required. */
+            if (pRegion->u.X86.u.Mem.fCanExec)
+            {
+                pPrev = NULL;
+                pCur = pThis->pX86MemExecHead;
+
+                while (   pCur
+                       && pCur != pRegion)
+                {
+                    pPrev = pCur;
+                    pCur = pCur->u.X86.u.Mem.pExecNext;
+                }
+
+                if (pCur)
+                {
+                    /* Found */
+                    if (pPrev)
+                        pPrev->u.X86.u.Mem.pExecNext = pCur->u.X86.u.Mem.pExecNext;
+                    else
+                        pThis->pX86MemExecHead = pCur->u.X86.u.Mem.pExecNext;
+                }
+                /** @todo else Assert() as it should never happen. */
+            }
+        }
         free(pRegion);
     }
     else /* Not found? */

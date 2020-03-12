@@ -426,7 +426,7 @@ static int pspEmuSvcX86MemMapWorker(PPSPSVCINT pThis, uint32_t u32PhysX86AddrLow
             pMapping->cbMapping        = cbMapping;
 
             /* Create the x86 memory region. */
-            rc = PSPEmuIoMgrX86MemRegister(pThis->hIoMgr, PhysX86Addr, cbMapping,
+            rc = PSPEmuIoMgrX86MemRegister(pThis->hIoMgr, PhysX86Addr, cbMapping, false /*fCanExec*/,
                                            pspEmuIoMgrX86MappingFetch, pMapping, &pMapping->hIoMgrRegion);
             if (!rc)
             {
