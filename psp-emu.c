@@ -102,6 +102,7 @@ static struct option g_aOptions[] =
     {"intercept-svc-6",      no_argument,       0, '6'},
     {"trace-svcs",           no_argument,       0, 'v'},
     {"acpi-state",           required_argument, 0, 'i'},
+    {"uart-remote-addr",     required_argument, 0, 'u'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -185,7 +186,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
 
-    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:a:c:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:a:c:u:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -207,7 +208,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --cpu-segment <ryzen|ryzen-pro|threadripper|epyc>\n"
                        "    --acpi-state <s0|s1|s1|s2|s3|s4|s5>\n"
                        "    --intercept-svc-6\n"
-                       "    --trace-svcs\n",
+                       "    --trace-svcs\n"
+                       "    --uart-remote-addr [<port>|<address:port>]\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -313,6 +315,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'v':
                 pCfg->fTraceSvcs = true;
+                break;
+            case 'u':
+                pCfg->pszUartRemoteAddr = optarg;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -526,7 +531,7 @@ int main(int argc, char *argv[])
                             }
                             case PSPCOREMODE_SYSTEM:
                             {
-                                //PSPEmuCoreTraceRegister(hCore, 0x4738, 0x4764, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
+                                PSPEmuCoreTraceRegister(hCore, 0x100, 0x20000, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
                                 PspAddrStartExec = 0x100;
                                 break;
                             }

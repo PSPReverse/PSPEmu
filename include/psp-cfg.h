@@ -130,6 +130,8 @@ typedef struct PSPEMUCFG
     const char              *pszPspProxyAddr;
     /** Path to the trace log to write if enabled. */
     const char              *pszTraceLog;
+    /** UART remtoe address. */
+    const char              *pszUartRemoteAddr;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;
