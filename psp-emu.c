@@ -531,7 +531,7 @@ int main(int argc, char *argv[])
                             }
                             case PSPCOREMODE_SYSTEM:
                             {
-                                PSPEmuCoreTraceRegister(hCore, 0x100, 0x20000, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
+                                //PSPEmuCoreTraceRegister(hCore, 0x100, 0x20000, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
                                 PspAddrStartExec = 0x100;
                                 break;
                             }
