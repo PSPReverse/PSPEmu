@@ -38,6 +38,12 @@ typedef struct PSPDEVUART
     PPSPDEV                 pDev;
     /** MMIO region handle. */
     PSPIOMREGIONHANDLE      hMmio;
+    /** LCR register value. */
+    uint8_t                 u8RegLcr;
+    /** RBR register value. */
+    uint8_t                 u8RegRbr;
+    /** Divisor determining the baud rate. */
+    uint16_t                u16Divisor;
     /** Temporary char buffer. */
     uint8_t                 achBuf[512];
     /** Where to write next. */
@@ -48,6 +54,8 @@ typedef PSPDEVUART *PPSPDEVUART;
 
 static void pspDevX86UartRead(X86PADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
+    PPSPDEVUART pThis = (PPSPDEVUART)pvUser;
+
     if (cbRead != sizeof(uint8_t))
     {
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
@@ -60,7 +68,7 @@ static void pspDevX86UartRead(X86PADDR offMmio, size_t cbRead, void *pvVal, void
     {
         case X86_UART_REG_RBR_OFF:
         {
-            *pbVal = 1; /* Required for the detection logic. */
+            *pbVal = pThis->u8RegRbr;
             break;
         }
         case X86_UART_REG_LSR_OFF:
@@ -70,12 +78,12 @@ static void pspDevX86UartRead(X86PADDR offMmio, size_t cbRead, void *pvVal, void
         }
         case X86_UART_REG_IER_OFF:
         {
-            *pbVal = 1; /* Required for the UART detection logic. */
+            *pbVal = X86_UART_REG_IIR_NOT_PENDING; /* Required for the UART detection logic. */
             break;
         }
         case X86_UART_REG_LCR_OFF:
         {
-            *pbVal = 3; /* Required for the UART detection logic. */
+            *pbVal = pThis->u8RegLcr;
             break;
         }
         default:
@@ -99,8 +107,21 @@ static void pspDevX86UartWrite(X86PADDR offMmio, size_t cbWrite, const void *pvV
     switch (offMmio)
     {
         case X86_UART_REG_THR_OFF:
+        /*case X86_UART_REG_DL_MSB_OFF:*/
         {
-            if (bVal != '\r') /* Ignore carriage return. */
+            /* Set divisor if DLAB is set. */
+            if (pThis->u8RegLcr & X86_UART_REG_LCR_DLAB)
+            {
+                pThis->u16Divisor = (pThis->u16Divisor & 0xff00) | (uint16_t)bVal;
+
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_X86_UART,
+                                        "Line parameters set to %u %u%s%u",
+                                        115200 / pThis->u16Divisor,
+                                        (pThis->u8RegLcr & 0x3) + 5,
+                                        pThis->u8RegLcr & X86_UART_REG_LCR_PEN ? "O" : "N", /** @todo Not correct as even bit is not checked. */
+                                        pThis->u8RegLcr & X86_UART_REG_LCR_STB ? 2 : 1);
+            }
+            else if (bVal != '\r') /* Ignore carriage return. */
             {
                 /* Store character. */
                 if (pThis->offWrite < sizeof(pThis->achBuf))
@@ -123,9 +144,37 @@ static void pspDevX86UartWrite(X86PADDR offMmio, size_t cbWrite, const void *pvV
             }
             break;
         }
-        case X86_UART_REG_IER_OFF:
-        case X86_UART_REG_LSR_OFF:
         case X86_UART_REG_LCR_OFF:
+        {
+            pThis->u8RegLcr = bVal;
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_X86_UART,
+                                    "Line parameters set to %u %u%s%u",
+                                    115200 / pThis->u16Divisor,
+                                        (pThis->u8RegLcr & 0x3) + 5,
+                                    pThis->u8RegLcr & X86_UART_REG_LCR_PEN ? "O" : "N", /** @todo Not correct as even bit is not checked. */
+                                    pThis->u8RegLcr & X86_UART_REG_LCR_STB ? 2 : 1);
+            break;
+        }
+        case X86_UART_REG_DL_MSB_OFF:
+        /*case X86_UART_REG_IER_OFF:*/
+        {
+            /* Set divisor if DLAB is set. */
+            if (pThis->u8RegLcr & X86_UART_REG_LCR_DLAB)
+            {
+                pThis->u16Divisor = (pThis->u16Divisor & 0xff) | ((uint16_t)bVal << 8);
+
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_X86_UART,
+                                        "Line parameters set to %u %u%s%u",
+                                        115200 / pThis->u16Divisor,
+                                        (pThis->u8RegLcr & 0x3) + 5,
+                                        pThis->u8RegLcr & X86_UART_REG_LCR_PEN ? "O" : "N", /** @todo Not correct as even bit is not checked. */
+                                        pThis->u8RegLcr & X86_UART_REG_LCR_STB ? 2 : 1);
+            }
+            /* else Ignore access to IER. */
+
+            break;
+        }
+        case X86_UART_REG_LSR_OFF:
             break; /* Ignore. */
         default:
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
@@ -137,8 +186,12 @@ static int pspDevX86UartInit(PPSPDEV pDev)
 {
     PPSPDEVUART pThis = (PPSPDEVUART)&pDev->abInstance[0];
 
-    pThis->pDev     = pDev;
-    pThis->offWrite = 0;
+    pThis->pDev       = pDev;
+    pThis->offWrite   = 0;
+    pThis->u8RegRbr   = 1; /* Required for the detection logic. */
+    pThis->u8RegLcr   = 0;
+    pThis->u16Divisor = 1; /* 115200 baud */
+    X86_UART_REG_LCR_WLS_SET(pThis->u8RegLcr, X86_UART_REG_LCR_WLS_8); /* Required for the UART detection logic. */
 
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfffdfc0003f8, 8,
