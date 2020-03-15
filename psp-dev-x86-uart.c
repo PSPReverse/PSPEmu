@@ -20,7 +20,18 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+
+#include <poll.h>
+#include <sys/ioctl.h>
 
 #include <common/cdefs.h>
 #include <x86/uart.h>
@@ -44,10 +55,32 @@ typedef struct PSPDEVUART
     uint8_t                 u8RegRbr;
     /** Divisor determining the baud rate. */
     uint16_t                u16Divisor;
-    /** Temporary char buffer. */
-    uint8_t                 achBuf[512];
-    /** Where to write next. */
-    uint32_t                offWrite;
+    /** Flag whether socket mode is configured. */
+    bool                    fSocket;
+    /** Mode dependent data. */
+    union
+    {
+        /** Normal logging to the trace log. */
+        struct
+        {
+            /** Temporary char buffer. */
+            uint8_t         achBuf[512];
+            /** Where to write next. */
+            uint32_t        offWrite;
+        } Log;
+        /** Socket mode related members. */
+        struct
+        {
+            /** Flag whether this is server mode. */
+            bool            fSrv;
+            /** Flag whether there is data to read on the socket. */
+            bool            fDataRdy;
+            /** The listening socket. */
+            int             iFdListening;
+            /** The socket for the current connection. */
+            int             iFdCon;
+        } Sock;
+    } u;
 } PSPDEVUART;
 /** Pointer to the device instance data. */
 typedef PSPDEVUART *PPSPDEVUART;
@@ -68,12 +101,43 @@ static void pspDevX86UartRead(X86PADDR offMmio, size_t cbRead, void *pvVal, void
     {
         case X86_UART_REG_RBR_OFF:
         {
+            if (pThis->u.Sock.fDataRdy)
+                pThis->u.Sock.fDataRdy = false;
             *pbVal = pThis->u8RegRbr;
             break;
         }
         case X86_UART_REG_LSR_OFF:
         {
-            *pbVal = X86_UART_REG_LSR_THRE | X86_UART_REG_LSR_TEMT; /* We can always take data. */
+            uint8_t uRegLsr = X86_UART_REG_LSR_THRE | X86_UART_REG_LSR_TEMT; /* We can always take data. */
+
+            /* Check whether there is data available in socket mode. */
+            if (pThis->fSocket)
+            {
+                if (!pThis->u.Sock.fDataRdy)
+                {
+                    struct pollfd PollFd;
+
+                    PollFd.fd      = pThis->u.Sock.iFdCon;
+                    PollFd.events  = POLLIN | POLLHUP | POLLERR;
+                    PollFd.revents = 0;
+
+                    int rcPsx = poll(&PollFd, 1, 0);
+                    if (rcPsx == 1)
+                    {
+                        uRegLsr |= X86_UART_REG_LSR_DR;
+                        ssize_t cbRet = recv(pThis->u.Sock.iFdCon, &pThis->u8RegRbr, 1, MSG_DONTWAIT);
+                        if (cbRet != 1)
+                            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
+                                                    "Error reading data from socket: %zd", cbRet);
+                        else
+                            pThis->u.Sock.fDataRdy = true;
+                    }
+                }
+                else
+                    uRegLsr |= X86_UART_REG_LSR_DR;
+            }
+
+            *pbVal = uRegLsr;
             break;
         }
         case X86_UART_REG_IER_OFF:
@@ -121,22 +185,30 @@ static void pspDevX86UartWrite(X86PADDR offMmio, size_t cbWrite, const void *pvV
                                         pThis->u8RegLcr & X86_UART_REG_LCR_PEN ? "O" : "N", /** @todo Not correct as even bit is not checked. */
                                         pThis->u8RegLcr & X86_UART_REG_LCR_STB ? 2 : 1);
             }
+            else if (pThis->fSocket)
+            {
+                /* Socket mode, send data as is. */
+                ssize_t cbSent = send(pThis->u.Sock.iFdCon, &bVal, 1, 0);
+                if (cbSent != 1)
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
+                                            "Failed to send data over socket: %zd", cbSent);
+            }
             else if (bVal != '\r') /* Ignore carriage return. */
             {
                 /* Store character. */
-                if (pThis->offWrite < sizeof(pThis->achBuf))
+                if (pThis->u.Log.offWrite < sizeof(pThis->u.Log.achBuf))
                 {
-                    pThis->achBuf[pThis->offWrite] = bVal;
+                    pThis->u.Log.achBuf[pThis->u.Log.offWrite] = bVal;
                     if (bVal == '\n')
                     {
-                        pThis->achBuf[pThis->offWrite] = '\0';
+                        pThis->u.Log.achBuf[pThis->u.Log.offWrite] = '\0';
                         /* Dump to the trace log and reset the buffer. */
                         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86_UART,
-                                                "%s", &pThis->achBuf[0]);
-                        pThis->offWrite = 0;
+                                                "%s", &pThis->u.Log.achBuf[0]);
+                        pThis->u.Log.offWrite = 0;
                     }
                     else
-                        pThis->offWrite++;
+                        pThis->u.Log.offWrite++;
                 }
                 else
                     PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
@@ -186,17 +258,101 @@ static int pspDevX86UartInit(PPSPDEV pDev)
 {
     PPSPDEVUART pThis = (PPSPDEVUART)&pDev->abInstance[0];
 
-    pThis->pDev       = pDev;
-    pThis->offWrite   = 0;
-    pThis->u8RegRbr   = 1; /* Required for the detection logic. */
-    pThis->u8RegLcr   = 0;
-    pThis->u16Divisor = 1; /* 115200 baud */
+    pThis->pDev           = pDev;
+    pThis->fSocket        = false;
+    pThis->u.Log.offWrite = 0;
+    pThis->u8RegRbr       = 1; /* Required for the detection logic. */
+    pThis->u8RegLcr       = 0;
+    pThis->u16Divisor     = 1; /* 115200 baud */
     X86_UART_REG_LCR_WLS_SET(pThis->u8RegLcr, X86_UART_REG_LCR_WLS_8); /* Required for the UART detection logic. */
 
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfffdfc0003f8, 8,
                                         pspDevX86UartRead, pspDevX86UartWrite, pThis,
                                         &pThis->hMmio);
+    if (   !rc
+        && pDev->pCfg->pszUartRemoteAddr)
+    {
+        pThis->fSocket         = true;
+        pThis->u.Sock.fDataRdy = false;
+
+        /* Check for server mode. */
+        char *pszSep = strchr(pDev->pCfg->pszUartRemoteAddr, ':');
+        if (pszSep)
+        {
+            /* Client mode with hostname:port. */
+            pThis->u.Sock.fSrv = false;
+            *pszSep++ = '\0';
+            struct hostent *pSrv = gethostbyname(pDev->pCfg->pszUartRemoteAddr);
+            if (pSrv)
+            {
+                struct sockaddr_in SrvAddr;
+                memset(&SrvAddr, 0, sizeof(SrvAddr));
+                SrvAddr.sin_family = AF_INET;
+                memcpy(&SrvAddr.sin_addr.s_addr, pSrv->h_addr, pSrv->h_length);
+                SrvAddr.sin_port = htons(atoi(pszSep));
+
+                pThis->u.Sock.iFdCon = socket(AF_INET, SOCK_STREAM, 0);
+                if (pThis->u.Sock.iFdCon > -1)
+                {
+                    int rcPsx = connect(pThis->u.Sock.iFdCon,(struct sockaddr *)&SrvAddr,sizeof(SrvAddr));
+                    if (rcPsx < 0)
+                    {
+                        printf("UART: Failed to connect to %s:%s\n", pDev->pCfg->pszUartRemoteAddr, pszSep);
+                        close(pThis->u.Sock.iFdCon);
+                        rc = -1;
+                    }
+                }
+                else
+                    rc = -1;
+            }
+            else
+            {
+                printf("UART: Error resolving %s\n", pDev->pCfg->pszUartRemoteAddr);
+                rc = -1;
+            }
+        }
+        else
+        {
+            /* Server mode, create sockets and wait for an incoming connection before continuing. */
+            struct sockaddr_in SockAddr;
+
+            pThis->u.Sock.fSrv         = true;
+            pThis->u.Sock.iFdListening = socket(AF_INET, SOCK_STREAM, 0);
+            if (pThis->u.Sock.iFdListening > -1)
+            {
+                memset(&SockAddr, 0, sizeof(SockAddr));
+
+                SockAddr.sin_family      = AF_INET;
+                SockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+                SockAddr.sin_port        = htons(atoi(pDev->pCfg->pszUartRemoteAddr));
+                int rcPsx = bind(pThis->u.Sock.iFdListening, (struct sockaddr *)&SockAddr, sizeof(SockAddr));
+                if (!rcPsx)
+                {
+                    printf("UART: Waiting for incoming connection...\n");
+                    rcPsx = listen(pThis->u.Sock.iFdListening, 1);
+                    if (!rcPsx)
+                    {
+                        pThis->u.Sock.iFdCon = accept(pThis->u.Sock.iFdListening, (struct sockaddr *)NULL, NULL);
+                        if (pThis->u.Sock.iFdCon == -1)
+                        {
+                            pThis->u.Sock.iFdCon = 0;
+                            rc = -1;
+                        }
+                    }
+                    else
+                        rc = -1;
+                }
+                else
+                    rc = -1;
+
+                close(pThis->u.Sock.iFdListening);
+            }
+            else
+                rc = -1;
+        }
+    }
+
     return rc;
 }
 
