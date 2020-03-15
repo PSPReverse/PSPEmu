@@ -23,24 +23,10 @@
 #include <stdio.h>
 
 #include <common/cdefs.h>
+#include <x86/uart.h>
 
 #include <psp-devs.h>
 #include <psp-trace.h>
-
-/** Received byte register offset. */
-#define PSPEMU_X86_UART_REG_RBR_OFF 0
-/** Transmitter Holding Register offset. */
-#define PSPEMU_X86_UART_REG_THR_OFF 0
-/** IER register offset. */
-#define PSPEMU_X86_UART_REG_IER_OFF 1
-/** LCR register offset. */
-#define PSPEMU_X86_UART_REG_LCR_OFF 3
-/** LSR register offset. */
-#define PSPEMU_X86_UART_REG_LSR_OFF 5
-/** Transmitter holding register is empty. */
-# define PSPEMU_X86_UART_REG_LSR_THRE BIT(5)
-/** The transmitter has finished transmitting the character. */
-# define PSPEMU_X86_UART_REG_LSR_TEMT BIT(6)
 
 
 /**
@@ -72,22 +58,22 @@ static void pspDevX86UartRead(X86PADDR offMmio, size_t cbRead, void *pvVal, void
     uint8_t *pbVal = (uint8_t *)pvVal;
     switch (offMmio)
     {
-        case PSPEMU_X86_UART_REG_RBR_OFF:
+        case X86_UART_REG_RBR_OFF:
         {
             *pbVal = 1; /* Required for the detection logic. */
             break;
         }
-        case PSPEMU_X86_UART_REG_LSR_OFF:
+        case X86_UART_REG_LSR_OFF:
         {
-            *pbVal = PSPEMU_X86_UART_REG_LSR_THRE | PSPEMU_X86_UART_REG_LSR_TEMT; /* We can always take data. */
+            *pbVal = X86_UART_REG_LSR_THRE | X86_UART_REG_LSR_TEMT; /* We can always take data. */
             break;
         }
-        case PSPEMU_X86_UART_REG_IER_OFF:
+        case X86_UART_REG_IER_OFF:
         {
             *pbVal = 1; /* Required for the UART detection logic. */
             break;
         }
-        case PSPEMU_X86_UART_REG_LCR_OFF:
+        case X86_UART_REG_LCR_OFF:
         {
             *pbVal = 3; /* Required for the UART detection logic. */
             break;
@@ -112,7 +98,7 @@ static void pspDevX86UartWrite(X86PADDR offMmio, size_t cbWrite, const void *pvV
     uint8_t bVal = *(const uint8_t *)pvVal;
     switch (offMmio)
     {
-        case PSPEMU_X86_UART_REG_THR_OFF:
+        case X86_UART_REG_THR_OFF:
         {
             if (bVal != '\r') /* Ignore carriage return. */
             {
@@ -137,9 +123,9 @@ static void pspDevX86UartWrite(X86PADDR offMmio, size_t cbWrite, const void *pvV
             }
             break;
         }
-        case PSPEMU_X86_UART_REG_IER_OFF:
-        case PSPEMU_X86_UART_REG_LSR_OFF:
-        case PSPEMU_X86_UART_REG_LCR_OFF:
+        case X86_UART_REG_IER_OFF:
+        case X86_UART_REG_LSR_OFF:
+        case X86_UART_REG_LCR_OFF:
             break; /* Ignore. */
         default:
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
