@@ -185,6 +185,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
     pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
+    pCfg->pszUartRemoteAddr     = NULL;
 
     while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:a:c:u:", &g_aOptions[0], &idxOption)) != -1)
     {
