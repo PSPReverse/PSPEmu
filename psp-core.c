@@ -515,7 +515,7 @@ static void pspEmuCoreSvcAfterHook(uc_engine *pUcEngine, uint64_t uAddr, uint32_
 }
 
 
-int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
+int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode, size_t cbSram)
 {
     int rc = 0;
     PPSPCOREINT pThis = (PPSPCOREINT)calloc(1, sizeof(*pThis));
@@ -527,7 +527,7 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode)
         pThis->pTraceHooksHead  = NULL;
         pThis->pMmioRegionsHead = NULL;
         pThis->enmMode          = enmMode;
-        pThis->cbSram           = _256K;
+        pThis->cbSram           = cbSram;
         pThis->pvSram           = calloc(1, pThis->cbSram);
         pThis->pSvcReg          = NULL;
         pThis->pvSvcUser        = NULL;

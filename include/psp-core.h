@@ -180,8 +180,9 @@ typedef const PSPCORESVCREG *PCPSPCORESVCREG;
  * @returns Status code.
  * @param   phCore                  Where to store the core handle on success.
  * @param   enmMode                 The emulation mode the core operates in.
+ * @param   cbSram                  Size of the SRAM in bytes.
  */
-int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode);
+int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode, size_t cbSram);
 
 /**
  * Destroys a given PSP core.

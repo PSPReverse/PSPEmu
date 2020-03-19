@@ -384,7 +384,7 @@ int main(int argc, char *argv[])
             Cfg.pvFlashRom = pv;
             Cfg.cbFlashRom = cb;
 
-            rc = PSPEmuCoreCreate(&hCore, Cfg.enmMode);
+            rc = PSPEmuCoreCreate(&hCore, Cfg.enmMode, Cfg.enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K);
             if (!rc)
             {
                 PSPIOM hIoMgr;
