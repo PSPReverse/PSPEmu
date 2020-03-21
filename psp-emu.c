@@ -103,6 +103,7 @@ static struct option g_aOptions[] =
     {"trace-svcs",           no_argument,       0, 'v'},
     {"acpi-state",           required_argument, 0, 'i'},
     {"uart-remote-addr",     required_argument, 0, 'u'},
+    {"timer-real-time",      no_argument      , 0, 'r'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -180,6 +181,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fLoadPspDir           = false;
     pCfg->fIncptSvc6            = false;
     pCfg->fTraceSvcs            = false;
+    pCfg->fTimerRealtime        = false;
     pCfg->pszPspProxyAddr       = NULL;
     pCfg->pszTraceLog           = NULL;
     pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
@@ -187,7 +189,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
     pCfg->pszUartRemoteAddr     = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpb:m:f:o:d:s:x:a:c:u:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbr:m:f:o:d:s:x:a:c:u:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -210,7 +212,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --acpi-state <s0|s1|s1|s2|s3|s4|s5>\n"
                        "    --intercept-svc-6\n"
                        "    --trace-svcs\n"
-                       "    --uart-remote-addr [<port>|<address:port>]\n",
+                       "    --uart-remote-addr [<port>|<address:port>]\n"
+                       "    --timer-real-time The timer clocks tick in realtime rather than emulated\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -319,6 +322,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'u':
                 pCfg->pszUartRemoteAddr = optarg;
+                break;
+            case 'r':
+                pCfg->fTimerRealtime = true;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);

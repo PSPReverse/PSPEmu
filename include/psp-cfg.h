@@ -120,6 +120,8 @@ typedef struct PSPEMUCFG
     bool                    fIncptSvc6;
     /** Flag whether to to trace all svc calls in on chip bootloader and system mode. */
     bool                    fTraceSvcs;
+    /** Flag whether the timer should tick in real time. */
+    bool                    fTimerRealtime;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
     /** Pointer to the read flash rom content. */
