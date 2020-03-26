@@ -182,7 +182,8 @@ static int pspDevStsInit(PPSPDEV pDev)
     pThis->offWrite    = 0;
 
     /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x32000e8, 4,
+    PSPADDR MmioAddrSts = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x32000d8 : 0x32000e8; /* Why oh why? */
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, MmioAddrSts, 4,
                                      pspDevStsMmioRead, pspDevStsMmioWrite, pThis,
                                      &pThis->hMmio);
     if (!rc)
