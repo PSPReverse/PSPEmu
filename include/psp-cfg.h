@@ -134,6 +134,8 @@ typedef struct PSPEMUCFG
     const char              *pszTraceLog;
     /** UART remtoe address. */
     const char              *pszUartRemoteAddr;
+    /** Preloads the given "app" binary. */
+    const char              *pszAppPreload;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;

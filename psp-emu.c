@@ -104,6 +104,7 @@ static struct option g_aOptions[] =
     {"acpi-state",           required_argument, 0, 'i'},
     {"uart-remote-addr",     required_argument, 0, 'u'},
     {"timer-real-time",      no_argument      , 0, 'r'},
+    {"preload-app",          required_argument, 0, 'j'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -248,8 +249,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
     pCfg->pszUartRemoteAddr     = NULL;
+    pCfg->pszAppPreload         = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbr:m:f:o:d:s:x:a:c:u:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbr:m:f:o:d:s:x:a:c:u:j:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -273,7 +275,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --intercept-svc-6\n"
                        "    --trace-svcs\n"
                        "    --uart-remote-addr [<port>|<address:port>]\n"
-                       "    --timer-real-time The timer clocks tick in realtime rather than emulated\n",
+                       "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
+                       "    --preload-app <path/to/app/binary/with/hdr>\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -385,6 +388,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'r':
                 pCfg->fTimerRealtime = true;
+                break;
+            case 'j':
+                pCfg->pszAppPreload = optarg;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
@@ -538,6 +544,24 @@ int main(int argc, char *argv[])
                         }
                         else
                             fprintf(stderr, "Loading the binary failed with %d\n", rc);
+                    }
+
+                    if (Cfg.pszAppPreload)
+                    {
+                        void *pvBin = NULL;
+                        size_t cbBin = 0;
+
+                        rc = PSPEmuFlashLoadFromFile(Cfg.pszAppPreload, &pvBin, &cbBin);
+                        if (!rc)
+                        {
+                            rc = PSPEmuCoreMemWrite(hCore, 0x15000, pvBin, cbBin);
+                            if (rc)
+                                fprintf(stderr, "Writing the app binary to PSP memory failed with %d\n", rc);
+
+                            PSPEmuFlashFree(pvBin, cbBin);
+                        }
+                        else
+                            fprintf(stderr, "Loading the app binary failed with %d\n", rc);
                     }
 
                     if (!rc)
