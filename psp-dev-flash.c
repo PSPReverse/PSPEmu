@@ -65,7 +65,8 @@ static int pspDevFlashInit(PPSPDEV pDev)
 
     pThis->pDev = pDev;
 
-    int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0a000000, pDev->pCfg->cbFlashRom,
+    SMNADDR SmnAddrFlash = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x44000000 : 0x0a000000;
+    int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrFlash, pDev->pCfg->cbFlashRom,
                                     pspDevFlashRead, pspDevFlashWrite, pThis,
                                     &pThis->hSmn);
     return rc;
