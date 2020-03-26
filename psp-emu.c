@@ -501,7 +501,8 @@ int main(int argc, char *argv[])
                                 memcpy(&pBootRomSvcPage->Fields.abFfsDir[0], &pbFlashRom[0x77000], sizeof(pBootRomSvcPage->Fields.abFfsDir)); /** @todo */
                             }
 
-                            rc = PSPEmuCoreMemWrite(hCore, 0x3f000, pBootRomSvcPage, cbBootRomSvcPage);
+                            PSPADDR PspAddrBsp = Cfg.enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x4f000 : 0x3f000;
+                            rc = PSPEmuCoreMemWrite(hCore, PspAddrBsp, pBootRomSvcPage, cbBootRomSvcPage);
                             if (rc)
                                 fprintf(stderr, "Initializing the boot ROM service page from the given file failed with %d\n", rc);
                         }
