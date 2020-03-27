@@ -269,6 +269,10 @@
 /** The CCP MMIO address. */
 #define CCP_V5_MMIO_ADDRESS                         0x03000000
 
+/** A second region for which the purpose is mostly unknown so far. */
+#define CCP_V5_MMIO_ADDRESS_2                       0x03006000
+#define CCP_V5_MMIO_SIZE_2                          _4K
+
 
 /*********************************************************************************************************************************
 *   Structures and Typedefs                                                                                                      *
@@ -383,6 +387,8 @@ typedef struct PSPDEVCCP
     PPSPDEV                         pDev;
     /** MMIO region handle. */
     PSPIOMREGIONHANDLE              hMmio;
+    /** MMIO2 region handle. */
+    PSPIOMREGIONHANDLE              hMmio2;
     /** The single CCP queue we have. */
     CCPQUEUE                        Queue;
     /** The local storage buffer. */
@@ -397,6 +403,8 @@ typedef struct PSPDEVCCP
     EVP_CIPHER_CTX                  *pOsslAesCtx;
     /** The zlib decompression state. */
     z_stream                        Zlib;
+    /** Size of the last transfer in bytes (written to local PSP memory). */
+    size_t                          cbWrittenLast;
 } PSPDEVCCP;
 /** Pointer to the device instance data. */
 typedef PSPDEVCCP *PPSPDEVCCP;
@@ -541,7 +549,11 @@ static int pspDevCcpXferMemLocalRead(PPSPDEVCCP pThis, CCPADDR CcpAddr, void *pv
  */
 static int pspDevCcpXferMemLocalWrite(PPSPDEVCCP pThis, CCPADDR CcpAddr, const void *pvSrc, size_t cbWrite)
 {
-    return PSPEmuIoMgrPspAddrWrite(pThis->pDev->hIoMgr, (uint32_t)CcpAddr, pvSrc, cbWrite);
+    int rc = PSPEmuIoMgrPspAddrWrite(pThis->pDev->hIoMgr, (uint32_t)CcpAddr, pvSrc, cbWrite);
+    if (!rc)
+        pThis->cbWrittenLast += cbWrite;
+
+    return rc;
 }
 
 
@@ -559,6 +571,8 @@ static int pspDevCcpXferMemLocalWrite(PPSPDEVCCP pThis, CCPADDR CcpAddr, const v
 static int pspDevCcpXferCtxInit(PCCPXFERCTX pCtx, PPSPDEVCCP pThis, PCCCP5REQ pReq, bool fSha, size_t cbWrite,
                                 bool fWriteRev)
 {
+    pThis->cbWrittenLast = 0;
+
     pCtx->pThis      = pThis;
     pCtx->CcpAddrSrc = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrSrcHigh, pReq->u32AddrSrcLow);
     pCtx->cbReadLeft = pReq->cbSrc;
@@ -1762,6 +1776,27 @@ static void pspDevCcpMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVa
 }
 
 
+static void pspDevCcpMmioRead2(PSPADDR offMmio, size_t cbRead, void *pvDst, void *pvUser)
+{
+    PPSPDEVCCP pThis = (PPSPDEVCCP)pvUser;
+
+    if (cbRead != sizeof(uint32_t))
+    {
+        printf("%s: offMmio=%#x cbRead=%zu -> Unsupported access width\n", __FUNCTION__, offMmio, cbRead);
+        return;
+    }
+
+    switch (offMmio)
+    {
+        case 0x28: /* Contains the transfer size of the last oepration? (Zen2 uses it to read the decompressed size). */
+            *(uint32_t *)pvDst = pThis->cbWrittenLast;
+            break;
+        default:
+            *(uint32_t *)pvDst = 0;
+    }
+}
+
+
 static int pspDevCcpInit(PPSPDEV pDev)
 {
     PPSPDEVCCP pThis = (PPSPDEVCCP)&pDev->abInstance[0];
@@ -1775,6 +1810,10 @@ static int pspDevCcpInit(PPSPDEV pDev)
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + CCP_V5_Q_SIZE,
                                      pspDevCcpMmioRead, pspDevCcpMmioWrite, pThis,
                                      &pThis->hMmio);
+    if (!rc)
+        rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS_2, CCP_V5_MMIO_SIZE_2,
+                                     pspDevCcpMmioRead2, NULL, pThis,
+                                     &pThis->hMmio2);
     return rc;
 }
 
