@@ -547,9 +547,23 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode, size_t cbSram)
                      /** @todo The stack memory, do this more elegantly. The PSP sets up page tables
                       * but unicorn somehow ignores them so we have to make the stack available here for now
                       * with an explicit mapping.
+                      *
+                      * For Zen2 the physical addresses are different so this gross hack gets even worse...
                       */
-                    uc_mem_map(pThis->pUcEngine, 0x50000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE);
-                    uc_mem_map(pThis->pUcEngine, 0x60000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE);
+                    if (pThis->cbSram == 320 * _1K)
+                    {
+                        /* Phyiscal address for the SVC stack is 0x4d000 so let it point into the correct memory region. */
+                        uc_mem_map_ptr(pThis->pUcEngine, 0x60000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE, (uint8_t *)pThis->pvSram + 0x4d000);
+                        /* The USR mode stack for Zen2 starts at 0x70000 and covers the last two user mode region pages. */
+                        uc_mem_map_ptr(pThis->pUcEngine, 0x70000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE, (uint8_t *)pThis->pvSram + 0x4b000);
+                    }
+                    else
+                    {
+                        /* The SVC mode stack for Zen1 and Zen+ starts at 0x50000. */
+                        uc_mem_map_ptr(pThis->pUcEngine, 0x50000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE, (uint8_t *)pThis->pvSram + 0x3d000);
+                        /* The USR mode stack for Zen1 and Zen+ starts at 0x60000 and covers the last two user mode region pages. */
+                        uc_mem_map_ptr(pThis->pUcEngine, 0x60000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE, (uint8_t *)pThis->pvSram + 0x3b000);
+                    }
 
                     err = uc_hook_add(pThis->pUcEngine, &pThis->pUcHookSvc, UC_HOOK_INTR, (void *)(uintptr_t)pspEmuCoreSvcWrapper, pThis, 1, 0);
                     if (!err)
