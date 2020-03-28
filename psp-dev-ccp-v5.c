@@ -1791,6 +1791,9 @@ static void pspDevCcpMmioRead2(PSPADDR offMmio, size_t cbRead, void *pvDst, void
         case 0x28: /* Contains the transfer size of the last oepration? (Zen2 uses it to read the decompressed size). */
             *(uint32_t *)pvDst = pThis->cbWrittenLast;
             break;
+        case 0x38:
+            *(uint32_t *)pvDst = 0x1; /* Zen1 on chip BL waits for bit 0 to become 1. */
+            break;
         default:
             *(uint32_t *)pvDst = 0;
     }
@@ -1810,6 +1813,9 @@ static int pspDevCcpInit(PPSPDEV pDev)
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + CCP_V5_Q_SIZE,
                                      pspDevCcpMmioRead, pspDevCcpMmioWrite, pThis,
                                      &pThis->hMmio);
+    /** @todo Not sure this really belongs to the CCP (could be some other hardware block) but
+     * a register in that range is accessed starting with Zen2 after a CCP zlib decompression operation.
+     */
     if (!rc)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS_2, CCP_V5_MMIO_SIZE_2,
                                      pspDevCcpMmioRead2, NULL, pThis,
