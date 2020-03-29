@@ -131,6 +131,7 @@ static void pspDevSmuMsgWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal,
             break;
         }
         case 20: /* Message ID register which kicks off the request. */
+        case 24: /* Zen 2 has the Message ID register reloacted it looks like. */
         {
             pThis->u32RegMsgId = *(const uint32_t *)pvVal;
             printf("SMU: Executing request %#x with argument %#x\n", pThis->u32RegMsgId, pThis->u32RegMsgArgRet);
@@ -166,7 +167,8 @@ static int pspDevSmuInit(PPSPDEV pDev)
 
     pThis->u32RegMsgSts = 0x1; /* Ready for message bit? */
 
-    int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10034, 4,
+    SMNADDR SmnAddrSmu = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x03b10024 : 0x03b10034;
+    int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrSmu, 4,
                                     pspDevSmuRead, NULL, pThis,
                                     &pThis->hSmn);
     if (!rc) /* The off chip Ryzen bootloader waits for the interrupt ready flag. */
@@ -174,7 +176,7 @@ static int pspDevSmuInit(PPSPDEV pDev)
                                     pspDevSmuRead, NULL, pThis,
                                     &pThis->hSmnIntrRdy);
     if (!rc)
-        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10700, 6 * sizeof(uint32_t),
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10700, 7 * sizeof(uint32_t),
                                     pspDevSmuMsgRead, pspDevSmuMsgWrite, pThis,
                                     &pThis->hSmnMsg);
     if (!rc)
