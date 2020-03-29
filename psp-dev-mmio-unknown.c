@@ -38,6 +38,8 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hMmio0x03200044;
     /** 0x0301003c register handle. */
     PSPIOMREGIONHANDLE          hMmio0x0301003c;
+    /** 0x030101c0 register handle for Zen2. */
+    PSPIOMREGIONHANDLE          hMmio0x030101c0;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -64,6 +66,15 @@ static void pspDevUnkMmioRead0x0301003c(PSPADDR offMmio, size_t cbRead, void *pv
     *(uint32_t *)pvVal = fPspDbgMode ? 0x1 : 0; /* Enables debug output on a Ryzen Pro off chip bootloaders. */
 }
 
+static void pspDevUnkMmioRead0x030101c0(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
+{
+    PPSPDEVUNK pThis = (PPSPDEVUNK)pvUser;
+    bool fPspDbgMode = pThis->pDev->pCfg->fPspDbgMode;
+
+    *(uint32_t *)pvVal = fPspDbgMode ? 0x80002 : 0; /* Disables signature verification in Zen2 off chip BLs. */
+}
+
+
 static int pspDevMmioUnkInit(PPSPDEV pDev)
 {
     PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
@@ -80,6 +91,13 @@ static int pspDevMmioUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x0301003c, 4,
                                      pspDevUnkMmioRead0x0301003c, NULL, pThis,
                                      &pThis->hMmio0x0301003c);
+
+    if (   !rc
+        && pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
+        rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x030101c0, 4,
+                                     pspDevUnkMmioRead0x030101c0, NULL, pThis,
+                                     &pThis->hMmio0x030101c0);
+
 #if 0
     if (!rc)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03200044, 4,
