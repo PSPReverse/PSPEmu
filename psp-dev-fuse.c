@@ -38,6 +38,8 @@ typedef struct PSPDEVFUSE
     PSPIOMREGIONHANDLE      hMmio;
     /** SMN region handle. */
     PSPIOMREGIONHANDLE      hSmn;
+    /** MMIO region handle for some key size fuse on Zen2. */
+    PSPIOMREGIONHANDLE      hMmioKeySz;
 } PSPDEVFUSE;
 /** Pointer to the device instance data. */
 typedef PSPDEVFUSE *PPSPDEVFUSE;
@@ -73,6 +75,19 @@ static void pspDevFuseSmnRead(SMNADDR offSmn, size_t cbRead, void *pvVal, void *
 }
 
 
+static void pspDevFuseKeySzMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
+{
+    if (cbRead != sizeof(uint32_t))
+    {
+        printf("%s: offMmio=%#x cbRead=%zu -> Unsupported access width\n", __FUNCTION__, offMmio, cbRead);
+        return;
+    }
+
+    /* Zen2 uses 4096 bit modulus and the key size is determined from this register. */
+    *(uint32_t *)pvVal = BIT(8) | BIT(9);
+}
+
+
 static int pspDevMmioFuseInit(PPSPDEV pDev)
 {
     PPSPDEVFUSE pThis = (PPSPDEVFUSE)&pDev->abInstance[0];
@@ -87,6 +102,11 @@ static int pspDevMmioFuseInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03810104, 4,
                                     pspDevFuseSmnRead, NULL, pThis,
                                     &pThis->hSmn);
+    if (   !rc
+        && pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
+        rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x3200050, 4,
+                                     pspDevFuseKeySzMmioRead, NULL, pThis,
+                                     &pThis->hMmioKeySz);
     return rc;
 }
 
