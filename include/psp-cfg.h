@@ -136,6 +136,8 @@ typedef struct PSPEMUCFG
     const char              *pszUartRemoteAddr;
     /** Preloads the given "app" binary. */
     const char              *pszAppPreload;
+    /** Flash EM100 emulator emulator port. */
+    uint16_t                uEm100FlashEmuPort;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;

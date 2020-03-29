@@ -105,6 +105,7 @@ static struct option g_aOptions[] =
     {"uart-remote-addr",     required_argument, 0, 'u'},
     {"timer-real-time",      no_argument      , 0, 'r'},
     {"preload-app",          required_argument, 0, 'j'},
+    {"em100-emu-port",       required_argument, 0, 'e'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -250,8 +251,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
     pCfg->pszUartRemoteAddr     = NULL;
     pCfg->pszAppPreload         = NULL;
+    pCfg->uEm100FlashEmuPort    = 0;
 
-    while ((ch = getopt_long (argc, argv, "hpbr:m:f:o:d:s:x:a:c:u:j:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbr:m:f:o:d:s:x:a:c:u:j:e:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -276,7 +278,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --trace-svcs\n"
                        "    --uart-remote-addr [<port>|<address:port>]\n"
                        "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
-                       "    --preload-app <path/to/app/binary/with/hdr>\n",
+                       "    --preload-app <path/to/app/binary/with/hdr>\n"
+                       "    --em100-emu-port <port for the EM100 network emulation>\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -391,6 +394,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'j':
                 pCfg->pszAppPreload = optarg;
+                break;
+            case 'e':
+                pCfg->uEm100FlashEmuPort = strtoul(optarg, NULL, 10);
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
