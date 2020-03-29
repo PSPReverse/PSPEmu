@@ -393,12 +393,12 @@ typedef struct PSPDEVCCP
     CCPQUEUE                        Queue;
     /** The local storage buffer. */
     CCPLSB                          Lsb;
-    /** The openssl sha256 context currently in use. This doesn't really belong here
+    /** The openssl SHA context currently in use. This doesn't really belong here
      * as the state is contained in an LSB but for use with openssl and to support
      * multi-part messages we have to store it here, luckily the PSP is single threaded
      * so the code will only every process one SHA operation at a time.
      */
-    EVP_MD_CTX                      *pOsslSha256Ctx;
+    EVP_MD_CTX                      *pOsslShaCtx;
     /** The openssl AES context currently in use, same note as above applies. */
     EVP_CIPHER_CTX                  *pOsslAesCtx;
     /** The zlib decompression state. */
@@ -1128,18 +1128,24 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     uint32_t uShaType = CCP_V5_ENGINE_SHA_TYPE_GET(uFunc);
 
     /* Only sha256 implemented so far. */
-    if (uShaType == CCP_V5_ENGINE_SHA_TYPE_256)
+    if (   uShaType == CCP_V5_ENGINE_SHA_TYPE_256
+        || uShaType == CCP_V5_ENGINE_SHA_TYPE_384)
     {
-        const EVP_MD *pOsslEvpSha256 = EVP_sha256();
+        const EVP_MD *pOsslEvpSha = NULL;
         size_t cbLeft = pReq->cbSrc;
         CCPXFERCTX XferCtx;
+
+        if (uShaType == CCP_V5_ENGINE_SHA_TYPE_256)
+            pOsslEvpSha = EVP_sha256();
+        else
+            pOsslEvpSha = EVP_sha384();
 
          /*
           * The final SHA in the LSB seems to be in big endian format because it is always copied out
           * using the 256bit byteswap passthrough function. We will write it in reverse order here,
           * to avoid any hacks in the passthrough code.
           */
-        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, true /*fSha*/, EVP_MD_size(pOsslEvpSha256),
+        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, true /*fSha*/, EVP_MD_size(pOsslEvpSha),
                                   true /*fWriteRev*/);
         if (!rc)
         {
@@ -1149,10 +1155,10 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
              */
             if (fInit)
             {
-                pThis->pOsslSha256Ctx = EVP_MD_CTX_new();
-                if (!pThis->pOsslSha256Ctx)
+                pThis->pOsslShaCtx = EVP_MD_CTX_new();
+                if (!pThis->pOsslShaCtx)
                     rc = -1;
-                else if (EVP_DigestInit_ex(pThis->pOsslSha256Ctx, pOsslEvpSha256, NULL) != 1)
+                else if (EVP_DigestInit_ex(pThis->pOsslShaCtx, pOsslEvpSha, NULL) != 1)
                     rc = -1;
             }
 
@@ -1165,7 +1171,7 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
                 if (!rc)
                 {
-                    if (EVP_DigestUpdate(pThis->pOsslSha256Ctx, &abData[0], cbThisProc) != 1)
+                    if (EVP_DigestUpdate(pThis->pOsslShaCtx, &abData[0], cbThisProc) != 1)
                         rc = -1;
                 }
 
@@ -1177,13 +1183,13 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
             {
                 /* Finalize state and write to the storage buffer. */
                 uint8_t abHash[32]; /** @todo Hardcoding the digest size is meh... */
-                if (EVP_DigestFinal_ex(pThis->pOsslSha256Ctx, &abHash[0], NULL) == 1)
+                if (EVP_DigestFinal_ex(pThis->pOsslShaCtx, &abHash[0], NULL) == 1)
                     rc = pspDevCcpXferCtxWrite(&XferCtx, &abHash[0], sizeof(abHash), NULL);
                 else
                     rc = -1;
 
-                EVP_MD_CTX_free(pThis->pOsslSha256Ctx);
-                pThis->pOsslSha256Ctx = NULL;
+                EVP_MD_CTX_free(pThis->pOsslShaCtx);
+                pThis->pOsslShaCtx = NULL;
             }
         }
     }
@@ -1458,17 +1464,20 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     uint16_t uSz   = CCP_V5_ENGINE_RSA_SZ_GET(uFunc);
     uint8_t  uMode = CCP_V5_ENGINE_RSA_MODE_GET(uFunc);
 
+    /* Support RSA 2048 and 4096 */
     if (   uMode == 0
-        && uSz == 256
-        && pReq->cbSrc == 512)
+        && (   (   uSz == 256
+                && pReq->cbSrc == 512)
+            || (   uSz == 512
+                && pReq->cbSrc == 1024)))
     {
-        /* The key contains the exponent as a 2048bit integer. */
-        uint8_t abExp[256];
-        rc = pspDevCcpKeyCopyFromReq(pThis, pReq, sizeof(abExp), &abExp[0]);
+        /* The key contains the exponent as a 2048bit or 4096bit integer. */
+        uint8_t abExp[512];
+        rc = pspDevCcpKeyCopyFromReq(pThis, pReq, uSz, &abExp[0]);
         if (!rc)
         {
             bool fFreeBignums = true;
-            BIGNUM *pExp = BN_lebin2bn(&abExp[0], sizeof(abExp) / 2, NULL);
+            BIGNUM *pExp = BN_lebin2bn(&abExp[0], uSz / 2, NULL);
             RSA *pRsaPubKey = RSA_new();
             if (pExp && pRsaPubKey)
             {
@@ -1482,15 +1491,15 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                      * followed by the message the process (why the modulus is not part of the key buffer
                      * remains a mystery).
                      */
-                    uint8_t abData[512];
+                    uint8_t abData[1024];
 
-                    rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], sizeof(abData), NULL);
+                    rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], pReq->cbSrc, NULL);
                     if (!rc)
                     {
-                        BIGNUM *pMod = BN_lebin2bn(&abData[0], sizeof(abData) / 2, NULL);
+                        BIGNUM *pMod = BN_lebin2bn(&abData[0], pReq->cbSrc / 2, NULL);
                         if (pMod)
                         {
-                            uint8_t abResult[256];
+                            uint8_t abResult[512];
 
                             RSA_set0_key(pRsaPubKey, pMod, pExp, NULL);
 
@@ -1498,13 +1507,13 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                             fFreeBignums = false;
 
                             /* Need to convert to little endian format. */
-                            pspDevCcpReverseBuf(&abData[256], sizeof(abData) / 2);
-                            size_t cbEnc = RSA_public_encrypt(sizeof(abData) / 2, &abData[256], &abResult[0], pRsaPubKey, RSA_NO_PADDING);
-                            if (cbEnc == sizeof(abResult))
+                            pspDevCcpReverseBuf(&abData[uSz], pReq->cbSrc / 2);
+                            size_t cbEnc = RSA_public_encrypt(pReq->cbSrc / 2, &abData[uSz], &abResult[0], pRsaPubKey, RSA_NO_PADDING);
+                            if (cbEnc == uSz)
                             {
                                 /* Need to swap endianess of result buffer as well. */
-                                pspDevCcpReverseBuf(&abResult[0], sizeof(abResult));
-                                rc = pspDevCcpXferCtxWrite(&XferCtx, &abResult[0], sizeof(abResult), NULL);
+                                pspDevCcpReverseBuf(&abResult[0], uSz);
+                                rc = pspDevCcpXferCtxWrite(&XferCtx, &abResult[0], uSz, NULL);
                             }
                             else
                                 rc = -1;
@@ -1807,7 +1816,7 @@ static int pspDevCcpInit(PPSPDEV pDev)
     pThis->pDev             = pDev;
     pThis->Queue.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
     pThis->Queue.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
-    pThis->pOsslSha256Ctx   = NULL;
+    pThis->pOsslShaCtx      = NULL;
 
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + CCP_V5_Q_SIZE,
