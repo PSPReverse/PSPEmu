@@ -1133,12 +1133,19 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     {
         const EVP_MD *pOsslEvpSha = NULL;
         size_t cbLeft = pReq->cbSrc;
+        size_t cbDigest = 0;
         CCPXFERCTX XferCtx;
 
         if (uShaType == CCP_V5_ENGINE_SHA_TYPE_256)
+        {
             pOsslEvpSha = EVP_sha256();
+            cbDigest = 32;
+        }
         else
+        {
             pOsslEvpSha = EVP_sha384();
+            cbDigest = 48;
+        }
 
          /*
           * The final SHA in the LSB seems to be in big endian format because it is always copied out
@@ -1182,9 +1189,9 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 && fEom)
             {
                 /* Finalize state and write to the storage buffer. */
-                uint8_t abHash[32]; /** @todo Hardcoding the digest size is meh... */
-                if (EVP_DigestFinal_ex(pThis->pOsslShaCtx, &abHash[0], NULL) == 1)
-                    rc = pspDevCcpXferCtxWrite(&XferCtx, &abHash[0], sizeof(abHash), NULL);
+                uint8_t *pbDigest = alloca(cbDigest);
+                if (EVP_DigestFinal_ex(pThis->pOsslShaCtx, pbDigest, NULL) == 1)
+                    rc = pspDevCcpXferCtxWrite(&XferCtx, pbDigest, cbDigest, NULL);
                 else
                     rc = -1;
 
