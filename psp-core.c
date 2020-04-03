@@ -623,6 +623,25 @@ int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, const void *pvData, 
 {
     PPSPCOREINT pThis = hCore;
 
+    /*
+     * Limit the size to the end of the SRAM so we don't get any unmapped write errors right away
+     * but only when we hit an unmapped region.
+     *
+     * @todo Get rid of uc_mem_write/uc_mem_read and do everything ourselves.
+     */
+    if (   AddrPspWrite < pThis->cbSram
+        && AddrPspWrite + cbData > pThis->cbSram)
+    {
+        size_t cbThisWrite = pThis->cbSram - AddrPspWrite;
+        uc_err rcUc = uc_mem_write(pThis->pUcEngine, AddrPspWrite, pvData, cbThisWrite);
+        if (rcUc != UC_ERR_OK)
+            return pspEmuCoreErrConvertFromUcErr(rcUc);
+
+        AddrPspWrite += cbThisWrite;
+        cbData       -= cbThisWrite;
+        pvData       = (uint8_t *)pvData + cbThisWrite;
+        /* Continue Below to get the error. */
+    }
     uc_err rcUc = uc_mem_write(pThis->pUcEngine, AddrPspWrite, pvData, cbData);
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
