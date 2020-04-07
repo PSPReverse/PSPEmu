@@ -142,6 +142,10 @@ typedef struct PSPEMUCFG
     void                    *pvFlashRom;
     /** Size of the flash ROM in bytes. */
     size_t                  cbFlashRom;
+    /** Pointer to the on chip bootloader ROM content. */
+    void                    *pvOnChipBl;
+    /** Size of the on chip bootloader ROM in bytes. */
+    size_t                  cbOnChipBl;
     /** The proxy address if configured. */
     const char              *pszPspProxyAddr;
     /** Path to the trace log to write if enabled. */
@@ -152,6 +156,13 @@ typedef struct PSPEMUCFG
     const char              *pszAppPreload;
     /** Flash EM100 emulator emulator port. */
     uint16_t                uEm100FlashEmuPort;
+    /** Number of sockets in the system to emulate. */
+    uint32_t                cSockets;
+    /** Number of CCDs per socket to emulate. */
+    uint32_t                cCcdsPerSocket;
+    /** Pointer to an array of strings for devices which should be instantiated, temrinated by a NULL entry.
+     *NULL means default with everything emulated. */
+    const char              *papszDevs;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;
