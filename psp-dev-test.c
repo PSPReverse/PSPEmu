@@ -185,5 +185,7 @@ const PSPDEVREG g_DevRegTest =
     pspDevTestInit,
     /** pfnDestruct */
     pspDevTestDestruct,
+    /** pfnReset */
+    NULL
 };
 

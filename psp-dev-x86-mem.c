@@ -72,6 +72,8 @@ const PSPDEVREG g_DevRegX86Mem =
     /** pfnInit */
     pspDevX86MemInit,
     /** pfnDestruct */
-    pspDevX86MemDestruct
+    pspDevX86MemDestruct,
+    /** pfnReset */
+    NULL
 };
 

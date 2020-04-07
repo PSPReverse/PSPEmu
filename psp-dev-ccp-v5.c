@@ -1861,5 +1861,7 @@ const PSPDEVREG g_DevRegCcpV5 =
     pspDevCcpInit,
     /** pfnDestruct */
     pspDevCcpDestruct,
+    /** pfnReset */
+    NULL
 };
 

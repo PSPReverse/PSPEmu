@@ -131,6 +131,8 @@ const PSPDEVREG g_DevRegFuse =
     /** pfnInit */
     pspDevMmioFuseInit,
     /** pfnDestruct */
-    pspDevMmioFuseDestruct
+    pspDevMmioFuseDestruct,
+    /** pfnReset */
+    NULL
 };
 

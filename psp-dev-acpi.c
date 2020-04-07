@@ -113,6 +113,8 @@ const PSPDEVREG g_DevRegAcpi =
     /** pfnInit */
     pspDevAcpiInit,
     /** pfnDestruct */
-    pspDevAcpiDestruct
+    pspDevAcpiDestruct,
+    /** pfnReset */
+    NULL
 };
 

@@ -356,5 +356,7 @@ const PSPDEVREG g_DevRegFlash =
     pspDevFlashInit,
     /** pfnDestruct */
     pspDevFlashDestruct,
+    /** pfnReset */
+    NULL
 };
 

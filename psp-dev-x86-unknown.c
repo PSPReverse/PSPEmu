@@ -89,6 +89,8 @@ const PSPDEVREG g_DevRegX86Unk =
     /** pfnInit */
     pspDevX86UnkInit,
     /** pfnDestruct */
-    pspDevX86UnkDestruct
+    pspDevX86UnkDestruct,
+    /** pfnReset */
+    NULL
 };
 

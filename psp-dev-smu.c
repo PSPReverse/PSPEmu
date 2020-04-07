@@ -208,5 +208,7 @@ const PSPDEVREG g_DevRegSmu =
     pspDevSmuInit,
     /** pfnDestruct */
     pspDevSmuDestruct,
+    /** pfnReset */
+    NULL
 };
 

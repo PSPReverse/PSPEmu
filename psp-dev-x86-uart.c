@@ -377,6 +377,8 @@ const PSPDEVREG g_DevRegX86Uart =
     /** pfnInit */
     pspDevX86UartInit,
     /** pfnDestruct */
-    pspDevX86UartDestruct
+    pspDevX86UartDestruct,
+    /** pfnReset */
+    NULL
 };
 

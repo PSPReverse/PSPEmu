@@ -115,5 +115,7 @@ const PSPDEVREG g_DevRegMp2 =
     pspDevMp2Init,
     /** pfnDestruct */
     pspDevMp2Destruct,
+    /** pfnReset */
+    NULL
 };
 

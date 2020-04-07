@@ -77,6 +77,14 @@ typedef struct PSPDEVREG
     PFNPSPDEVINIT           pfnInit;
     /** Destruction callback. */
     PFNPSPDEVDESTRUCT       pfnDestruct;
+
+    /**
+     * Reset the device state to the one right after initialization, optional.
+     *
+     * @returns Status code.
+     * @param   pDev                The device instance to reset.s
+     */
+    int    (*pfnReset) (PPSPDEV pDev);
 } PSPDEVREG;
 
 

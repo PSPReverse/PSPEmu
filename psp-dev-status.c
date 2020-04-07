@@ -214,6 +214,8 @@ const PSPDEVREG g_DevRegSts =
     /** pfnInit */
     pspDevStsInit,
     /** pfnDestruct */
-    pspDevStsDestruct
+    pspDevStsDestruct,
+    /** pfnReset */
+    NULL
 };
 

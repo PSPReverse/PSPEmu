@@ -427,5 +427,7 @@ const PSPDEVREG g_DevRegSmnUnk =
     pspDevUnkInit,
     /** pfnDestruct */
     pspDevUnkDestruct,
+    /** pfnReset */
+    NULL
 };
 

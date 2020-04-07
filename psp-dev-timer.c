@@ -221,5 +221,7 @@ const PSPDEVREG g_DevRegTimer =
     pspDevTimerInit,
     /** pfnDestruct */
     pspDevTimerDestruct,
+    /** pfnReset */
+    NULL
 };
 

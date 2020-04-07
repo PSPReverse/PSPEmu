@@ -40,6 +40,7 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hMmio0x0301003c;
     /** 0x030101c0 register handle for Zen2. */
     PSPIOMREGIONHANDLE          hMmio0x030101c0;
+
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -128,6 +129,8 @@ const PSPDEVREG g_DevRegMmioUnk =
     /** pfnInit */
     pspDevMmioUnkInit,
     /** pfnDestruct */
-    pspDevMmioUnkDestruct
+    pspDevMmioUnkDestruct,
+    /** pfnReset */
+    NULL
 };
 
