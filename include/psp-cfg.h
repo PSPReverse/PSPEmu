@@ -138,6 +138,9 @@ typedef struct PSPEMUCFG
     bool                    fTraceSvcs;
     /** Flag whether the timer should tick in real time. */
     bool                    fTimerRealtime;
+    /** Flag whether any loaded boot ROM sevrice page should be taken as is or modified to match the CCD
+     * it is implanted on. */
+    bool                    fBootRomSvcPageModify;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
     /** Pointer to the read flash rom content. */
@@ -156,6 +159,10 @@ typedef struct PSPEMUCFG
     void                    *pvAppPreload;
     /** Number of bytes of the app loaded. */
     size_t                  cbAppPreload;
+    /** Pointer to the boot ROM service page if pszPathBootRomSvcPage is not NULL. */
+    void                    *pvBootRomSvcPage;
+    /** Number of bytes of the loaded boot ROM service page. */
+    size_t                  cbBootRomSvcPage;
     /** The proxy address if configured. */
     const char              *pszPspProxyAddr;
     /** Path to the trace log to write if enabled. */

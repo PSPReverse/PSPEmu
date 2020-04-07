@@ -22,11 +22,13 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <libpspproxy.h>
 
 #include <common/types.h>
 #include <common/cdefs.h>
+#include <psp-fw/boot-rom-svc-page.h>
 
 #include <psp-ccd.h>
 #include <psp-dbg.h>
@@ -239,9 +241,45 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 {
     int rc = 0;
 
-    /** @todo: Boot ROM service page handling. */
+    if (   pCfg->pvBootRomSvcPage
+        && pCfg->cbBootRomSvcPage)
+    {
+        if (pCfg->cbBootRomSvcPage != _4K)
+            return -1;
 
-    if (   pCfg->pvBinLoad
+        PSPADDR PspAddrBrsp = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x4f000 : 0x3f000;
+        if (pCfg->fBootRomSvcPageModify)
+        {
+            PSPROMSVCPG Brsp;
+
+            memcpy(&Brsp, pCfg->pvBootRomSvcPage, sizeof(Brsp));
+
+            if (pCfg->fPspDbgMode)
+            {
+                printf("Activating PSP firmware debug mode\n");
+                Brsp.Fields.u32BootMode = 1;
+            }
+
+            if (pCfg->fLoadPspDir)
+            {
+                printf("Loading PSP 1st level directory from flash image into boot ROM service page\n");
+                uint8_t *pbFlashRom = (uint8_t *)pCfg->pvFlashRom;
+                memcpy(&Brsp.Fields.abFfsDir[0], &pbFlashRom[0x77000], sizeof(Brsp.Fields.abFfsDir)); /** @todo */
+            }
+
+            Brsp.Fields.idPhysDie      = (uint8_t)pThis->idCcd;
+            Brsp.Fields.idSocket       = (uint8_t)pThis->idSocket;
+            Brsp.Fields.cDiesPerSocket = (uint8_t)pCfg->cCcdsPerSocket;
+            /** @todo u8PkgType, core info, cCcxs, cCores, etc. */
+
+            rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrBrsp, &Brsp, sizeof(Brsp));
+        }
+        else /* No modifcation allowed, just copy it. */
+            rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrBrsp, pCfg->pvBootRomSvcPage, pCfg->cbBootRomSvcPage);
+    }
+
+    if (   !rc
+        && pCfg->pvBinLoad
         && pCfg->cbBinLoad)
     {
         PSPADDR PspAddrWrite = 0;
@@ -266,7 +304,8 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
     }
 
     if (   !rc
-        && pCfg->pszAppPreload)
+        && pCfg->pvAppPreload
+        && pCfg->cbAppPreload)
         rc = PSPEmuCoreMemWrite(pThis->hPspCore, 0x15000, pCfg->pvAppPreload, pCfg->cbAppPreload);
 
     return rc;

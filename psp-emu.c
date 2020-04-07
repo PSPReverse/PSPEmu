@@ -41,31 +41,32 @@ static bool g_fNewStyle = false;
  */
 static struct option g_aOptions[] =
 {
-    {"emulation-mode",       required_argument, 0, 'm'},
-    {"flash-rom",            required_argument, 0, 'f'},
-    {"on-chip-bl",           required_argument, 0, 'o'},
-    {"boot-rom-svc-page",    required_argument, 0, 's'},
-    {"bin-load",             required_argument, 0, 'b'},
-    {"bin-contains-hdr",     no_argument,       0, 'p'},
-    {"dbg",                  required_argument, 0, 'd'},
-    {"load-psp-dir",         no_argument,       0, 'l'},
-    {"psp-dbg-mode",         no_argument,       0, 'g'},
-    {"psp-proxy-addr",       required_argument, 0, 'x'},
-    {"trace-log",            required_argument, 0, 't'},
-    {"micro-arch",           required_argument, 0, 'a'},
-    {"cpu-segment",          required_argument, 0, 'c'},
-    {"intercept-svc-6",      no_argument,       0, '6'},
-    {"trace-svcs",           no_argument,       0, 'v'},
-    {"acpi-state",           required_argument, 0, 'i'},
-    {"uart-remote-addr",     required_argument, 0, 'u'},
-    {"timer-real-time",      no_argument      , 0, 'r'},
-    {"preload-app",          required_argument, 0, 'j'},
-    {"em100-emu-port",       required_argument, 0, 'e'},
-    {"sockets",              required_argument, 0, 'S'},
-    {"ccds-per-socket",      required_argument, 0, 'C'},
-    {"new-style",            no_argument,       0, 'N'},
+    {"emulation-mode",               required_argument, 0, 'm'},
+    {"flash-rom",                    required_argument, 0, 'f'},
+    {"on-chip-bl",                   required_argument, 0, 'o'},
+    {"boot-rom-svc-page",            required_argument, 0, 's'},
+    {"boot-rom-svc-page-dont-alter", no_argument,       0, 'n'},
+    {"bin-load",                     required_argument, 0, 'b'},
+    {"bin-contains-hdr",             no_argument,       0, 'p'},
+    {"dbg",                          required_argument, 0, 'd'},
+    {"load-psp-dir",                 no_argument,       0, 'l'},
+    {"psp-dbg-mode",                 no_argument,       0, 'g'},
+    {"psp-proxy-addr",               required_argument, 0, 'x'},
+    {"trace-log",                    required_argument, 0, 't'},
+    {"micro-arch",                   required_argument, 0, 'a'},
+    {"cpu-segment",                  required_argument, 0, 'c'},
+    {"intercept-svc-6",              no_argument,       0, '6'},
+    {"trace-svcs",                   no_argument,       0, 'v'},
+    {"acpi-state",                   required_argument, 0, 'i'},
+    {"uart-remote-addr",             required_argument, 0, 'u'},
+    {"timer-real-time",              no_argument      , 0, 'r'},
+    {"preload-app",                  required_argument, 0, 'j'},
+    {"em100-emu-port",               required_argument, 0, 'e'},
+    {"sockets",                      required_argument, 0, 'S'},
+    {"ccds-per-socket",              required_argument, 0, 'C'},
+    {"new-style",                    no_argument,       0, 'N'},
 
-    {"help",                 no_argument,       0, 'H'},
+    {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
 };
 
@@ -94,6 +95,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fIncptSvc6            = false;
     pCfg->fTraceSvcs            = false;
     pCfg->fTimerRealtime        = false;
+    pCfg->fBootRomSvcPageModify = true;
     pCfg->pvFlashRom            = NULL;
     pCfg->cbFlashRom            = 0;
     pCfg->pvOnChipBl            = NULL;
@@ -102,6 +104,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cbBinLoad             = 0;
     pCfg->pvAppPreload          = NULL;
     pCfg->cbAppPreload          = 0;
+    pCfg->pvBootRomSvcPage      = NULL;
+    pCfg->cbBootRomSvcPage      = 0;
     pCfg->pszPspProxyAddr       = NULL;
     pCfg->pszTraceLog           = NULL;
     pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
@@ -124,6 +128,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --emulation-mode [app|sys|on-chip-bl]\n"
                        "    --flash-rom <path/to/flash/rom>\n"
                        "    --boot-rom-svc-page <path/to/boot/rom/svc/page>\n"
+                       "    --boot-rom-svc-page-dont-alter Do not alter the boot ROM service page for the emulated CCD (IDs etc.)\n"
                        "    --bin-contains-hdr The binaries contain the 256 byte header, omit if raw binaries\n"
                        "    --bin-load <path/to/binary/to/load>\n"
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
@@ -166,6 +171,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 's':
                 pCfg->pszPathBootRomSvcPage = optarg;
+                break;
+            case 'n':
+                pCfg->fBootRomSvcPageModify = false;
                 break;
             case 'o':
                 pCfg->pszPathOnChipBl = optarg;
@@ -361,6 +369,14 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
         rc = PSPEmuFlashLoadFromFile(pCfg->pszAppPreload, &pCfg->pvAppPreload, &pCfg->cbAppPreload);
         if (rc)
             fprintf(stderr, "Loading the app binary failed with %d\n", rc);
+    }
+
+    if (   !rc
+        && pCfg->pszPathBootRomSvcPage)
+    {
+        rc = PSPEmuFlashLoadFromFile(pCfg->pszPathBootRomSvcPage, &pCfg->pvBootRomSvcPage, &pCfg->cbBootRomSvcPage);
+        if (rc)
+            fprintf(stderr, "Loading the boot ROM service page from the given file failed with %d\n", rc);
     }
 
     return rc;
