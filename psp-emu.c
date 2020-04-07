@@ -65,6 +65,8 @@ static struct option g_aOptions[] =
     {"timer-real-time",      no_argument      , 0, 'r'},
     {"preload-app",          required_argument, 0, 'j'},
     {"em100-emu-port",       required_argument, 0, 'e'},
+    {"sockets",              required_argument, 0, 'S'},
+    {"ccds-per-socket",      required_argument, 0, 'C'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -95,6 +97,14 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fIncptSvc6            = false;
     pCfg->fTraceSvcs            = false;
     pCfg->fTimerRealtime        = false;
+    pCfg->pvFlashRom            = NULL;
+    pCfg->cbFlashRom            = 0;
+    pCfg->pvOnChipBl            = NULL;
+    pCfg->cbOnChipBl            = 0;
+    pCfg->pvBinLoad             = NULL;
+    pCfg->cbBinLoad             = 0;
+    pCfg->pvAppPreload          = NULL;
+    pCfg->cbAppPreload          = 0;
     pCfg->pszPspProxyAddr       = NULL;
     pCfg->pszTraceLog           = NULL;
     pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
@@ -107,7 +117,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbr:m:f:o:d:s:x:a:c:u:j:e:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbr:m:f:o:d:s:x:a:c:u:j:e:S:C:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -133,7 +143,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --uart-remote-addr [<port>|<address:port>]\n"
                        "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
                        "    --preload-app <path/to/app/binary/with/hdr>\n"
-                       "    --em100-emu-port <port for the EM100 network emulation>\n",
+                       "    --em100-emu-port <port for the EM100 network emulation>\n"
+                       "    --sockets <number of sockets to emulate>\n"
+                       "    --ccds-per-sockets <number of CCDS per socket to emulate>\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -252,10 +264,30 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'e':
                 pCfg->uEm100FlashEmuPort = strtoul(optarg, NULL, 10);
                 break;
+            case 'S':
+                pCfg->cSockets = strtoul(optarg, NULL, 10);
+                break;
+            case 'C':
+                pCfg->cCcdsPerSocket = strtoul(optarg, NULL, 10);
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
         }
+    }
+
+    if (   pCfg->cSockets < 1
+        || pCfg->cSockets > 2)
+    {
+        fprintf(stderr, "--sockets argument must be in range [1..2]\n");
+        return -1;
+    }
+
+    if (   pCfg->cCcdsPerSocket < 1
+        || pCfg->cCcdsPerSocket > 4)
+    {
+        fprintf(stderr, "--ccds-per-socket argument must be in range [1..4]\n");
+        return -1;
     }
 
     /* Do some sanity checks of the config here. */
@@ -293,7 +325,38 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
         return -1;
     }
 
-    return 0;
+    int rc = 0;
+    if (pCfg->pszPathOnChipBl)
+    {
+        rc = PSPEmuFlashLoadFromFile(pCfg->pszPathOnChipBl, &pCfg->pvOnChipBl, &pCfg->cbOnChipBl);
+        if (rc)
+            fprintf(stderr, "Loading the on chip bootloader ROM failed with %d\n", rc);
+    }
+
+    if (!rc)
+    {
+        rc = PSPEmuFlashLoadFromFile(pCfg->pszPathFlashRom, &pCfg->pvFlashRom, &pCfg->cbFlashRom);
+        if (rc)
+            fprintf(stderr, "Loading the flash ROM failed with %d\n", rc);
+    }
+
+    if (   !rc
+        && pCfg->pszPathBinLoad)
+    {
+        rc = PSPEmuFlashLoadFromFile(pCfg->pszPathBinLoad, &pCfg->pvBinLoad, &pCfg->cbBinLoad);
+        if (rc)
+            fprintf(stderr, "Loading the binary \"%s\" failed with %d\n", pCfg->pszPathBinLoad, rc);
+    }
+
+    if (   !rc
+        && pCfg->pszAppPreload)
+    {
+        rc = PSPEmuFlashLoadFromFile(pCfg->pszAppPreload, &pCfg->pvAppPreload, &pCfg->cbAppPreload);
+        if (rc)
+            fprintf(stderr, "Loading the app binary failed with %d\n", rc);
+    }
+
+    return rc;
 }
 
 

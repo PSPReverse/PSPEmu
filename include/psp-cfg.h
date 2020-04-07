@@ -124,6 +124,8 @@ typedef struct PSPEMUCFG
     const char              *pszPathBinLoad;
     /** Path to the boot rom service page to inject (for system and app emulation mode). */
     const char              *pszPathBootRomSvcPage;
+    /** Preloads the given "app" binary. */
+    const char              *pszAppPreload;
     /** Flag whether overwritten binaries have the 256 byte header prepended (affects the load address). */
     bool                    fBinContainsHdr;
     /** Flag whether to load the PSP directory from the flash image into the boot rom service page. */
@@ -146,14 +148,20 @@ typedef struct PSPEMUCFG
     void                    *pvOnChipBl;
     /** Size of the on chip bootloader ROM in bytes. */
     size_t                  cbOnChipBl;
+    /** Pointer to the binary content if pszPathBinLoad is not NULL. */
+    void                    *pvBinLoad;
+    /** Number of bytes of the binary loaded. */
+    size_t                  cbBinLoad;
+    /** Pointer to the binary content if pszAppPreload is not NULL. */
+    void                    *pvAppPreload;
+    /** Number of bytes of the app loaded. */
+    size_t                  cbAppPreload;
     /** The proxy address if configured. */
     const char              *pszPspProxyAddr;
     /** Path to the trace log to write if enabled. */
     const char              *pszTraceLog;
     /** UART remtoe address. */
     const char              *pszUartRemoteAddr;
-    /** Preloads the given "app" binary. */
-    const char              *pszAppPreload;
     /** Flash EM100 emulator emulator port. */
     uint16_t                uEm100FlashEmuPort;
     /** Number of sockets in the system to emulate. */
