@@ -35,6 +35,9 @@
 
 
 static bool g_fNewStyle = false;
+static uint32_t g_idSocketSingle = UINT32_MAX;
+static uint32_t g_idCcdSingle = UINT32_MAX;
+
 
 /**
  * Available options for PSPEmu.
@@ -64,6 +67,8 @@ static struct option g_aOptions[] =
     {"em100-emu-port",               required_argument, 0, 'e'},
     {"sockets",                      required_argument, 0, 'S'},
     {"ccds-per-socket",              required_argument, 0, 'C'},
+    {"emulate-single-socket-id",     required_argument, 0, 'O'},
+    {"emulate-single-die-id",        required_argument, 0, 'D'},
     {"new-style",                    no_argument,       0, 'N'},
 
     {"help",                         no_argument,       0, 'H'},
@@ -118,7 +123,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -148,7 +153,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --em100-emu-port <port for the EM100 network emulation>\n"
                        "    --sockets <number of sockets to emulate>\n"
                        "    --ccds-per-sockets <number of CCDS per socket to emulate>\n"
-                       "    --new-style Enable the new style code (WIP)\n",
+                       "    --new-style Enable the new style code (WIP)\n"
+                       "    --emulate-single-socket-id <id> Emulate only a single PSP with the given socket ID\n"
+                       "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -279,6 +286,12 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'N':
                 g_fNewStyle = true;
                 break;
+            case 'O':
+                g_idSocketSingle = strtoul(optarg, NULL, 10);
+                break;
+            case 'D':
+                g_idCcdSingle = strtoul(optarg, NULL, 10);
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
@@ -397,7 +410,12 @@ int main(int argc, char *argv[])
             return pspEmuMainLegacy(&Cfg);
 
         PSPCCD hCcd = NULL;
-        rc = PSPEmuCcdCreate(&hCcd, 0, 0, &Cfg);
+        if (   g_idSocketSingle != UINT32_MAX
+            && g_idCcdSingle != UINT32_MAX)
+            rc = PSPEmuCcdCreate(&hCcd, g_idSocketSingle, g_idCcdSingle, &Cfg);
+        else
+            rc = PSPEmuCcdCreate(&hCcd, 0, 0, &Cfg);
+
         if (!rc)
             rc = PSPEmuCcdRun(hCcd);
 
