@@ -114,8 +114,6 @@ typedef struct PSPCOREINT
     void                    *pvSram;
     /** Size of the SRAM region. */
     size_t                  cbSram;
-    /** The CCD ID. */
-    uint32_t                idCcd;
     /** The supervisor emulation instance if app emulation is used. */
     PSPSVC                  hSvcState;
     /** The next address to execute instructions from. */
@@ -601,22 +599,6 @@ void PSPEmuCoreDestroy(PSPCORE hCore)
     uc_close(pThis->pUcEngine);
     free(pThis->pvSram);
     free(pThis);
-}
-
-int PSPEmuCoreCcdSet(PSPCORE hCore, uint32_t idCcd)
-{
-    PPSPCOREINT pThis = hCore;
-
-    pThis->idCcd = idCcd;
-    return 0;
-}
-
-int PSPEmuCoreQueryCcd(PSPCORE hCore, uint32_t *pidCcd)
-{
-    PPSPCOREINT pThis = hCore;
-
-    *pidCcd = pThis->idCcd;
-    return 0;
 }
 
 int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, const void *pvData, size_t cbData)

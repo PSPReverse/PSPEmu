@@ -193,24 +193,6 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode, size_t cbSram);
 void PSPEmuCoreDestroy(PSPCORE hCore);
 
 /**
- * Sets the CCD ID the given PSP core is part of.
- *
- * @returns Status code.
- * @param   hCore                   The PSP core handle.
- * @param   idCcd                   The CCD ID to set.
- */
-int PSPEmuCoreCcdSet(PSPCORE hCore, uint32_t idCcd);
-
-/**
- * Queries the set CCD of the given PSP core handle.
- *
- * @returns Status code.
- * @param   hCore                   The PSP core handle.
- * @param   pidCcd                  Where to store the CCD on success.
- */
-int PSPEmuCoreQueryCcd(PSPCORE hCore, uint32_t *pidCcd);
-
-/**
  * Writes data to the given memory address for the given PSP core.
  *
  * @returns Status code.
