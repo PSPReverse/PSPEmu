@@ -408,6 +408,8 @@ static const GDBSTUBIF g_PspDbgGdbStubIf =
     GDBSTUBTGTARCH_ARM,
     /** paRegs */
     &g_apszPspDbgGdbStubRegs[0],
+    /** paCmds */
+    NULL,
     /** pfnMemAlloc */
     pspDbgGdbStubIfMemAlloc,
     /** pfnMemFree */
@@ -416,6 +418,10 @@ static const GDBSTUBIF g_PspDbgGdbStubIf =
     pspDbgGdbStubIfTgtGetState,
     /** pfnTgtStop */
     pspDbgGdbStubIfTgtStop,
+    /** pfnTgtRestart */
+    NULL,
+    /** pfnTgtKill */
+    NULL,
     /** pfnTgtStep */
     pspDbgGdbStubIfTgtStep,
     /** pfnTgtCont */
