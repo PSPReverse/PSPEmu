@@ -30,15 +30,11 @@
 #include <common/cdefs.h>
 #include <psp-fw/boot-rom-svc-page.h>
 
-#include <psp-core.h>
-#include <psp-dbg.h>
+#include <psp-ccd.h>
 #include <psp-flash.h>
-#include <psp-iom.h>
-#include <psp-devs.h>
-#include <psp-cfg.h>
-#include <psp-svc.h>
-#include <psp-trace.h>
 
+
+static bool g_fNewStyle = false;
 
 /**
  * Available options for PSPEmu.
@@ -67,6 +63,7 @@ static struct option g_aOptions[] =
     {"em100-emu-port",       required_argument, 0, 'e'},
     {"sockets",              required_argument, 0, 'S'},
     {"ccds-per-socket",      required_argument, 0, 'C'},
+    {"new-style",            no_argument,       0, 'N'},
 
     {"help",                 no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -117,7 +114,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbr:m:f:o:d:s:x:a:c:u:j:e:S:C:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -145,7 +142,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --preload-app <path/to/app/binary/with/hdr>\n"
                        "    --em100-emu-port <port for the EM100 network emulation>\n"
                        "    --sockets <number of sockets to emulate>\n"
-                       "    --ccds-per-sockets <number of CCDS per socket to emulate>\n",
+                       "    --ccds-per-sockets <number of CCDS per socket to emulate>\n"
+                       "    --new-style Enable the new style code (WIP)\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -270,10 +268,19 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'C':
                 pCfg->cCcdsPerSocket = strtoul(optarg, NULL, 10);
                 break;
+            case 'N':
+                g_fNewStyle = true;
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
         }
+    }
+
+    if (pCfg->enmMode == PSPEMUMODE_INVALID)
+    {
+        fprintf(stderr, "--emulation-mode is mandatory\n");
+        return -1;
     }
 
     if (   pCfg->cSockets < 1
@@ -369,7 +376,17 @@ int main(int argc, char *argv[])
     /* Parse the config first. */
     int rc = pspEmuCfgParse(argc, argv, &Cfg);
     if (!rc)
-        return pspEmuMainLegacy(&Cfg);
+    {
+        if (!g_fNewStyle)
+            return pspEmuMainLegacy(&Cfg);
+
+        PSPCCD hCcd = NULL;
+        rc = PSPEmuCcdCreate(&hCcd, 0, 0, &Cfg);
+        if (!rc)
+            rc = PSPEmuCcdRun(hCcd);
+
+        PSPEmuCcdDestroy(hCcd);
+    }
     else
         fprintf(stderr, "Parsing arguments failed with %d\n", rc);
 
