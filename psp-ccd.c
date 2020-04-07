@@ -177,6 +177,24 @@ static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags,
 
 
 /**
+ * Returns the device registration record with the given name or NULL if not found.
+ *
+ * @returns Pointer to the devcice registration record or NULL if not found.
+ * @param   pszDevName              The device to look for.
+ */
+static PCPSPDEVREG pspEmuCcdDeviceFindByName(const char *pszDevName)
+{
+    for (uint32_t i = 0; i < ELEMENTS(g_apDevs); i++)
+    {
+        if (!strcmp(g_apDevs[i]->pszName, pszDevName))
+            return g_apDevs[i];
+    }
+
+    return NULL;
+}
+
+
+/**
  * Instantiate a single given device.
  *
  * @returns status code.
@@ -206,9 +224,37 @@ static int pspEmuCcdDeviceInstantiate(PPSPCCDINT pThis, PCPSPDEVREG pDevReg, PCP
  * @param   papszDevs               Devices to instantiate.
  * @param   pCfg                    The global config.
  */
-static int pspEmuCcdDevicesInstantiate(PPSPCCDINT pThis, const char *papszDevs, PCPSPEMUCFG pCfg)
+static int pspEmuCcdDevicesInstantiate(PPSPCCDINT pThis, const char **papszDevs, PCPSPEMUCFG pCfg)
 {
-    return -1; /** @todo */
+    int rc = 0;
+    uint32_t idxDev = 0;
+
+    while (   papszDevs[idxDev]
+           && !rc)
+    {
+        PCPSPDEVREG pDevReg = pspEmuCcdDeviceFindByName(papszDevs[idxDev]);
+        if (pDevReg)
+        {
+            rc = pspEmuCcdDeviceInstantiate(pThis, pDevReg, pCfg);
+            idxDev++;
+        }
+        else
+            rc = -1;
+    }
+
+    if (rc)
+    {
+        /* Rollback time. */
+        PPSPDEV pCur = pThis->pDevsHead;
+        while (pCur)
+        {
+            PPSPDEV pFree = pCur;
+            pCur = pCur->pNext;
+            PSPEmuDevDestroy(pFree);
+        }
+    }
+
+    return rc;
 }
 
 
@@ -225,6 +271,8 @@ static int pspEmuCcdDevicesInstantiateDefault(PPSPCCDINT pThis, PCPSPEMUCFG pCfg
 
     for (uint32_t i = 0; i < ELEMENTS(g_apDevs) && !rc; i++)
         rc = pspEmuCcdDeviceInstantiate(pThis, g_apDevs[i], pCfg);
+
+    /** @todo Rollback */
 
     return rc;
 }

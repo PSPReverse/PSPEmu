@@ -69,11 +69,70 @@ static struct option g_aOptions[] =
     {"ccds-per-socket",              required_argument, 0, 'C'},
     {"emulate-single-socket-id",     required_argument, 0, 'O'},
     {"emulate-single-die-id",        required_argument, 0, 'D'},
+    {"emulate-devices",              required_argument, 0, 'E'},
     {"new-style",                    no_argument,       0, 'N'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
 };
+
+
+/**
+ * Parses the given emulated device string and returns an array with individual entries.
+ *
+ * @returns Pointer to the Array of individual device entries on success.
+ * @param   pszDevString            The device string form the command line to parse.
+ */
+static const char **pspEmuCfgParseDevices(const char *pszDevString)
+{
+    /* Count the number of : separators first. */
+    uint32_t cDevs = 2; /* Account for the first device + NULL entry in the table. */
+    const char *pszCur = pszDevString;
+    for (;;)
+    {
+        char *pszSep = strchr(pszCur, ':');
+        if (!pszSep)
+            break;
+
+        cDevs++;
+        pszCur = pszSep + 1;
+    }
+
+    const char **papszDevs = (const char **)calloc(cDevs, sizeof(const char *));
+    if (papszDevs)
+    {
+        uint32_t idxDev = 0;
+
+        pszCur = pszDevString;
+        for (;;)
+        {
+            char *pszSep = strchr(pszCur, ':');
+            if (!pszSep)
+                break;
+
+            papszDevs[idxDev] = strndup(pszCur, pszSep - pszCur);
+            if (   !papszDevs[idxDev]
+                && idxDev > 0)
+            {
+                /* Rollback. */
+                while (idxDev)
+                {
+                    free(papszDevs[idxDev - 1]);
+                    idxDev--;
+                }
+
+                free(papszDevs);
+                papszDevs = NULL;
+                break;
+            }
+
+            idxDev++;
+            pszCur = pszSep + 1;
+        }
+    }
+
+    return papszDevs;
+}
 
 
 /**
@@ -123,7 +182,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -155,7 +214,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --ccds-per-sockets <number of CCDS per socket to emulate>\n"
                        "    --new-style Enable the new style code (WIP)\n"
                        "    --emulate-single-socket-id <id> Emulate only a single PSP with the given socket ID\n"
-                       "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n",
+                       "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n"
+                       "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -291,6 +351,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'D':
                 g_idCcdSingle = strtoul(optarg, NULL, 10);
+                break;
+            case 'E':
+                pCfg->papszDevs = pspEmuCfgParseDevices(optarg);
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);

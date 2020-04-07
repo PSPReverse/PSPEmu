@@ -177,7 +177,7 @@ typedef struct PSPEMUCFG
     uint32_t                cCcdsPerSocket;
     /** Pointer to an array of strings for devices which should be instantiated, temrinated by a NULL entry.
      *NULL means default with everything emulated. */
-    const char              *papszDevs;
+    const char              **papszDevs;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;
