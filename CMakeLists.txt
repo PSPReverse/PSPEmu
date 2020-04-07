@@ -15,6 +15,7 @@ pkg_check_modules(PC_OPENSSL     REQUIRED IMPORTED_TARGET openssl)
 
 add_executable(PSPEmu
                       psp-emu.c
+                      psp-emu-legacy.c
                       psp-core.c
                       psp-disasm.c
                       psp-dbg.c
