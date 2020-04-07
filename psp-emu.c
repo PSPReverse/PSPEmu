@@ -78,6 +78,48 @@ static struct option g_aOptions[] =
 
 
 /**
+ * Frees all allocated resources for the given config.
+ *
+ * @returns nothing.
+ * @param   pCfg                    The config to free all resources from.
+ */
+static void pspEmuCfgFree(PPSPEMUCFG pCfg)
+{
+    if (   pCfg->pvOnChipBl
+        && pCfg->cbOnChipBl)
+        PSPEmuFlashFree(pCfg->pvOnChipBl, pCfg->cbOnChipBl);
+
+    if (   pCfg->pvFlashRom
+        && pCfg->cbFlashRom)
+        PSPEmuFlashFree(pCfg->pvFlashRom, pCfg->cbFlashRom);
+
+    if (   pCfg->pvBinLoad
+        && pCfg->cbBinLoad)
+        PSPEmuFlashFree(pCfg->pvBinLoad, pCfg->cbBinLoad);
+
+    if (   pCfg->pvAppPreload
+        && pCfg->cbAppPreload)
+        PSPEmuFlashFree(pCfg->pvAppPreload, pCfg->cbAppPreload);
+
+    if (   pCfg->pvBootRomSvcPage
+        && pCfg->cbBootRomSvcPage)
+        PSPEmuFlashFree(pCfg->pvBootRomSvcPage, pCfg->cbBootRomSvcPage);
+
+    if (pCfg->papszDevs)
+    {
+        uint32_t idx = 0;
+        while (pCfg->papszDevs[idx])
+        {
+            free((void *)pCfg->papszDevs[idx]);
+            idx++;
+        }
+
+        free(pCfg->papszDevs);
+    }
+}
+
+
+/**
  * Parses the given emulated device string and returns an array with individual entries.
  *
  * @returns Pointer to the Array of individual device entries on success.
@@ -455,6 +497,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             fprintf(stderr, "Loading the boot ROM service page from the given file failed with %d\n", rc);
     }
 
+    if (rc)
+        pspEmuCfgFree(pCfg);
+
     return rc;
 }
 
@@ -484,6 +529,8 @@ int main(int argc, char *argv[])
             rc = PSPEmuCcdRun(hCcd);
             PSPEmuCcdDestroy(hCcd);
         }
+
+        pspEmuCfgFree(&Cfg);
     }
     else
         fprintf(stderr, "Parsing arguments failed with %d\n", rc);
