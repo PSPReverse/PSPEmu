@@ -590,6 +590,31 @@ void PSPEmuCoreDestroy(PSPCORE hCore)
 {
     PPSPCOREINT pThis = hCore;
 
+    /* Unmap all MMIO hooks. */
+    PPSPCOREMMIOREGION pMmioCur = pThis->pMmioRegionsHead;
+    while (pMmioCur)
+    {
+        PPSPCOREMMIOREGION pFree = pMmioCur;
+
+        pMmioCur = pMmioCur->pNext;
+        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pFree->PspAddrStart, pFree->cbMmio);
+        /** @todo assert(rcUrc == UC_ERR_OK) */
+        free(pFree);
+    }
+
+    /* Deregister all hooks. */
+    PPSPCORETRACEHOOK pTraceCur = pThis->pTraceHooksHead;
+    while (pTraceCur)
+    {
+        PPSPCORETRACEHOOK pFree = pTraceCur;
+
+        pTraceCur = pTraceCur->pNext;
+        uc_err rcUc = uc_hook_del(pThis->pUcEngine, pFree->hUcHook);
+        /** @todo assert(rcUc == UC_ERR_OK) */
+        free(pFree);
+    }
+
+    pThis->pMmioRegionsHead = NULL;
     uc_close(pThis->pUcEngine);
     free(pThis->pvSram);
     free(pThis);
