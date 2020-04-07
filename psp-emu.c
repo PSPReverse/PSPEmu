@@ -117,7 +117,7 @@ static const char **pspEmuCfgParseDevices(const char *pszDevString)
                 /* Rollback. */
                 while (idxDev)
                 {
-                    free(papszDevs[idxDev - 1]);
+                    free((void *)papszDevs[idxDev - 1]);
                     idxDev--;
                 }
 
@@ -480,9 +480,10 @@ int main(int argc, char *argv[])
             rc = PSPEmuCcdCreate(&hCcd, 0, 0, &Cfg);
 
         if (!rc)
+        {
             rc = PSPEmuCcdRun(hCcd);
-
-        PSPEmuCcdDestroy(hCcd);
+            PSPEmuCcdDestroy(hCcd);
+        }
     }
     else
         fprintf(stderr, "Parsing arguments failed with %d\n", rc);
