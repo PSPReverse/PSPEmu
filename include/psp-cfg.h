@@ -24,7 +24,21 @@
 
 #include <common/types.h>
 
-#include <psp-core.h>
+
+/**
+ * Emulation mode.
+ */
+typedef enum PSPEMUMODE
+{
+    /** Invalid mode, do not use. */
+    PSPEMUMODE_INVALID = 0,
+    /** A single usermode application is executed and the svc interface is emulated. */
+    PSPEMUMODE_APP,
+    /** Full system emulation mode with the supervisor code being executed as well. */
+    PSPEMUMODE_SYSTEM,
+    /** Full system emulation mode with the supervisor and on chip bootloader code being executed as well. */
+    PSPEMUMODE_SYSTEM_ON_CHIP_BL
+} PSPEMUMODE;
 
 
 /**
@@ -95,7 +109,7 @@ typedef enum PSPEMUACPISTATE
 typedef struct PSPEMUCFG
 {
     /** Emulation mode. */
-    PSPCOREMODE             enmMode;
+    PSPEMUMODE              enmMode;
     /** The micro architecture we are emulating. */
     PSPEMUMICROARCH         enmMicroArch;
     /** The CPU segment we are emulating. */

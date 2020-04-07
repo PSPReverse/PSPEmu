@@ -50,22 +50,6 @@ typedef FNPSPCOREMMIOWRITE *PFNPSPCOREMMIOWRITE;
 
 
 /**
- * Core emulation mode.
- */
-typedef enum PSPCOREMODE
-{
-    /** Invalid mode, do not use. */
-    PSPCOREMODE_INVALID = 0,
-    /** A single usermode application is executed and the svc interface is emulated. */
-    PSPCOREMODE_APP,
-    /** Full system emulation mode with the supervisor code being executed as well. */
-    PSPCOREMODE_SYSTEM,
-    /** Full system emulation mode with the supervisor and on chip bootloader code being executed as well. */
-    PSPCOREMODE_SYSTEM_ON_CHIP_BL
-} PSPCOREMODE;
-
-
-/**
  * PSP core register.
  */
 typedef enum PSPCOREREG
@@ -179,10 +163,9 @@ typedef const PSPCORESVCREG *PCPSPCORESVCREG;
  *
  * @returns Status code.
  * @param   phCore                  Where to store the core handle on success.
- * @param   enmMode                 The emulation mode the core operates in.
  * @param   cbSram                  Size of the SRAM in bytes.
  */
-int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode, size_t cbSram);
+int PSPEmuCoreCreate(PPSPCORE phCore, size_t cbSram);
 
 /**
  * Destroys a given PSP core.

@@ -233,7 +233,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     int ch = 0;
     int idxOption = 0;
 
-    pCfg->enmMode               = PSPCOREMODE_INVALID;
+    pCfg->enmMode               = PSPEMUMODE_INVALID;
     pCfg->pszPathFlashRom       = NULL;
     pCfg->pszPathOnChipBl       = NULL;
     pCfg->pszPathBinLoad        = NULL;
@@ -286,11 +286,11 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
 
             case 'm':
                 if (!strcmp(optarg, "app"))
-                    pCfg->enmMode = PSPCOREMODE_APP;
+                    pCfg->enmMode = PSPEMUMODE_APP;
                 else if (!strcmp(optarg, "sys"))
-                    pCfg->enmMode = PSPCOREMODE_SYSTEM;
+                    pCfg->enmMode = PSPEMUMODE_SYSTEM;
                 else if (!strcmp(optarg, "on-chip-bl"))
-                    pCfg->enmMode = PSPCOREMODE_SYSTEM_ON_CHIP_BL;
+                    pCfg->enmMode = PSPEMUMODE_SYSTEM_ON_CHIP_BL;
                 else
                 {
                     fprintf(stderr, "--emulation-mode takes only one of [app|sys|on-chip-bl] as the emulation mode\n");
@@ -412,13 +412,13 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     }
 
     if (   !pCfg->pszPathOnChipBl
-        && pCfg->enmMode == PSPCOREMODE_SYSTEM_ON_CHIP_BL)
+        && pCfg->enmMode == PSPEMUMODE_SYSTEM_ON_CHIP_BL)
     {
         fprintf(stderr, "The on chip bootloader binary is required for the selected emulation mode\n");
         return -1;
     }
 
-    if (   pCfg->enmMode != PSPCOREMODE_SYSTEM_ON_CHIP_BL
+    if (   pCfg->enmMode != PSPEMUMODE_SYSTEM_ON_CHIP_BL
         && !pCfg->pszPathBinLoad)
     {
         fprintf(stderr, "Loading the designated binary from the flash image is not implemented yet, please load the binary explicitely using --bin-load\n");
@@ -426,14 +426,14 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     }
 
     if (   pCfg->fIncptSvc6
-        && pCfg->enmMode == PSPCOREMODE_APP)
+        && pCfg->enmMode == PSPEMUMODE_APP)
     {
         fprintf(stderr, "Application mode and explicit SVC 6 interception are mutually exclusive (svc 6 is always intercepted in app mode)\n");
         return -1;
     }
 
     if (   pCfg->fTraceSvcs
-        && pCfg->enmMode == PSPCOREMODE_APP)
+        && pCfg->enmMode == PSPEMUMODE_APP)
     {
         fprintf(stderr, "Application mode and SVC tracing are mutually exclusive (svcs are always traced in app mode)\n");
         return -1;
@@ -462,7 +462,7 @@ int main(int argc, char *argv[])
             Cfg.pvFlashRom = pv;
             Cfg.cbFlashRom = cb;
 
-            rc = PSPEmuCoreCreate(&hCore, Cfg.enmMode, Cfg.enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K);
+            rc = PSPEmuCoreCreate(&hCore, Cfg.enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K);
             if (!rc)
             {
                 PSPIOM hIoMgr;
@@ -529,10 +529,10 @@ int main(int argc, char *argv[])
 
                             switch (Cfg.enmMode)
                             {
-                                case PSPCOREMODE_SYSTEM:
+                                case PSPEMUMODE_SYSTEM:
                                     PspAddrWrite = 0x0;
                                     break;
-                                case PSPCOREMODE_APP:
+                                case PSPEMUMODE_APP:
                                     PspAddrWrite = 0x15000;
                                     break;
                                 default:
@@ -631,19 +631,19 @@ int main(int argc, char *argv[])
                         PSPADDR PspAddrStartExec = 0x0;
                         switch (Cfg.enmMode)
                         {
-                            case PSPCOREMODE_SYSTEM_ON_CHIP_BL:
+                            case PSPEMUMODE_SYSTEM_ON_CHIP_BL:
                             {
                                 //PSPEmuCoreTraceRegister(hCore, 0xffff0000, 0xffffffff, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
                                 PspAddrStartExec = 0xffff0000;
                                 break;
                             }
-                            case PSPCOREMODE_APP:
+                            case PSPEMUMODE_APP:
                             {
                                 PspAddrStartExec = 0x15100;
                                 rc = PSPEmuSvcStateCreate(&hSvc, hCore, hIoMgr, hPspProxyCtx);
                                 break;
                             }
-                            case PSPCOREMODE_SYSTEM:
+                            case PSPEMUMODE_SYSTEM:
                             {
                                 //PSPEmuCoreTraceRegister(hCore, 0x100, 0x20000, PSPEMU_CORE_TRACE_F_EXEC, pspEmuTraceState, NULL);
                                 PspAddrStartExec = 0x100;

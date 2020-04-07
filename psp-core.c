@@ -104,8 +104,6 @@ typedef const PSPCOREMMIOREGION *PCPSPCOREMMIOREGION;
  */
 typedef struct PSPCOREINT
 {
-    /** The emulation mode. */
-    PSPCOREMODE             enmMode;
     /** The unicorn engine pointer. */
     uc_engine               *pUcEngine;
     /** The svc interrupt hook. */
@@ -513,7 +511,7 @@ static void pspEmuCoreSvcAfterHook(uc_engine *pUcEngine, uint64_t uAddr, uint32_
 }
 
 
-int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode, size_t cbSram)
+int PSPEmuCoreCreate(PPSPCORE phCore, size_t cbSram)
 {
     int rc = 0;
     PPSPCOREINT pThis = (PPSPCOREINT)calloc(1, sizeof(*pThis));
@@ -524,7 +522,6 @@ int PSPEmuCoreCreate(PPSPCORE phCore, PSPCOREMODE enmMode, size_t cbSram)
 
         pThis->pTraceHooksHead  = NULL;
         pThis->pMmioRegionsHead = NULL;
-        pThis->enmMode          = enmMode;
         pThis->cbSram           = cbSram;
         pThis->pvSram           = calloc(1, pThis->cbSram);
         pThis->pSvcReg          = NULL;
