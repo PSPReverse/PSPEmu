@@ -25,7 +25,6 @@
 #include <common/cdefs.h>
 
 #include <psp-core.h>
-#include <psp-svc.h>
 #include <psp-disasm.h>
 
 /**
@@ -112,8 +111,6 @@ typedef struct PSPCOREINT
     void                    *pvSram;
     /** Size of the SRAM region. */
     size_t                  cbSram;
-    /** The supervisor emulation instance if app emulation is used. */
-    PSPSVC                  hSvcState;
     /** The next address to execute instructions from. */
     PSPADDR                 PspAddrExecNext;
     /** Flag whether the exeuction should stop. */
