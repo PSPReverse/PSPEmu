@@ -69,6 +69,15 @@ int PSPEmuCcdQueryCore(PSPCCD hCcd, PPSPCORE phPspCore);
 
 
 /**
+ * Resets the given CCD instance to the initial state right after creation, including all device states.
+ *
+ * @returns Status code.
+ * @param   hCcd                The CCD handle.
+ */
+int PSPEmuCcdReset(PSPCCD hCcd);
+
+
+/**
  * Let the given CCD instance run.
  *
  * @returns Status code.

@@ -43,6 +43,8 @@
  */
 typedef struct PSPCCDINT
 {
+    /** The config assigned to this CCD. */
+    PCPSPEMUCFG                 pCfg;
     /** The PSP core executing the code. */
     PSPCORE                     hPspCore;
     /** The I/O manager handling I/O accesses. */
@@ -363,6 +365,29 @@ static int pspEmuCcdDevicesInstantiateDefault(PPSPCCDINT pThis, PCPSPEMUCFG pCfg
 
 
 /**
+ * Reset all device states.
+ *
+ * @returns Status code.
+ * @param   pThis                   The CCD instance to reset all devices for.
+ */
+static int pspEmuCcdDevicesReset(PPSPCCDINT pThis)
+{
+    int rc = 0;
+
+    PPSPDEV pDev = pThis->pDevsHead;
+    while (   pDev
+           && !rc)
+    {
+        if (pDev->pReg->pfnReset)
+            rc = pDev->pReg->pfnReset(pDev);
+        pDev = pDev->pNext;
+    }
+
+    return rc;
+}
+
+
+/**
  * Initializes the SRAM memory content of the given CCD PSP.
  *
  * @returns Status code.
@@ -563,6 +588,7 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
     PPSPCCDINT pThis = (PPSPCCDINT)calloc(1, sizeof(*pThis));
     if (pThis)
     {
+        pThis->pCfg     = pCfg;
         pThis->idSocket = idSocket;
         pThis->idCcd    = idCcd;
 
@@ -663,6 +689,22 @@ int PSPEmuCcdQueryCore(PSPCCD hCcd, PPSPCORE phPspCore)
 
     *phPspCore = pThis->hPspCore;
     return 0;
+}
+
+
+int PSPEmuCcdReset(PSPCCD hCcd)
+{
+    PPSPCCDINT pThis = hCcd;
+
+    int rc = pspEmuCcdDevicesReset(pThis);
+    if (!rc)
+        rc = PSPEmuCoreExecReset(pThis->hPspCore);
+    if (!rc)
+        rc = pspEmuCcdMemoryInit(pThis, pThis->pCfg);
+    if (!rc)
+        rc = pspEmuCcdExecEnvInit(pThis, pThis->pCfg);
+
+    return rc;
 }
 
 
