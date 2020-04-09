@@ -28,6 +28,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <time.h>
 
 #include <poll.h>
 #include <sys/ioctl.h>
@@ -89,10 +90,34 @@ typedef struct PSPDEVFLASH
     PSPIOMREGIONHANDLE          hSmn;
     /** The EM100 flash emulation state if enabled. */
     PEM100EMU                   pEm100;
+    /** SPI flash trace file if configured. */
+    FILE                        *pSpiFlashTrace;
+    /** Start timestamp. */
+    uint64_t                    tsStart;
+    /** Last accessed offset. */
+    SMNADDR                     offAccLast;
+    /** Packet ID. */
+    uint64_t                    idPacket;
 } PSPDEVFLASH;
 /** Pointer to the device instance data. */
 typedef PSPDEVFLASH *PPSPDEVFLASH;
 
+
+
+/**
+ * Gets the nanosecond timestamp.
+ *
+ * @returns Nanoseconds elapsed (monotonic increasing).
+ */
+static uint64_t pspDevFlashGetTimeNs(void)
+{
+    struct timespec Tp;
+    int rcPsx = clock_gettime(CLOCK_MONOTONIC, &Tp);
+    if (!rcPsx)
+        return ((uint64_t)Tp.tv_sec * 1000ULL * 1000ULL * 1000ULL) + Tp.tv_nsec;
+
+    return 0;
+}
 
 
 /**
@@ -295,6 +320,39 @@ static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pv
         memcpy(pvDst, (uint8_t *)pThis->pDev->pCfg->pvFlashRom + offSmn, cbRead);
     else
         printf("%s: ATTEMPTED out of bounds read from offSmn=%#x cbRead=%zu -> IGNORED\n", __FUNCTION__, offSmn, cbRead);
+
+    /* Log the access if enabled. */
+    if (pThis->pSpiFlashTrace)
+    {
+        /* Generate a new packet ID and read command if the last access isn't adjacent to this one. */
+        uint64_t tsCmd = pspDevFlashGetTimeNs() - pThis->tsStart;
+        uint64_t tsCmdSec = tsCmd / (1000 * 1000 * 1000);
+        uint64_t tsCmdNs = tsCmd % (1000 * 1000 * 1000);
+
+        if (offSmn != pThis->offAccLast)
+        {
+            pThis->idPacket++;
+            int cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x03,0xFF\n",
+                                     tsCmdSec, tsCmdNs++, pThis->idPacket);
+            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x%02x,0xFF\n",
+                                     tsCmdSec, tsCmdNs++, pThis->idPacket, (offSmn >> 16) & 0xff);
+            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x%02x,0xFF\n",
+                                     tsCmdSec, tsCmdNs++, pThis->idPacket, (offSmn >> 8) & 0xff);
+            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x%02x,0xFF\n",
+                                     tsCmdSec, tsCmdNs++, pThis->idPacket, offSmn & 0xff);
+        }
+
+        uint8_t *pbFlash = (uint8_t *)pThis->pDev->pCfg->pvFlashRom + offSmn;
+        while (cbRead)
+        {
+            int cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x00,0x%02x\n",
+                                     tsCmdSec, tsCmdNs++, pThis->idPacket, *pbFlash);
+            pbFlash++;
+            cbRead--;
+        }
+
+        pThis->offAccLast = offSmn + cbRead;
+    }
 }
 
 
@@ -318,7 +376,9 @@ static int pspDevFlashInit(PPSPDEV pDev)
 {
     PPSPDEVFLASH pThis = (PPSPDEVFLASH)&pDev->abInstance[0];
 
-    pThis->pDev = pDev;
+    pThis->pDev       = pDev;
+    pThis->offAccLast = UINT32_MAX - 1;
+    pThis->idPacket   = 0;
 
     SMNADDR SmnAddrFlash = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x44000000 : 0x0a000000;
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrFlash, pDev->pCfg->cbFlashRom,
@@ -328,6 +388,24 @@ static int pspDevFlashInit(PPSPDEV pDev)
         && pDev->pCfg->uEm100FlashEmuPort)
         rc = pspEm100EmuCreate(&pThis->pEm100, pDev->pCfg->uEm100FlashEmuPort,
                                pDev->pCfg->pvFlashRom, pDev->pCfg->cbFlashRom);
+
+    if (   !rc
+        && pDev->pCfg->pszSpiFlashTrace)
+    {
+        pThis->pSpiFlashTrace = fopen(pDev->pCfg->pszSpiFlashTrace, "wb");
+        if (pThis->pSpiFlashTrace)
+        {
+            /* Write the header. */
+            const char szHdr[] = "Time [s],Packet ID,MOSI,MISO\n";
+            size_t cWritten = fwrite(&szHdr[0], sizeof(szHdr) - 1, 1, pThis->pSpiFlashTrace);
+            if (cWritten != 1)
+                rc = -1;
+            pThis->tsStart = pspDevFlashGetTimeNs();
+        }
+        else
+            rc = -1;
+    }
+
     return rc;
 }
 
@@ -338,6 +416,9 @@ static void pspDevFlashDestruct(PPSPDEV pDev)
 
     if (pThis->pEm100)
         pspEm100EmuDestroy(pThis->pEm100);
+
+    if (pThis->pSpiFlashTrace)
+        fclose(pThis->pSpiFlashTrace);
 }
 
 

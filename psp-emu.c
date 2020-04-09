@@ -65,6 +65,7 @@ static struct option g_aOptions[] =
     {"timer-real-time",              no_argument      , 0, 'r'},
     {"preload-app",                  required_argument, 0, 'j'},
     {"em100-emu-port",               required_argument, 0, 'e'},
+    {"spi-flash-trace",              required_argument, 0, 'F'},
     {"sockets",                      required_argument, 0, 'S'},
     {"ccds-per-socket",              required_argument, 0, 'C'},
     {"emulate-single-socket-id",     required_argument, 0, 'O'},
@@ -219,6 +220,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszUartRemoteAddr     = NULL;
     pCfg->pszAppPreload         = NULL;
     pCfg->uEm100FlashEmuPort    = 0;
+    pCfg->pszSpiFlashTrace      = NULL;
     pCfg->cSockets              = 1;
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
@@ -251,6 +253,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
                        "    --preload-app <path/to/app/binary/with/hdr>\n"
                        "    --em100-emu-port <port for the EM100 network emulation>\n"
+                       "    --spi-flash-trace <path/to/psptrace/compatible/flash/trace>\n"
                        "    --sockets <number of sockets to emulate>\n"
                        "    --ccds-per-sockets <number of CCDS per socket to emulate>\n"
                        "    --new-style Enable the new style code (WIP)\n"
@@ -392,6 +395,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'E':
                 pCfg->papszDevs = pspEmuCfgParseDevices(optarg);
+                break;
+            case 'F':
+                pCfg->pszSpiFlashTrace = optarg;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
