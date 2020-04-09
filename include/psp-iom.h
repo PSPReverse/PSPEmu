@@ -68,6 +68,27 @@ typedef FNPSPIOMSMNWRITE *PFNPSPIOMSMNWRITE;
 
 
 /**
+ * SMN address access handler.
+ *
+ * @returns nothing.
+ * @param   offSmnAbs               The abolsute SMN adress the access happens at.
+ * @param   pszDevId                The device name if a device has registered the range or NULL
+ *                                  if not assigned.
+ * @param   offSmnDev               Offset from the beginning of the registered range if a device
+ *                                  has claimed the range.
+ * @param   cbAccess                Access size, (1, 2 or 4 bytes).
+ * @param   pvVal                   On writes this contains the value written, for
+ *                                  reads this contains the value read from the register if the trace is
+ *                                  executed after the access.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
+typedef void (FNPSPIOMSMNTRACE)(SMNADDR offSmnAbs, const char *pszDevId, SMNADDR offSmnDev, size_t cbAccess,
+                                const void *pvVal, uint32_t fFlags, void *pvUser);
+/** SMN trace handler pointer. */
+typedef FNPSPIOMSMNTRACE *PFNPSPIOMSMNTRACE;
+
+
+/**
  * MMIO read handler.
  *
  * @returns nothing.
@@ -95,6 +116,27 @@ typedef FNPSPIOMMMIOREAD *PFNPSPIOMMMIOREAD;
 typedef void (FNPSPIOMMMIOWRITE)(PSPADDR offMmio, size_t cbRead, const void *pvVal, void *pvUser);
 /** MMIO write handler pointer. */
 typedef FNPSPIOMMMIOWRITE *PFNPSPIOMMMIOWRITE;
+
+
+/**
+ * SMN address access handler.
+ *
+ * @returns nothing.
+ * @param   offMmioAbs              The abolsute MMIO adress the access happens at.
+ * @param   pszDevId                The device name if a device has registered the range or NULL
+ *                                  if not assigned.
+ * @param   offMmioDev              Offset from the beginning of the registered range if a device
+ *                                  has claimed the range.
+ * @param   cbAccess                Access size, (1, 2 or 4 bytes).
+ * @param   pvVal                   On writes this contains the value written, for
+ *                                  reads this contains the value read from the register if the trace is
+ *                                  executed after the access.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
+typedef void (FNPSPIOMMMIOTRACE)(PSPADDR offMmioAbs, const char *pszDevId, PSPADDR offMmioDev, size_t cbAccess,
+                                 const void *pvVal, uint32_t fFlags, void *pvUser);
+/** MMIO trace handler pointer. */
+typedef FNPSPIOMMMIOTRACE *PFNPSPIOMMMIOTRACE;
 
 
 /**
@@ -139,6 +181,39 @@ typedef FNPSPIOMX86MMIOWRITE *PFNPSPIOMX86MMIOWRITE;
 typedef void (FNPSPIOMX86MEMFETCH)(X86PADDR offX86Mem, size_t cbFetch, void *pvDst, void *pvUser);
 /** X86 memory fetch handler pointer. */
 typedef FNPSPIOMX86MEMFETCH *PFNPSPIOMX86MEMFETCH;
+
+
+/**
+ * X86 address access handler.
+ *
+ * @returns nothing.
+ * @param   offX86Abs               The abolsute x86 physical adress the access happens at.
+ * @param   pszDevId                The device name if a device has registered the range or NULL
+ *                                  if not assigned.
+ * @param   offX86Dev               Offset from the beginning of the registered range if a device
+ *                                  has claimed the range.
+ * @param   cbAccess                Access size, (1, 2 or 4 bytes).
+ * @param   pvVal                   On writes this contains the value written, for
+ *                                  reads this contains the value read from the register if the trace is
+ *                                  executed after the access.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
+typedef void (FNPSPIOMX86TRACE)(X86PADDR offX86Abs, const char *pszDevId, X86PADDR offX86Dev, size_t cbAccess,
+                                const void *pvVal, uint32_t fFlags, void *pvUser);
+/** X86 trace handler pointer. */
+typedef FNPSPIOMX86TRACE *PFNPSPIOMX86TRACE;
+
+
+/** The trace handler should hit on a read access. */
+#define PSPEMU_IOM_TRACE_F_READ                 BIT(0)
+/** The trace handler should hit on a write access. */
+#define PSPEMU_IOM_TRACE_F_WRITE                BIT(1)
+/** The trace handler should hit before the access is executed. */
+#define PSPEMU_IOM_TRACE_F_BEFORE               BIT(2)
+/** The trace handler should hit after the access was executed. */
+#define PSPEMU_IOM_TRACE_F_AFTER                BIT(3)
+/** Mask of all valid flags. */
+#define PSPEMU_IOM_TRACE_F_VALID_MASK           0xf
 
 
 /**
@@ -223,6 +298,24 @@ int PSPEmuIoMgrMmioRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, size_t cbMm
 
 
 /**
+ * Registers a new MMIO access tracing handler.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   PspAddrMmioStart        The MMIO start address the trace handler should hit at.
+ * @param   PspAddrMmioEnd          The last MMIO address the trace handler should hit at (inclusive).
+ * @param   cbAccess                The access width the handler should hit at, 0 for all access sizes,
+ *                                  1, 2 or 4 bytes otherwise.
+ * @param   fFlags                  Combination of PSPEMU_IOM_TRACE_F_XXX controlling when the trace handler should
+ *                                  hit.
+ * @param   pfnTrace                The handler to call.
+ * @param   pvUser                  Opaque user data to pass to the handler.
+ */
+int PSPEmuIoMgrMmioTraceRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, PSPADDR PspAddrMmioEnd,
+                                 size_t cbAccess, uint32_t fFlags, PFNPSPIOMMMIOTRACE pfnTrace, void *pvUser);
+
+
+/**
  * Registers read/write handlers for the given SMN region.
  *
  * @returns Status code.
@@ -237,6 +330,24 @@ int PSPEmuIoMgrMmioRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, size_t cbMm
 int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
                            PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser,
                            PPSPIOMREGIONHANDLE phSmn);
+
+
+/**
+ * Registers a new MMIO access tracing handler.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   SmnAddrStart            The SMN start address the trace handler should hit at.
+ * @param   SmnAddrEnd              The last SMN address the trace handler should hit at (inclusive).
+ * @param   cbAccess                The access width the handler should hit at, 0 for all access sizes,
+ *                                  1, 2 or 4 bytes otherwise.
+ * @param   fFlags                  Combination of PSPEMU_IOM_TRACE_F_XXX controlling when the trace handler should
+ *                                  hit.
+ * @param   pfnTrace                The handler to call.
+ * @param   pvUser                  Opaque user data to pass to the handler.
+ */
+int PSPEmuIoMgrSmnTraceRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, SMNADDR SmnAddrEnd,
+                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMSMNTRACE pfnTrace, void *pvUser);
 
 
 /**
@@ -299,6 +410,24 @@ int PSPEmuIoMgrX86MemRead(PSPIOMREGIONHANDLE hX86Mem, X86PADDR offX86Mem, void *
  * @param   cbWrite                 Number of bytes to write.
  */
 int PSPEmuIoMgrX86MemWrite(PSPIOMREGIONHANDLE hX86Mem, X86PADDR offX86Mem, const void *pvSrc, size_t cbWrite);
+
+
+/**
+ * Registers a new x86 address access tracing handler.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   PhysX86AddrStart        The x86 physical start address the trace handler should hit at.
+ * @param   PhysX86AddrEnd          The last x86 physical address the trace handler should hit at (inclusive).
+ * @param   cbAccess                The access width the handler should hit at, 0 for all access sizes,
+ *                                  1, 2 or 4 bytes otherwise.
+ * @param   fFlags                  Combination of PSPEMU_IOM_TRACE_F_XXX controlling when the trace handler should
+ *                                  hit.
+ * @param   pfnTrace                The handler to call.
+ * @param   pvUser                  Opaque user data to pass to the handler.
+ */
+int PSPEmuIoMgrX86TraceRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrStart, X86PADDR PhysX86AddrEnd,
+                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMX86TRACE pfnTrace, void *pvUser);
 
 
 /**

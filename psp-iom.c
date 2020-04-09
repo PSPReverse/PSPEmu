@@ -36,6 +36,82 @@ typedef struct PSPIOMINT *PPSPIOMINT;
 
 
 /**
+ * Trace handler type.
+ */
+typedef enum PSPIOMTRACETYPE
+{
+    /** Invalid type. */
+    PSPIOMTRACETYPE_INVALID = 0,
+    /** MMIO trace handler. */
+    PSPIOMTRACETYPE_MMIO,
+    /** SMN trace handler. */
+    PSPIOMTRACETYPE_SMN,
+    /** X86 trace handler. */
+    PSPIOMTRACETYPE_X86,
+    /** 32bit hack. */
+    PSPIOMTRACETYPE_32BIT_HACK = 0x7fffffff
+} PSPIOMTRACETYPE;
+/** Pointer to a trace handler type. */
+typedef PSPIOMTRACETYPE *PPSPIOMTRACETYPE;
+
+
+/**
+ * Trace handler record.
+ */
+typedef struct PSPIOMTRACEREC
+{
+    /** Pointer to the next record. */
+    struct PSPIOMTRACEREC           *pNext;
+    /** Access size. */
+    size_t                          cbAccess;
+    /** Flags given during registration. */
+    uint32_t                        fFlags;
+    /** Opaque user data to pass to the handler. */
+    void                            *pvUser;
+    /** Trace type. */
+    PSPIOMTRACETYPE                 enmType;
+    /** Type dependent data. */
+    union
+    {
+        /** MMIO trace. */
+        struct
+        {
+            /** The start MMIO address to hit at. */
+            PSPADDR                 PspAddrMmioStart;
+            /** The start MMIO address to stop hitting at. */
+            PSPADDR                 PspAddrMmioEnd;
+            /** The handler to call. */
+            PFNPSPIOMMMIOTRACE      pfnTrace;
+        } Mmio;
+        /** SMN trace. */
+        struct
+        {
+            /** The start SMN address to hit at. */
+            SMNADDR                 SmnAddrStart;
+            /** The start SMN address to stop hitting at. */
+            SMNADDR                 SmnAddrEnd;
+            /** The handler to call. */
+            PFNPSPIOMSMNTRACE       pfnTrace;
+        } Smn;
+        /** x86 trace. */
+        struct
+        {
+            /** The start x86 physical address to hit at. */
+            X86PADDR                PhysX86AddrStart;
+            /** The start x86 physical address to stop hitting at. */
+            X86PADDR                PhysX86AddrEnd;
+            /** The handler to call. */
+            PFNPSPIOMX86TRACE       pfnTrace;
+        } X86;
+    } u;
+} PSPIOMTRACEREC;
+/** Pointer to a trace handler record. */
+typedef PSPIOMTRACEREC *PPSPIOMTRACEREC;
+/** Pointer to a const trace handler record. */
+typedef const PSPIOMTRACEREC *PCPSPIOMTRACEREC;
+
+
+/**
  * A region type
  */
 typedef enum PSPIOMREGIONTYPE
@@ -259,6 +335,9 @@ typedef struct PSPIOMINT
     PFNPSPIOMX86MMIOWRITE       pfnX86UnassignedWrite;
     /** Opaque user data for the unassigned x86 read/write callbacks. */
     void                        *pvUserX86Unassigned;
+
+    /* Registered trace points. */
+    PPSPIOMTRACEREC             pTpHead;
 } PSPIOMINT;
 
 
@@ -312,6 +391,35 @@ static PPSPIOMREGIONHANDLEINT pspEmuIomSmnFindRegion(PPSPIOMINT pThis, SMNADDR S
             return pCur;
 
         pCur = pCur->pNext;
+    }
+
+    return NULL;
+}
+
+
+/**
+ * Returns the next trace point from the given start matching the given parameters.
+ *
+ * @returns Pointer to matching trace point or NULL if none exists.
+ * @param   pFirst                  The first trace pint record to check.
+ * @param   enmType                 Trace point should match the given type.
+ * @param   cbAccess                Access width, 1, 2 or 4 byte.
+ * @param   fFlagsRw                Read/Write flags matching the trace point.
+ * @param   fFlagsAp                Access point (before/after) flags matching the trace point.
+ */
+static PCPSPIOMTRACEREC pspEmuIomTpFindNext(PCPSPIOMTRACEREC pFirst, PSPIOMTRACETYPE enmType, size_t cbAccess,
+                                            uint32_t fFlagsRw, uint32_t fFlagsAp)
+{
+    while (pFirst)
+    {
+        if (   pFirst->enmType == enmType
+            && (   pFirst->cbAccess == cbAccess
+                || !pFirst->cbAccess) /* 0 matches all access widths. */
+            && (pFirst->fFlags & fFlagsRw) != 0
+            && (pFirst->fFlags & fFlagsAp) != 0)
+            return pFirst;
+
+        pFirst = pFirst->pNext;
     }
 
     return NULL;
@@ -389,12 +497,122 @@ static void pspEmuIomUnassignedRegionWrite(PPSPIOMINT pThis, PSPTRACEEVTORIGIN e
 }
 
 
+/**
+ * Calls all matching SMN trace points for the given access pattern.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager.
+ * @param   SmnAddr                 SMN address which got hit.
+ * @param   pRegion                 The region registered for this address if any, NULL if unassigned.
+ * @param   cbAccess                Access width.
+ * @param   pvVal                   The value for the access.
+ * @param   fFlagsRw                Read/Write flags matching the trace point.
+ * @param   fFlagsAp                Access point (before/after) flags matching the trace point.
+ */
+static void pspEmuIomSmnTpCall(PPSPIOMINT pThis, SMNADDR SmnAddr, PPSPIOMREGIONHANDLEINT pRegion, size_t cbAccess, const void *pvVal,
+                               uint32_t fFlagsRw, uint32_t fFlagsAp)
+{
+    PCPSPIOMTRACEREC pTp = pThis->pTpHead;
+    for (;;)
+    {
+        pTp = pspEmuIomTpFindNext(pTp, PSPIOMTRACETYPE_SMN, cbAccess, fFlagsRw, fFlagsAp);
+        if (!pTp)
+            break;
+        if (   SmnAddr >= pTp->u.Smn.SmnAddrStart
+            && SmnAddr <= pTp->u.Smn.SmnAddrEnd)
+            pTp->u.Smn.pfnTrace(SmnAddr,
+                                pRegion ? NULL : NULL, /** @todo Description */
+                                pRegion ? SmnAddr - pRegion->u.Smn.SmnAddrStart : 0,
+                                cbAccess,
+                                pvVal,
+                                fFlagsRw | fFlagsAp,
+                                pTp->pvUser);
+
+        pTp = pTp->pNext;
+    }
+}
+
+
+/**
+ * Calls all matching MMIO trace points for the given access pattern.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager.
+ * @param   PspAddrMmio             MMIO address which got hit.
+ * @param   pRegion                 The region registered for this address if any, NULL if unassigned.
+ * @param   cbAccess                Access width.
+ * @param   pvVal                   The value for the access.
+ * @param   fFlagsRw                Read/Write flags matching the trace point.
+ * @param   fFlagsAp                Access point (before/after) flags matching the trace point.
+ */
+static void pspEmuIomMmioTpCall(PPSPIOMINT pThis, PSPADDR PspAddrMmio, PPSPIOMREGIONHANDLEINT pRegion, size_t cbAccess, const void *pvVal,
+                                uint32_t fFlagsRw, uint32_t fFlagsAp)
+{
+    PCPSPIOMTRACEREC pTp = pThis->pTpHead;
+    for (;;)
+    {
+        pTp = pspEmuIomTpFindNext(pTp, PSPIOMTRACETYPE_MMIO, cbAccess, fFlagsRw, fFlagsAp);
+        if (!pTp)
+            break;
+        if (   PspAddrMmio >= pTp->u.Mmio.PspAddrMmioStart
+            && PspAddrMmio <= pTp->u.Mmio.PspAddrMmioEnd)
+            pTp->u.Mmio.pfnTrace(PspAddrMmio,
+                                 pRegion ? NULL : NULL, /** @todo Description */
+                                 pRegion ? PspAddrMmio - pRegion->u.Mmio.PspAddrMmioStart : 0,
+                                 cbAccess,
+                                 pvVal,
+                                 fFlagsRw | fFlagsAp,
+                                 pTp->pvUser);
+
+        pTp = pTp->pNext;
+    }
+}
+
+
+/**
+ * Calls all matching x86 trace points for the given access pattern.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager.
+ * @param   PhysX86Addr             Physical X86 address which got hit.
+ * @param   pRegion                 The region registered for this address if any, NULL if unassigned.
+ * @param   cbAccess                Access width.
+ * @param   pvVal                   The value for the access.
+ * @param   fFlagsRw                Read/Write flags matching the trace point.
+ * @param   fFlagsAp                Access point (before/after) flags matching the trace point.
+ */
+static void pspEmuIomX86TpCall(PPSPIOMINT pThis, X86PADDR PhysX86Addr, PPSPIOMREGIONHANDLEINT pRegion, size_t cbAccess, const void *pvVal,
+                               uint32_t fFlagsRw, uint32_t fFlagsAp)
+{
+    PCPSPIOMTRACEREC pTp = pThis->pTpHead;
+    for (;;)
+    {
+        pTp = pspEmuIomTpFindNext(pTp, PSPIOMTRACETYPE_X86, cbAccess, fFlagsRw, fFlagsAp);
+        if (!pTp)
+            break;
+        if (   PhysX86Addr >= pTp->u.X86.PhysX86AddrStart
+            && PhysX86Addr <= pTp->u.X86.PhysX86AddrEnd)
+            pTp->u.X86.pfnTrace(PhysX86Addr,
+                                pRegion ? NULL : NULL, /** @todo Description */
+                                pRegion ? PhysX86Addr - pRegion->u.X86.PhysX86AddrStart : 0,
+                                cbAccess,
+                                pvVal,
+                                fFlagsRw | fFlagsAp,
+                                pTp->pvUser);
+
+        pTp = pTp->pNext;
+    }
+}
+
+
 static void pspEmuIomSmnSlotsRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
 
     SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
+
+    pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->u.Smn.pfnRead)
@@ -406,6 +624,8 @@ static void pspEmuIomSmnSlotsRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead
         pThis->pfnSmnUnassignedRead(SmnAddr, cbRead, pvDst, pThis->pvUserSmnUnassigned);
     else
         pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvDst, cbRead);
+
+    pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
 
@@ -415,6 +635,8 @@ static void pspEmuIomSmnSlotsWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWri
 
     SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
+
+    pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->u.Smn.pfnWrite)
@@ -426,6 +648,8 @@ static void pspEmuIomSmnSlotsWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWri
         pThis->pfnSmnUnassignedWrite(SmnAddr, cbWrite, pvSrc, pThis->pvUserSmnUnassigned);
     else
         pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvSrc, cbWrite);
+
+    pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
 
@@ -435,6 +659,8 @@ static void pspEmuIomMmioRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
 
     uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
+
+    pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->u.Mmio.pfnRead)
@@ -446,6 +672,8 @@ static void pspEmuIomMmioRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
         pThis->pfnMmioUnassignedRead(uPspAddr, cbRead, pvDst, pThis->pvUserMmioUnassigned);
     else
         pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvDst, cbRead);
+
+    pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
 
@@ -455,6 +683,8 @@ static void pspEmuIomMmioWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
 
     uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
+
+    pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->u.Mmio.pfnWrite)
@@ -466,6 +696,8 @@ static void pspEmuIomMmioWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
         pThis->pfnMmioUnassignedWrite(uPspAddr, cbWrite, pvSrc, pThis->pvUserMmioUnassigned);
     else
         pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvSrc, cbWrite);
+
+    pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
 
@@ -621,6 +853,8 @@ static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, 
 
     X86PADDR PhysX86Addr = pX86MapSlot->PhysX86Base | uPspAddr;
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
+
+    pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MMIO)
@@ -639,6 +873,8 @@ static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, 
         pThis->pfnX86UnassignedRead(PhysX86Addr, cbRead, pvDst, pThis->pvUserX86Unassigned);
     else
         pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvDst, cbRead);
+
+    pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
 
@@ -649,6 +885,8 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
 
     X86PADDR PhysX86Addr = pX86MapSlot->PhysX86Base | uPspAddr;
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
+
+    pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MMIO)
@@ -667,6 +905,8 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
         pThis->pfnX86UnassignedWrite(PhysX86Addr, cbWrite, pvSrc, pThis->pvUserX86Unassigned);
     else
         pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvSrc, cbWrite);
+
+    pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
 
@@ -1041,6 +1281,48 @@ static void pspEmuIoMgrX86MapCtrl3Write(PSPADDR offMmio, size_t cbWrite, const v
 }
 
 
+/**
+ * Creates and links a new trace point with the given config.
+ *
+ * @returns Status code.
+ * @param   pThis                   I/O manager instance.
+ * @param   enmType                 The trace point type.
+ * @param   cbAccess                Access width.
+ * @param   fFlags                  Flags controlling the trace point behavior.
+ * @param   pvUser                  Opaque user data to pass to the handler.
+ * @param   ppTp                    Where to store the pointer to the created trace point on success.
+ */
+static int pspEmuIomTpCreate(PPSPIOMINT pThis, PSPIOMTRACETYPE enmType, size_t cbAccess, uint32_t fFlags,
+                             void *pvUser, PPSPIOMTRACEREC *ppTp)
+{
+    if (cbAccess != 0 && cbAccess != 1 && cbAccess != 2 && cbAccess != 4)
+        return -1;
+    if (fFlags & ~PSPEMU_IOM_TRACE_F_VALID_MASK)
+        return -1;
+    if (!(fFlags & (PSPEMU_IOM_TRACE_F_READ | PSPEMU_IOM_TRACE_F_WRITE)))
+        return -1;
+    if (!(fFlags & (PSPEMU_IOM_TRACE_F_BEFORE | PSPEMU_IOM_TRACE_F_AFTER)))
+        return -1;
+
+    int rc = 0;
+    PPSPIOMTRACEREC pTp = (PPSPIOMTRACEREC)calloc(1, sizeof(*pTp));
+    if (pTp)
+    {
+        pTp->cbAccess = cbAccess;
+        pTp->fFlags   = fFlags;
+        pTp->pvUser   = pvUser;
+        pTp->enmType  = enmType;
+        pTp->pNext = pThis->pTpHead;
+        pThis->pTpHead = pTp;
+        *ppTp = pTp;
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
 static int pspEmuIomMmioRegionRegister(PPSPIOMINT pThis, PSPADDR PspAddrMmioStart, size_t cbMmio,
                                        PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser,
                                        PPSPIOMREGIONHANDLEINT *ppMmio)
@@ -1214,6 +1496,7 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
         pThis->pfnX86UnassignedRead   = NULL;
         pThis->pfnX86UnassignedWrite  = NULL;
         pThis->pvUserX86Unassigned    = NULL;
+        pThis->pTpHead                = NULL;
 
         /* Register the MMIO region, where the SMN devices get mapped to (32 slots each 1MiB wide). */
         rc = PSPEmuCoreMmioRegister(hPspCore, 0x01000000, 32 * _1M,
@@ -1377,6 +1660,27 @@ int PSPEmuIoMgrMmioRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, size_t cbMm
 }
 
 
+int PSPEmuIoMgrMmioTraceRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, PSPADDR PspAddrMmioEnd,
+                                 size_t cbAccess, uint32_t fFlags, PFNPSPIOMMMIOTRACE pfnTrace, void *pvUser)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    if (!pfnTrace)
+        return -1;
+
+    PPSPIOMTRACEREC pTp = NULL;
+    int rc = pspEmuIomTpCreate(pThis, PSPIOMTRACETYPE_MMIO, cbAccess, fFlags, pvUser, &pTp);
+    if (!rc)
+    {
+        pTp->u.Mmio.PspAddrMmioStart = PspAddrMmioStart;
+        pTp->u.Mmio.PspAddrMmioEnd   = PspAddrMmioEnd;
+        pTp->u.Mmio.pfnTrace         = pfnTrace;
+    }
+
+    return rc;
+}
+
+
 int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
                            PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser,
                            PPSPIOMREGIONHANDLE phSmn)
@@ -1434,6 +1738,27 @@ int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
     }
     else
         rc = -1;
+
+    return rc;
+}
+
+
+int PSPEmuIoMgrSmnTraceRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, SMNADDR SmnAddrEnd,
+                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMSMNTRACE pfnTrace, void *pvUser)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    if (!pfnTrace)
+        return -1;
+
+    PPSPIOMTRACEREC pTp = NULL;
+    int rc = pspEmuIomTpCreate(pThis, PSPIOMTRACETYPE_SMN, cbAccess, fFlags, pvUser, &pTp);
+    if (!rc)
+    {
+        pTp->u.Smn.SmnAddrStart = SmnAddrStart;
+        pTp->u.Smn.SmnAddrStart = SmnAddrEnd;
+        pTp->u.Smn.pfnTrace     = pfnTrace;
+    }
 
     return rc;
 }
@@ -1539,6 +1864,27 @@ int PSPEmuIoMgrX86MemWrite(PSPIOMREGIONHANDLE hX86Mem, X86PADDR offX86Mem, const
         rc = pspEmuIoMgrX86MemWriteWorker(pX86Region->pIoMgr, pX86Region, offX86Mem, pvSrc, cbWrite);
     else
         rc = -1;
+
+    return rc;
+}
+
+
+int PSPEmuIoMgrX86TraceRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrStart, X86PADDR PhysX86AddrEnd,
+                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMX86TRACE pfnTrace, void *pvUser)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    if (!pfnTrace)
+        return -1;
+
+    PPSPIOMTRACEREC pTp = NULL;
+    int rc = pspEmuIomTpCreate(pThis, PSPIOMTRACETYPE_X86, cbAccess, fFlags, pvUser, &pTp);
+    if (!rc)
+    {
+        pTp->u.X86.PhysX86AddrStart = PhysX86AddrStart;
+        pTp->u.X86.PhysX86AddrEnd   = PhysX86AddrEnd;
+        pTp->u.X86.pfnTrace         = pfnTrace;
+    }
 
     return rc;
 }
