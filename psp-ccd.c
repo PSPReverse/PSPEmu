@@ -136,6 +136,69 @@ static PCPSPDEVREG g_apDevs[] =
 
 
 
+static void pspEmuCcdProxyPspMmioUnassignedRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
+{
+    PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    int rc = PSPProxyCtxPspMmioRead(hPspProxyCtx, offMmio, cbRead, pvVal);
+    if (rc)
+        fprintf(stderr, "pspEmuProxyPspMmioUnassignedRead: Failed with %d\n", rc);
+}
+
+
+static void pspEmuCcdProxyPspMmioUnassignedWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
+{
+    PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    int rc = PSPProxyCtxPspMmioWrite(hPspProxyCtx, offMmio, cbWrite, pvVal);
+    if (rc)
+        fprintf(stderr, "pspEmuProxyPspMmioUnassignedWrite: Failed with %d\n", rc);
+}
+
+
+static void pspEmuCcdProxyPspSmnUnassignedRead(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    int rc = PSPProxyCtxPspSmnRead(hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbRead, pvVal);
+    if (rc)
+        fprintf(stderr, "pspEmuProxyPspSmnUnassignedRead: Failed with %d\n", rc);
+}
+
+
+static void pspEmuCcdProxyPspSmnUnassignedWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
+{
+    PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    int rc = PSPProxyCtxPspSmnWrite(hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbWrite, pvVal);
+    if (rc)
+        fprintf(stderr, "pspEmuProxyPspSmnUnassignedWrite: Failed with %d\n", rc);
+}
+
+
+static void pspEmuCcdProxyX86UnassignedRead(X86PADDR offX86Phys, size_t cbRead, void *pvVal, void *pvUser)
+{
+    PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    int rc = PSPProxyCtxPspX86MmioRead(hPspProxyCtx, offX86Phys, cbRead, pvVal);
+    if (rc)
+        fprintf(stderr, "pspEmuProxyPspX86UnassignedRead: Failed with %d\n", rc);
+}
+
+
+static void pspEmuCcdProxyX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite, const void *pvVal, void *pvUser)
+{
+    PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    int rc = PSPProxyCtxPspX86MmioWrite(hPspProxyCtx, offX86Phys, cbWrite, pvVal);
+    if (rc)
+        fprintf(stderr, "pspEmuProxyPspX86UnassignedWrite: Failed with %d\n", rc);
+}
+
+
+/**
+ * CCD ID register read callback.
+ */
 static void pspEmuCcdIdRead(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
@@ -399,6 +462,40 @@ static int pspEmuCcdMmioSmnInit(PPSPCCDINT pThis)
 
 
 /**
+ * Initializes the PSP proxy for the CCD if configured.
+ *
+ * @returns Status code.
+ * @param   pThis                   The CCD instance.
+ * @param   pCfg                    The global config.
+ */
+static int pspEmuCcdProxyInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
+{
+    int rc = 0;
+
+    if (pCfg->pszPspProxyAddr)
+    {
+        printf("PSP proxy: Connecting to %s\n", pCfg->pszPspProxyAddr);
+        rc = PSPProxyCtxCreate(&pThis->hPspProxyCtx, pCfg->pszPspProxyAddr);
+        if (!rc)
+        {
+            printf("PSP proxy: Connected to %s\n", pCfg->pszPspProxyAddr);
+
+            /* Register the unassigned handlers for the various regions. */
+            rc = PSPEmuIoMgrMmioUnassignedSet(pThis->hIoMgr, pspEmuCcdProxyPspMmioUnassignedRead, pspEmuCcdProxyPspMmioUnassignedWrite, pThis->hPspProxyCtx);
+            if (!rc)
+                rc = PSPEmuIoMgrSmnUnassignedSet(pThis->hIoMgr, pspEmuCcdProxyPspSmnUnassignedRead, pspEmuCcdProxyPspSmnUnassignedWrite, pThis->hPspProxyCtx);
+            if (!rc)
+                rc = PSPEmuIoMgrX86UnassignedSet(pThis->hIoMgr, pspEmuCcdProxyX86UnassignedRead, pspEmuCcdProxyX86UnassignedWrite, pThis->hPspProxyCtx);
+        }
+        else
+            fprintf(stderr, "Connecting to the PSP proxy failed with %d\n", rc);
+    }
+
+    return rc;
+}
+
+
+/**
  * Initializes the execution environment for the CCD.
  *
  * @returns Status code.
@@ -527,6 +624,8 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                         rc = pspEmuCcdMemoryInit(pThis, pCfg);
                         if (!rc)
                             rc = pspEmuCcdMmioSmnInit(pThis);
+                        if (!rc)
+                            rc = pspEmuCcdProxyInit(pThis, pCfg);
                         if (!rc)
                             rc = pspEmuCcdExecEnvInit(pThis, pCfg);
                         if (!rc)
