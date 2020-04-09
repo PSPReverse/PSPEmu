@@ -105,6 +105,8 @@ typedef struct PSPCOREINT
 {
     /** The unicorn engine pointer. */
     uc_engine               *pUcEngine;
+    /** The initial CPU context state used for resetting. */
+    uc_context              *pUcCtxReset;
     /** The svc interrupt hook. */
     uc_hook                 pUcHookSvc;
     /** The SRAM region. */
@@ -560,8 +562,20 @@ int PSPEmuCoreCreate(PPSPCORE phCore, size_t cbSram)
                     err = uc_hook_add(pThis->pUcEngine, &pThis->pUcHookSvc, UC_HOOK_INTR, (void *)(uintptr_t)pspEmuCoreSvcWrapper, pThis, 1, 0);
                     if (!err)
                     {
-                        *phCore = pThis;
-                        return 0;
+                        /* Create the initial CPU context used for resetting later on. */
+                        err = uc_context_alloc(pThis->pUcEngine, &pThis->pUcCtxReset);
+                        if (!err)
+                        {
+                            err = uc_context_save(pThis->pUcEngine, pThis->pUcCtxReset);
+                            if (!err)
+                            {
+                                *phCore = pThis;
+                                return 0;
+                            }
+
+                            uc_free(pThis->pUcCtxReset);
+                            pThis->pUcCtxReset = NULL;
+                        }
                     }
                 }
 
@@ -615,6 +629,7 @@ void PSPEmuCoreDestroy(PSPCORE hCore)
     }
 
     pThis->pMmioRegionsHead = NULL;
+    uc_free(pThis->pUcCtxReset);
     uc_close(pThis->pUcEngine);
     free(pThis->pvSram);
     free(pThis);
@@ -878,6 +893,14 @@ int PSPEmuCoreExecStop(PSPCORE hCore)
 
     pThis->fExecStop = true;
     int rcUc = uc_emu_stop(pThis->pUcEngine);
+    return pspEmuCoreErrConvertFromUcErr(rcUc);
+}
+
+int PSPEmuCoreExecReset(PSPCORE hCore)
+{
+    PPSPCOREINT pThis = hCore;
+
+    int rcUc = uc_context_restore(pThis->pUcEngine, pThis->pUcCtxReset);
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 

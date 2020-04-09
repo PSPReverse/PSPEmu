@@ -303,6 +303,17 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec);
 int PSPEmuCoreExecStop(PSPCORE hCore);
 
 /**
+ * Performs a CPU state reset.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ *
+ * @note This doesn't undo any mappings, trace registrations, etc. It merely
+ *       resets the register state and PC.
+ */
+int PSPEmuCoreExecReset(PSPCORE hCore);
+
+/**
  * Registers a new trace callback triggered whenever an instruction in the given range is executed.
  *
  * @returns Status code.
