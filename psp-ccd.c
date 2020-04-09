@@ -56,6 +56,8 @@ typedef struct PSPCCDINT
     PSPDBG                      hDbg;
     /** The trace log handle. */
     PSPTRACE                    hTrace;
+    /** The SMN region handle for the ID register. */
+    PSPIOMREGIONHANDLE          hSmnRegId;
     /** Head of the instantiated devices. */
     PPSPDEV                     pDevsHead;
     /** The socket ID. */
@@ -132,6 +134,28 @@ static PCPSPDEVREG g_apDevs[] =
     &g_DevRegTest,
 };
 
+
+
+static void pspEmuCcdIdRead(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
+
+    /*
+     * This readonly register contains information about the system and environment the accessing
+     * code is running on:
+     *
+     *    [Bits]            [Purpose]
+     *     0-1          The physical die ID (CCD)
+     *     2-4          Some enumeration it seems, defines maximum values supported by the system (0x4 for EPYC)
+     *      5           Socket ID (0 or 1)
+     */
+    uint32_t u32Val = 0;
+    u32Val |= pThis->idCcd & 0x3;
+    u32Val |= pThis->idSocket == 0 ? 0 : BIT(5);
+    u32Val |= 0x4 << 2; /** @todo Make configurable */
+
+    *(uint32_t *)pvVal = u32Val;
+}
 
 
 /**
@@ -361,6 +385,20 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 
 
 /**
+ * Registers all MMIO/SMN register handlers for the given CCD.
+ *
+ * @returns Status code.
+ * @param   pThis                   The CCD instance.
+ */
+static int pspEmuCcdMmioSmnInit(PPSPCCDINT pThis)
+{
+    return PSPEmuIoMgrSmnRegister(pThis->hIoMgr, 0x5a870, 4,
+                                  pspEmuCcdIdRead, NULL, pThis,
+                                  &pThis->hSmnRegId);
+}
+
+
+/**
  * Initializes the execution environment for the CCD.
  *
  * @returns Status code.
@@ -487,6 +525,8 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                     {
                         /* Initialize the memory content for the PSP. */
                         rc = pspEmuCcdMemoryInit(pThis, pCfg);
+                        if (!rc)
+                            rc = pspEmuCcdMmioSmnInit(pThis);
                         if (!rc)
                             rc = pspEmuCcdExecEnvInit(pThis, pCfg);
                         if (!rc)

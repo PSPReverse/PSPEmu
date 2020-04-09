@@ -104,6 +104,8 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hSmn0x5a870;
     /** 0x501ec register handle. */
     PSPIOMREGIONHANDLE          hSmn0x501ec;
+    /** 0x5b304 register handle. */
+    PSPIOMREGIONHANDLE          hSmn0x5b304;
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
 typedef PSPDEVUNK *PPSPDEVUNK;
@@ -222,20 +224,6 @@ static void pspDevUnkSmnRead0x51050(SMNADDR offSmn, size_t cbRead, void *pvVal, 
 static void pspDevUnkSmnRead0x5105c(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
 {
     *(uint32_t *)pvVal = 0xc001c001; /* Magic to make ABL1 go further. */
-}
-
-static void pspDevUnkSmnRead0x5a078(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
-{
-    /*
-     * This readonly register contains information about the system and environment the accessing
-     * code is running on:
-     *
-     *    [Bits]            [Purpose]
-     *     0-1          The physical die ID (CCD)
-     *     2-4          Some enumeration it seems, defines maximum values supported by the system (0x4 for EPYC)
-     *      5           Socket ID (0 or 1)
-     */
-    *(uint32_t *)pvVal = 0x10; /* Physical die and socket ID 0 for now (master PSP). */
 }
 
 static void pspDevUnkSmnRead0x5a86c(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
@@ -385,10 +373,6 @@ static int pspDevUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5105c, 4,
                                     pspDevUnkSmnRead0x5105c, NULL, pThis,
                                     &pThis->hSmn0x5105c);
-    if (!rc)
-        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a078, 4,
-                                    pspDevUnkSmnRead0x5a078, NULL, pThis,
-                                    &pThis->hSmn0x5a078);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a86c, 4,
                                     pspDevUnkSmnRead0x5a86c, NULL, pThis,
