@@ -1756,7 +1756,7 @@ int PSPEmuIoMgrSmnTraceRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, SMNADDR Smn
     if (!rc)
     {
         pTp->u.Smn.SmnAddrStart = SmnAddrStart;
-        pTp->u.Smn.SmnAddrStart = SmnAddrEnd;
+        pTp->u.Smn.SmnAddrEnd   = SmnAddrEnd;
         pTp->u.Smn.pfnTrace     = pfnTrace;
     }
 
