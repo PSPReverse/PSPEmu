@@ -237,6 +237,18 @@ static int pspDbgGdbStubIfTgtStop(GDBSTUBCTX hGdbStubCtx, void *pvUser)
 
 
 /**
+ * @copydoc{GDBSTUBIF,pfnTgtKill}
+ */
+static int pspDbgGdbStubIfTgtKill(GDBSTUBCTX hGdbStubCtx, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    exit(1);
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
  * @copydoc{GDBSTUBIF,pfnTgtStep}
  */
 static int pspDbgGdbStubIfTgtStep(GDBSTUBCTX hGdbStubCtx, void *pvUser)
@@ -449,7 +461,7 @@ static const GDBSTUBIF g_PspDbgGdbStubIf =
     /** pfnTgtRestart */
     NULL,
     /** pfnTgtKill */
-    NULL,
+    pspDbgGdbStubIfTgtKill,
     /** pfnTgtStep */
     pspDbgGdbStubIfTgtStep,
     /** pfnTgtCont */
