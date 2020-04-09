@@ -29,6 +29,7 @@
 
 #include <psp-cfg.h>
 #include <psp-core.h>
+#include <psp-iom.h>
 
 
 /** Opaque PSP CCD handle. */
@@ -66,6 +67,16 @@ void PSPEmuCcdDestroy(PSPCCD hCcd);
  * @param   phPspCore           Where to store the handle to the PSP core on success.
  */
 int PSPEmuCcdQueryCore(PSPCCD hCcd, PPSPCORE phPspCore);
+
+
+/**
+ * Queries the I/O manager handle from the given CCD.
+ *
+ * @returns Status code.
+ * @param   hCcd                The CCD handle.
+ * @param   phIoMgr             Where to store the handle to the I/O manager on success.
+ */
+int PSPEmuCcdQueryIoMgr(PSPCCD hCcd, PPSPIOM phIoMgr);
 
 
 /**

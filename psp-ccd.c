@@ -692,6 +692,15 @@ int PSPEmuCcdQueryCore(PSPCCD hCcd, PPSPCORE phPspCore)
 }
 
 
+int PSPEmuCcdQueryIoMgr(PSPCCD hCcd, PPSPIOM phIoMgr)
+{
+    PPSPCCDINT pThis = hCcd;
+
+    *phIoMgr = pThis->hIoMgr;
+    return 0;
+}
+
+
 int PSPEmuCcdReset(PSPCCD hCcd)
 {
     PPSPCCDINT pThis = hCcd;
