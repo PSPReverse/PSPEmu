@@ -342,6 +342,8 @@ static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pv
                                      tsCmdSec, tsCmdNs++, pThis->idPacket, offSmn & 0xff);
         }
 
+        pThis->offAccLast = offSmn + cbRead;
+
         uint8_t *pbFlash = (uint8_t *)pThis->pDev->pCfg->pvFlashRom + offSmn;
         while (cbRead)
         {
@@ -350,8 +352,6 @@ static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pv
             pbFlash++;
             cbRead--;
         }
-
-        pThis->offAccLast = offSmn + cbRead;
     }
 }
 
