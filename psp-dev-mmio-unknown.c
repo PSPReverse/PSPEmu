@@ -40,6 +40,8 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hMmio0x0301003c;
     /** 0x030101c0 register handle for Zen2. */
     PSPIOMREGIONHANDLE          hMmio0x030101c0;
+    /** 0x0320004c register handle. */
+    PSPIOMREGIONHANDLE          hMmio0x0320004c;
 
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
@@ -72,7 +74,12 @@ static void pspDevUnkMmioRead0x030101c0(PSPADDR offMmio, size_t cbRead, void *pv
     PPSPDEVUNK pThis = (PPSPDEVUNK)pvUser;
     bool fPspDbgMode = pThis->pDev->pCfg->fPspDbgMode;
 
-    *(uint32_t *)pvVal = fPspDbgMode ? 0x80002 : 0; /* Disables signature verification in Zen2 off chip BLs. */
+    *(uint32_t *)pvVal = fPspDbgMode ? 0x80102 : 0x100; /* Disables signature verification in Zen2 off chip BLs. */
+}
+
+static void pspDevUnkMmioRead0x0320004c(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0xbc090000;
 }
 
 
@@ -98,6 +105,11 @@ static int pspDevMmioUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x030101c0, 4,
                                      pspDevUnkMmioRead0x030101c0, NULL, pThis,
                                      &pThis->hMmio0x030101c0);
+
+    if (!rc)
+        rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x0320004c, 4,
+                                     pspDevUnkMmioRead0x0320004c, NULL, pThis,
+                                     &pThis->hMmio0x0320004c);
 
 #if 0
     if (!rc)
