@@ -34,7 +34,6 @@
 #include <psp-flash.h>
 
 
-static bool g_fNewStyle = false;
 static uint32_t g_idSocketSingle = UINT32_MAX;
 static uint32_t g_idCcdSingle = UINT32_MAX;
 
@@ -514,9 +513,6 @@ int main(int argc, char *argv[])
     int rc = pspEmuCfgParse(argc, argv, &Cfg);
     if (!rc)
     {
-        if (!g_fNewStyle)
-            return pspEmuMainLegacy(&Cfg);
-
         PSPCCD hCcd = NULL;
         if (   g_idSocketSingle != UINT32_MAX
             && g_idCcdSingle != UINT32_MAX)
