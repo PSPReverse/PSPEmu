@@ -69,7 +69,6 @@ static struct option g_aOptions[] =
     {"emulate-single-socket-id",     required_argument, 0, 'O'},
     {"emulate-single-die-id",        required_argument, 0, 'D'},
     {"emulate-devices",              required_argument, 0, 'E'},
-    {"new-style",                    no_argument,       0, 'N'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -383,9 +382,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'C':
                 pCfg->cCcdsPerSocket = strtoul(optarg, NULL, 10);
-                break;
-            case 'N':
-                g_fNewStyle = true;
                 break;
             case 'O':
                 g_idSocketSingle = strtoul(optarg, NULL, 10);
