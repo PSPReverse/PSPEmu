@@ -166,6 +166,18 @@ static PSPCORE pspEmuDbgGetPspCoreFromSelectedCcd(PPSPDBGINT pThis)
 
 
 /**
+ * Returns the PSP CCD instance from the currently selected CCD.
+ *
+ * @returns Handle to the PSP core.
+ * @param   pThis                   The PSP debugger instance.
+ */
+static PSPCCD pspEmuDbgGetCcdFromSelectedCcd(PPSPDBGINT pThis)
+{
+    return pThis->ahCcds[pThis->idxCcd];
+}
+
+
+/**
  * Callback when a tracepoint is hit.
  *
  * @returns Nothing.
@@ -187,6 +199,35 @@ static void pspDbgTpBpHit(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void
         PSPEmuCoreExecStop(hCore);
     }
 }
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdRestart(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+
+    /** @todo Option to reset all CCDs when support for multiple CCds was added. */
+    int rc = PSPEmuCcdReset(hCcd);
+    if (!rc)
+        pHlp->pfnPrintf(pHlp, "Reset of CCD %u successful\n", pThis->idxCcd);
+    else
+        pHlp->pfnPrintf(pHlp, "Reset of CCD %u failed with %d\n", pThis->idxCcd, rc);
+    return pspEmuDbgErrConvertToGdbStubErr(rc);
+}
+
+
+/**
+ * Custom commands descriptors.
+ */
+static const GDBSTUBCMD g_aGdbCmds[] =
+{
+    { "restart", "Restarts the whole emulation",        gdbStubCmdRestart },
+    { "reset",   "Restarts the whole emulation",        gdbStubCmdRestart }, /* Alias for restart */
+    { NULL,      NULL,                                  NULL              }
+};
 
 
 /**
@@ -449,7 +490,7 @@ static const GDBSTUBIF g_PspDbgGdbStubIf =
     /** paRegs */
     &g_apszPspDbgGdbStubRegs[0],
     /** paCmds */
-    NULL,
+    &g_aGdbCmds[0],
     /** pfnMemAlloc */
     pspDbgGdbStubIfMemAlloc,
     /** pfnMemFree */
