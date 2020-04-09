@@ -202,6 +202,58 @@ static void pspDbgTpBpHit(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void
 
 
 /**
+ * Stops the emulation if a I/O trace point is hit.
+ *
+ * @returns nothing.
+ * @param   pThis                   The PSP debugger instance.
+ */
+static void pspDbgIoTpHit(PPSPDBGINT pThis)
+{
+    PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
+
+    /* Stop the emulation if not in single stepping mode. */
+    if (!pThis->fSingleStep)
+    {
+        pThis->fCoreRunning = false;
+        PSPEmuCoreExecStop(hPspCore);
+    }
+}
+
+
+/**
+ * @copydoc{FNPSPIOMSMNTRACE}
+ */
+static void pspDbgIoSmnTpHit(SMNADDR offSmnAbs, const char *pszDevId, SMNADDR offSmnDev, size_t cbAccess,
+                             const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    pspDbgIoTpHit(pThis);
+}
+
+
+/**
+ * @copydoc{FNPSPIOMMMIOTRACE}
+ */
+static void pspDbgIoMmioTpHit(PSPADDR offMmioAbs, const char *pszDevId, PSPADDR offMmioDev, size_t cbAccess,
+                              const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    pspDbgIoTpHit(pThis);
+}
+
+
+/**
+ * @copydoc{FNPSPIOMX86TRACE}
+ */
+static void pspDbgIoX86TpHit(X86PADDR offX86Abs, const char *pszDevId, X86PADDR offX86Dev, size_t cbAccess,
+                             const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    pspDbgIoTpHit(pThis);
+}
+
+
+/**
  * @copydoc{GDBSTUBCMD,pfnCmd}
  */
 static int gdbStubCmdRestart(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
@@ -220,14 +272,136 @@ static int gdbStubCmdRestart(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const
 
 
 /**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdIoBp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+    PSPIOM hIoMgr = NULL;
+
+    int rc = PSPEmuCcdQueryIoMgr(hCcd, &hIoMgr);
+    if (rc)
+        return pspEmuDbgErrConvertToGdbStubErr(rc);
+
+    /* Parse all arguments. */
+    int rcGdbStub = GDBSTUB_INF_SUCCESS;
+    const char *pszAddrType = pszArgs;
+    const char *pszAddr     = pszArgs ? strchr(pszAddrType, ' ') : NULL;
+    const char *pszSz       = pszAddr ? strchr(pszAddr + 1, ' ') : NULL;
+    const char *pszRw       = pszSz   ? strchr(pszSz   + 1, ' ') : NULL;
+    const char *pszTime     = pszRw   ? strchr(pszRw   + 1, ' ') : NULL;
+
+    if (   pszAddrType
+        && pszAddr
+        && pszSz
+        && pszRw
+        && pszTime)
+    {
+        /* Get past the space. */
+        pszAddr++;
+        pszSz++;
+        pszRw++;
+        pszTime++;
+
+        char *pszAddrEnd = NULL;
+        uint64_t u64Addr = strtoull(pszAddr, &pszAddrEnd, 0 /*base*/);
+        if (   pszAddrEnd != pszAddr
+            && *pszAddrEnd == ' ')
+        {
+            if (   pszSz[1] == ' '
+                && (   pszSz[0] == '0'
+                    || pszSz[0] == '1'
+                    || pszSz[0] == '2'
+                    || pszSz[0] == '4'))
+            {
+                size_t cbAccess = (size_t)(pszSz[0] - '0');
+
+                if (   (pszRw[0] == 'r' && pszRw[1] == ' ')
+                    || (pszRw[0] == 'w' && pszRw[1] == ' ')
+                    || (pszRw[0] == 'r' && pszRw[1] == 'w' && pszRw[2] == ' '))
+                {
+                    uint32_t fFlags = 0;
+
+                    if (pszRw[0] == 'r')
+                        fFlags |= PSPEMU_IOM_TRACE_F_READ;
+                    if (pszRw[0] == 'w' || pszRw[1] == 'w')
+                        fFlags |= PSPEMU_IOM_TRACE_F_WRITE;
+
+                    if (!strcmp(pszTime, "before"))
+                        fFlags |= PSPEMU_IOM_TRACE_F_BEFORE;
+                    else if (!strcmp(pszTime, "after"))
+                        fFlags |= PSPEMU_IOM_TRACE_F_AFTER;
+                    else
+                        rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+
+                    if (rcGdbStub == GDBSTUB_INF_SUCCESS)
+                    {
+                        if (pszAddrType[0] == 's' && pszAddrType[1] == 'm' && pszAddrType[2] == 'n' && pszAddrType[3] == ' ')
+                        {
+                            int rc = PSPEmuIoMgrSmnTraceRegister(hIoMgr, (SMNADDR)u64Addr, (SMNADDR)u64Addr, cbAccess,
+                                                                 fFlags, pspDbgIoSmnTpHit, pThis);
+                            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+                        }
+                        else if (pszAddrType[0] == 'm' && pszAddrType[1] == 'm' && pszAddrType[2] == 'i' && pszAddrType[3] == 'o' && pszAddrType[4] == ' ')
+                        {
+                            int rc = PSPEmuIoMgrMmioTraceRegister(hIoMgr, (PSPADDR)u64Addr, (PSPADDR)u64Addr, cbAccess,
+                                                                  fFlags, pspDbgIoMmioTpHit, pThis);
+                            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+                        }
+                        else if (pszAddrType[0] == 'x' && pszAddrType[1] == '8' && pszAddrType[2] == '6' && pszAddrType[3] == ' ')
+                        {
+                            int rc = PSPEmuIoMgrX86TraceRegister(hIoMgr, (X86PADDR)u64Addr, (X86PADDR)u64Addr, cbAccess,
+                                                                 fFlags, pspDbgIoX86TpHit, pThis);
+                            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+                        }
+                        else
+                            rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+                    }
+                }
+                else
+                    rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+            }
+            else
+                rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+        }
+        else
+            rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+    }
+    else
+        rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+
+    return rcGdbStub;
+}
+
+
+static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser);
+
+/**
  * Custom commands descriptors.
  */
 static const GDBSTUBCMD g_aGdbCmds[] =
 {
-    { "restart", "Restarts the whole emulation",        gdbStubCmdRestart },
-    { "reset",   "Restarts the whole emulation",        gdbStubCmdRestart }, /* Alias for restart */
-    { NULL,      NULL,                                  NULL              }
+    { "help",    "This help text",                                                                                  gdbStubCmdHelp    },
+    { "restart", "Restarts the whole emulation",                                                                    gdbStubCmdRestart },
+    { "reset",   "Restarts the whole emulation",                                                                    gdbStubCmdRestart }, /* Alias for restart */
+    { "iobp",    "Sets an I/O breakpoint, arguments: mmio|smn|x86 <address> <sz (1,2,4 or 0)> r|w|rw before|after", gdbStubCmdIoBp    },
+    { NULL,      NULL,                                                                                              NULL              }
 };
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ *
+ * @note This is only here because it accesses the command descriptor table...
+ */
+static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    for (uint32_t i = 0; i < ELEMENTS(g_aGdbCmds) - 1; i++)
+        pHlp->pfnPrintf(pHlp, "%s\t\t\t%s\n", g_aGdbCmds[i].pszCmd, g_aGdbCmds[i].pszDesc);
+
+    return GDBSTUB_INF_SUCCESS;
+}
 
 
 /**
