@@ -31,6 +31,7 @@
 #include <psp-fw/boot-rom-svc-page.h>
 
 #include <psp-ccd.h>
+#include <psp-dbg.h>
 #include <psp-flash.h>
 
 
@@ -499,7 +500,41 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
 }
 
 
-extern int pspEmuMainLegacy(PPSPEMUCFG pCfg);
+/**
+ * Executes the given CCD under debugger control.
+ *
+ * @returns Status code.
+ * @param   hCcd                    The CCD instance to run in a debugger.
+ * @param   uDbgPort                The port for the debugger to listen on.
+ */
+static int pspEmuDbgRun(PSPCCD hCcd, uint16_t uDbgPort)
+{
+    PSPCORE hPspCore = NULL;
+
+    int rc = PSPEmuCcdQueryCore(hCcd, &hPspCore);
+    if (!rc)
+    {
+        /*
+         * Execute one instruction to initialize the CPU state properly
+         * so the debugger has valid values to work with.
+         */
+        int rc = PSPEmuCoreExecRun(hPspCore, 1, PSPEMU_CORE_EXEC_INDEFINITE);
+        if (!rc)
+        {
+            PSPDBG hDbg = NULL;
+
+            rc = PSPEmuDbgCreate(&hDbg, uDbgPort, &hCcd, 1);
+            if (!rc)
+            {
+                printf("Debugger is listening on port %u...\n", uDbgPort);
+                rc = PSPEmuDbgRunloop(hDbg);
+            }
+        }
+    }
+
+    return rc;
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -518,7 +553,10 @@ int main(int argc, char *argv[])
 
         if (!rc)
         {
-            rc = PSPEmuCcdRun(hCcd);
+            if (Cfg.uDbgPort)
+                rc = pspEmuDbgRun(hCcd, Cfg.uDbgPort);
+            else
+                rc = PSPEmuCcdRun(hCcd);
             PSPEmuCcdDestroy(hCcd);
         }
 

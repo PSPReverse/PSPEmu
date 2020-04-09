@@ -24,7 +24,7 @@
 
 #include <common/types.h>
 
-#include <psp-core.h>
+#include <psp-ccd.h>
 
 
 /** PSP debugger handle. */
@@ -34,14 +34,15 @@ typedef PSPDBG *PPSPDBG;
 
 
 /**
- * Creates a new debugger instance for the given PSP core listening at the given port.
+ * Creates a new debugger instance for the given CCDs listening at the given port.
  *
  * @returns Status code.
  * @param   phDbg                   Where to store the debugger handle on success.
- * @param   hCore                   The core controlled by the debugger.
  * @param   uPort                   The port to listen on.
+ * @param   pahCcds                 Array of CCD handles to handle with this debugger instance.
+ * @param   cCcds                   NUmber of entris in the given array.
  */
-int PSPEmuDbgCreate(PPSPDBG phDbg, PSPCORE hCore, uint16_t uPort);
+int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, const PPSPCCD pahCcds, uint32_t cCcds);
 
 /**
  * Destroys the given debugger handle.
@@ -57,7 +58,7 @@ int PSPEmuDbgDestroy(PSPDBG hDbg);
  * @returns Status code.
  * @param   hDbg                    The debugger handle.
  *
- * @note Don't access the PSP core handle directly when this is active, weird things could happen.
+ * @note Don't access the assigned CCD handles directly when this is active, weird things could happen.
  */
 int PSPEmuDbgRunloop(PSPDBG hDbg);
 

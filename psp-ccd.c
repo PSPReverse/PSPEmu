@@ -31,7 +31,6 @@
 #include <psp-fw/boot-rom-svc-page.h>
 
 #include <psp-ccd.h>
-#include <psp-dbg.h>
 #include <psp-flash.h>
 #include <psp-iom.h>
 #include <psp-devs.h>
@@ -52,8 +51,6 @@ typedef struct PSPCCDINT
     PSPSVC                      hSvc;
     /** PSP proxy context handle if configured. */
     PSPPROXYCTX                 hPspProxyCtx;
-    /** The debugger handle if configured. */
-    PSPDBG                      hDbg;
     /** The trace log handle. */
     PSPTRACE                    hTrace;
     /** The SMN region handle for the ID register. */
@@ -560,38 +557,6 @@ static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 }
 
 
-/**
- * Initializes the debugger if configured.
- *
- * @returns Status code.
- * @param   pThis                   The CCD instance to initialize the debugger for.
- * @param   pCfg                    The global config.
- */
-static int pspEmuCcdDbgInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
-{
-    /*
-     * Execute one instruction to initialize the unicorn CPU state properly
-     * so the debugger has valid values to work with.
-     */
-    int rc = PSPEmuCoreExecRun(pThis->hPspCore, 1, PSPEMU_CORE_EXEC_INDEFINITE);
-    if (!rc)
-    {
-        uint32_t uDbgPort = pCfg->uDbgPort + pThis->idCcd;
-
-        rc = PSPEmuDbgCreate(&pThis->hDbg, pThis->hPspCore, uDbgPort);
-        if (!rc)
-            printf("Debugger for [socket:%u]:[id:%u] is listening on port %u...\n",
-                   pThis->idSocket, pThis->idCcd, uDbgPort);
-    }
-
-    return rc;
-}
-
-
-/**
- * @todo:
- *  - PSP proxy passthrough.
- */
 int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCFG pCfg)
 {
     int rc = 0;
@@ -630,9 +595,6 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                             rc = pspEmuCcdExecEnvInit(pThis, pCfg);
                         if (!rc)
                             rc = pspEmuCcdTraceInit(pThis, pCfg);
-                        if (   !rc
-                            && pCfg->uDbgPort)
-                            rc = pspEmuCcdDbgInit(pThis, pCfg);
                         if (!rc)
                         {
                             *phCcd = pThis;
@@ -660,12 +622,6 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
 void PSPEmuCcdDestroy(PSPCCD hCcd)
 {
     PPSPCCDINT pThis = hCcd;
-
-    if (pThis->hDbg)
-    {
-        PSPEmuDbgDestroy(pThis->hDbg);
-        pThis->hDbg = NULL;
-    }
 
     if (pThis->hTrace)
     {
@@ -712,14 +668,9 @@ int PSPEmuCcdQueryCore(PSPCCD hCcd, PPSPCORE phPspCore)
 
 int PSPEmuCcdRun(PSPCCD hCcd)
 {
-    int rc = 0;
     PPSPCCDINT pThis = hCcd;
 
-    if (pThis->hDbg)
-        rc = PSPEmuDbgRunloop(pThis->hDbg);
-    else
-        rc = PSPEmuCoreExecRun(pThis->hPspCore, 0, PSPEMU_CORE_EXEC_INDEFINITE);
-
+    int rc = PSPEmuCoreExecRun(pThis->hPspCore, 0, PSPEMU_CORE_EXEC_INDEFINITE);
     PSPEmuCoreStateDump(pThis->hPspCore);
     return rc;
 }
