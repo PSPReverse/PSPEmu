@@ -455,7 +455,7 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
  */
 static int pspEmuCcdMmioSmnInit(PPSPCCDINT pThis)
 {
-    return PSPEmuIoMgrSmnRegister(pThis->hIoMgr, 0x5a870, 4,
+    return PSPEmuIoMgrSmnRegister(pThis->hIoMgr, 0x5a078, 4,
                                   pspEmuCcdIdRead, NULL, pThis,
                                   &pThis->hSmnRegId);
 }
