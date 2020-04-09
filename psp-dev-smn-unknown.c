@@ -241,6 +241,21 @@ static void pspDevUnkSmnRead0x5a870(SMNADDR offSmn, size_t cbRead, void *pvVal, 
     *(uint32_t *)pvVal = 0x1; /* Bitmask of cores being present. */
 }
 
+static void pspDevUnkSmnRead0x5b304(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0xffffffff;
+}
+
+static void pspDevUnkSmnRead0x5c14c(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0x100; /* Zen2 Ryzen on chip BL waits for it. */
+}
+
+static void pspDevUnkSmnRead0x5a304(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0x1; /* Zen2 Ryzen on chip BL waits for it. */
+}
+
 static int pspDevUnkInit(PPSPDEV pDev)
 {
     PPSPDEVUNK pThis = (PPSPDEVUNK)&pDev->abInstance[0];
@@ -385,6 +400,33 @@ static int pspDevUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a870, 4,
                                     pspDevUnkSmnRead0x5a870, NULL, pThis,
                                     &pThis->hSmn0x5a870);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5b304, 4,
+                                    pspDevUnkSmnRead0x5b304, NULL, pThis,
+                                    &pThis->hSmn0x5b304);
+    PSPIOMREGIONHANDLE hSmn;
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5bb04, 4,
+                                    pspDevUnkSmnRead0x5b304, NULL, pThis,
+                                    &hSmn);
+
+    /* For the Zen2 Ryzen on chip bootloader, the actual value is not known so far. */
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x9025034, 4,
+                                    pspDevUnkSmnRead0x01025034, NULL, pThis,
+                                    &hSmn);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5c14c, 4,
+                                    pspDevUnkSmnRead0x5c14c, NULL, pThis,
+                                    &hSmn);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5c94c, 4,
+                                    pspDevUnkSmnRead0x5c14c, NULL, pThis,
+                                    &hSmn);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a304, 4,
+                                    pspDevUnkSmnRead0x5a304, NULL, pThis,
+                                    &hSmn);
 
     return rc;
 }
