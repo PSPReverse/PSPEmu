@@ -352,6 +352,7 @@ static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pv
             pbFlash++;
             cbRead--;
         }
+        fflush(pThis->pSpiFlashTrace);
     }
 }
 
