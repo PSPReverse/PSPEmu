@@ -37,6 +37,8 @@
 #include <psp-cfg.h>
 #include <psp-svc.h>
 #include <psp-trace.h>
+#include <psp-proxy.h>
+
 
 /**
  * A single CCD instance.
@@ -135,16 +137,38 @@ static PCPSPDEVREG g_apDevs[] =
 
 
 
+/**
+ * Determines the BL stage we are in based on some criteria.
+ *
+ * @returns BL stage.
+ * @param   pThis                   The CCD instance.
+ */
+static PSPPROXYBLSTAGE pspEmuCcdDetermineBlStage(PPSPCCDINT pThis)
+{
+    /** @todo Check the PC. */
+    return PSPPROXYBLSTAGE_UNKNOWN;
+}
+
+
 static void pspEmuCcdProxyPspMmioUnassignedRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
 
-    int rc = PSPProxyCtxPspMmioRead(pThis->hPspProxyCtx, offMmio, cbRead, pvVal);
-    if (rc)
-        fprintf(stderr, "pspEmuProxyPspMmioUnassignedRead: Failed with %d\n", rc);
+    const char *pszDevId = "<PROXY>";
+    bool fAllowed = PSPProxyIsMmioAccessAllowed(offMmio, cbRead, false /*fWrite*/,
+                                                pspEmuCcdDetermineBlStage(pThis),
+                                                pThis->pCfg, pvVal);
+    if (fAllowed)
+    {
+        int rc = PSPProxyCtxPspMmioRead(pThis->hPspProxyCtx, offMmio, cbRead, pvVal);
+        if (rc)
+            fprintf(stderr, "pspEmuProxyPspMmioUnassignedRead: Failed with %d\n", rc);
+    }
+    else
+        pszDevId = "<PROXY/DENIED>";
 
     PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
-                             "<PASSTHROUGH>", offMmio, pvVal, cbRead);
+                             pszDevId, offMmio, pvVal, cbRead);
 }
 
 
@@ -152,12 +176,20 @@ static void pspEmuCcdProxyPspMmioUnassignedWrite(PSPADDR offMmio, size_t cbWrite
 {
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
 
-    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
-                              "<PASSTHROUGH>", offMmio, pvVal, cbWrite);
+    bool fAllowed = PSPProxyIsMmioAccessAllowed(offMmio, cbWrite, true /*fWrite*/,
+                                                pspEmuCcdDetermineBlStage(pThis),
+                                                pThis->pCfg, NULL /*pvReadVal*/);
 
-    int rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, offMmio, cbWrite, pvVal);
-    if (rc)
-        fprintf(stderr, "pspEmuProxyPspMmioUnassignedWrite: Failed with %d\n", rc);
+    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
+                              fAllowed ? "<PROXY>" : "<PROXY/DENIED>",
+                              offMmio, pvVal, cbWrite);
+
+    if (fAllowed)
+    {
+        int rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, offMmio, cbWrite, pvVal);
+        if (rc)
+            fprintf(stderr, "pspEmuProxyPspMmioUnassignedWrite: Failed with %d\n", rc);
+    }
 }
 
 
@@ -165,12 +197,21 @@ static void pspEmuCcdProxyPspSmnUnassignedRead(SMNADDR offSmn, size_t cbRead, vo
 {
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
 
-    int rc = PSPProxyCtxPspSmnRead(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbRead, pvVal);
-    if (rc)
-        fprintf(stderr, "pspEmuProxyPspSmnUnassignedRead: Failed with %d\n", rc);
+    const char *pszDevId = "<PROXY>";
+    bool fAllowed = PSPProxyIsSmnAccessAllowed(offSmn, cbRead, false /*fWrite*/,
+                                               pspEmuCcdDetermineBlStage(pThis),
+                                               pThis->pCfg, pvVal);
+    if (fAllowed)
+    {
+        int rc = PSPProxyCtxPspSmnRead(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbRead, pvVal);
+        if (rc)
+            fprintf(stderr, "pspEmuProxyPspSmnUnassignedRead: Failed with %d\n", rc);
+    }
+    else
+        pszDevId = "<PROXY/DENIED>";
 
     PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
-                             "<PASSTHROUGH>", offSmn, pvVal, cbRead);
+                             pszDevId, offSmn, pvVal, cbRead);
 }
 
 
@@ -178,12 +219,20 @@ static void pspEmuCcdProxyPspSmnUnassignedWrite(SMNADDR offSmn, size_t cbWrite, 
 {
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
 
-    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
-                              "<PASSTHROUGH>", offSmn, pvVal, cbWrite);
+    bool fAllowed = PSPProxyIsSmnAccessAllowed(offSmn, cbWrite, true /*fWrite*/,
+                                               pspEmuCcdDetermineBlStage(pThis),
+                                               pThis->pCfg, NULL /*pvReadVal*/);
 
-    int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbWrite, pvVal);
-    if (rc)
-        fprintf(stderr, "pspEmuProxyPspSmnUnassignedWrite: Failed with %d\n", rc);
+    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
+                              fAllowed ? "<PROXY>" : "<PROXY/DENIED>",
+                              offSmn, pvVal, cbWrite);
+
+    if (fAllowed)
+    {
+        int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbWrite, pvVal);
+        if (rc)
+            fprintf(stderr, "pspEmuProxyPspSmnUnassignedWrite: Failed with %d\n", rc);
+    }
 }
 
 
@@ -191,9 +240,18 @@ static void pspEmuCcdProxyX86UnassignedRead(X86PADDR offX86Phys, size_t cbRead, 
 {
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
 
-    int rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, offX86Phys, cbRead, pvVal);
-    if (rc)
-        fprintf(stderr, "pspEmuProxyPspX86UnassignedRead: Failed with %d\n", rc);
+    const char *pszDevId = "<PROXY>";
+    bool fAllowed = PSPProxyIsX86AccessAllowed(offX86Phys, cbRead, false /*fWrite*/,
+                                               pspEmuCcdDetermineBlStage(pThis),
+                                               pThis->pCfg, pvVal);
+    if (fAllowed)
+    {
+        int rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, offX86Phys, cbRead, pvVal);
+        if (rc)
+            fprintf(stderr, "pspEmuProxyPspX86UnassignedRead: Failed with %d\n", rc);
+    }
+    else
+        pszDevId = "<PROXY/DENIED>";
 
     PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
                              "<PASSTHROUGH>", offX86Phys, pvVal, cbRead);
@@ -204,12 +262,19 @@ static void pspEmuCcdProxyX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite
 {
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
 
-    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
-                              "<PASSTHROUGH>", offX86Phys, pvVal, cbWrite);
+    bool fAllowed = PSPProxyIsX86AccessAllowed(offX86Phys, cbWrite, true /*fWrite*/,
+                                               pspEmuCcdDetermineBlStage(pThis),
+                                               pThis->pCfg, NULL /*pvReadVal*/);
 
-    int rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, offX86Phys, cbWrite, pvVal);
-    if (rc)
-        fprintf(stderr, "pspEmuProxyPspX86UnassignedWrite: Failed with %d\n", rc);
+    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
+                              fAllowed ? "<PROXY>" : "<PROXY/DENIED>", offX86Phys, pvVal, cbWrite);
+
+    if (fAllowed)
+    {
+        int rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, offX86Phys, cbWrite, pvVal);
+        if (rc)
+            fprintf(stderr, "pspEmuProxyPspX86UnassignedWrite: Failed with %d\n", rc);
+    }
 }
 
 
