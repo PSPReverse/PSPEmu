@@ -71,6 +71,7 @@ static struct option g_aOptions[] =
     {"emulate-single-socket-id",     required_argument, 0, 'O'},
     {"emulate-single-die-id",        required_argument, 0, 'D'},
     {"emulate-devices",              required_argument, 0, 'E'},
+    {"dbg-step-count",               required_argument, 0, 'G'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -197,6 +198,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszPathBootRomSvcPage = NULL;
     pCfg->fBinContainsHdr       = false;
     pCfg->uDbgPort              = 0;
+    pCfg->cDbgInsnStep          = 0;
     pCfg->fLoadPspDir           = false;
     pCfg->fIncptSvc6            = false;
     pCfg->fTraceSvcs            = false;
@@ -259,7 +261,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --new-style Enable the new style code (WIP)\n"
                        "    --emulate-single-socket-id <id> Emulate only a single PSP with the given socket ID\n"
                        "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n"
-                       "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n",
+                       "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n"
+                       "    --dbg-step-count <count> Number of instructions to step through in a single round, use at own RISK\n",
                        argv[0]);
                 exit(0);
                 break;
@@ -399,6 +402,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'F':
                 pCfg->pszSpiFlashTrace = optarg;
                 break;
+            case 'G':
+                pCfg->cDbgInsnStep = strtoul(optarg, NULL, 10);
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
@@ -511,9 +517,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
  *
  * @returns Status code.
  * @param   hCcd                    The CCD instance to run in a debugger.
- * @param   uDbgPort                The port for the debugger to listen on.
+ * @param   pCfg                    The configuration.
  */
-static int pspEmuDbgRun(PSPCCD hCcd, uint16_t uDbgPort)
+static int pspEmuDbgRun(PSPCCD hCcd, PCPSPEMUCFG pCfg)
 {
     PSPCORE hPspCore = NULL;
 
@@ -529,10 +535,10 @@ static int pspEmuDbgRun(PSPCCD hCcd, uint16_t uDbgPort)
         {
             PSPDBG hDbg = NULL;
 
-            rc = PSPEmuDbgCreate(&hDbg, uDbgPort, &hCcd, 1);
+            rc = PSPEmuDbgCreate(&hDbg, pCfg->uDbgPort, pCfg->cDbgInsnStep, &hCcd, 1);
             if (!rc)
             {
-                printf("Debugger is listening on port %u...\n", uDbgPort);
+                printf("Debugger is listening on port %u...\n", pCfg->uDbgPort);
                 rc = PSPEmuDbgRunloop(hDbg);
             }
         }
@@ -560,7 +566,7 @@ int main(int argc, char *argv[])
         if (!rc)
         {
             if (Cfg.uDbgPort)
-                rc = pspEmuDbgRun(hCcd, Cfg.uDbgPort);
+                rc = pspEmuDbgRun(hCcd, &Cfg);
             else
                 rc = PSPEmuCcdRun(hCcd);
             PSPEmuCcdDestroy(hCcd);

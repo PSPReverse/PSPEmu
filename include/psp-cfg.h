@@ -143,6 +143,8 @@ typedef struct PSPEMUCFG
     bool                    fBootRomSvcPageModify;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
+    /** Maximum number of instructions to execute in one round, used to workaround a unicorn sync sate issue. */
+    uint32_t                cDbgInsnStep;
     /** Pointer to the read flash rom content. */
     void                    *pvFlashRom;
     /** Size of the flash ROM in bytes. */

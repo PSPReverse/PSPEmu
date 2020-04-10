@@ -82,6 +82,8 @@ typedef struct PSPDBGINT
     PPSPDBGTP               pTpsHead;
     /** Current breakpoint which hit. */
     PCPSPDBGTP              pTpHit;
+    /** Number of instructions to step when the code is running. */
+    uint32_t                cInsnsStep;
     /** Number of CCDs in the array below. */
     uint32_t                cCcds;
     /** Currently selected CCD. */
@@ -859,7 +861,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
          *      hit and we stop the emulation from the callback, so we single step
          *      through the code when the debugger is enabled.
          */
-        rc = PSPEmuCoreExecRun(hPspCore, 1, PSPEMU_CORE_EXEC_INDEFINITE);
+        rc = PSPEmuCoreExecRun(hPspCore, pThis->cInsnsStep != 0 ? pThis->cInsnsStep : 1, PSPEMU_CORE_EXEC_INDEFINITE);
         if (!rc)
         {
             int rcPsx = poll(&PollFd, 1, 0);
@@ -880,7 +882,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
 }
 
 
-int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, const PPSPCCD pahCcds, uint32_t cCcds)
+int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, const PPSPCCD pahCcds, uint32_t cCcds)
 {
     int rc = 0;
     PPSPDBGINT pThis = (PPSPDBGINT)calloc(1, sizeof(*pThis) + cCcds * sizeof(PSPCCD));
@@ -889,6 +891,7 @@ int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, const PPSPCCD pahCcds, uint32
         pThis->iFdGdbCon    = 0;
         pThis->fCoreRunning = false;
         pThis->pTpsHead     = NULL;
+        pThis->cInsnsStep   = cInsnsStep;
         pThis->cCcds        = cCcds;
         pThis->idxCcd       = 0;
         for (uint32_t i = 0; i < cCcds; i++)
