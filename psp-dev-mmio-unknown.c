@@ -42,6 +42,8 @@ typedef struct PSPDEVUNK
     PSPIOMREGIONHANDLE          hMmio0x030101c0;
     /** 0x0320004c register handle. */
     PSPIOMREGIONHANDLE          hMmio0x0320004c;
+    /** 0x03200048 register handle. */
+    PSPIOMREGIONHANDLE          hMmio0x03200048;
 
 } PSPDEVUNK;
 /** Pointer to the device instance data. */
@@ -82,6 +84,11 @@ static void pspDevUnkMmioRead0x0320004c(PSPADDR offMmio, size_t cbRead, void *pv
     *(uint32_t *)pvVal = 0xbc090000;
 }
 
+static void pspDevUnkMmioRead0x03200048(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
+{
+    *(uint32_t *)pvVal = 0xbc0b0500;
+}
+
 
 static int pspDevMmioUnkInit(PPSPDEV pDev)
 {
@@ -110,6 +117,12 @@ static int pspDevMmioUnkInit(PPSPDEV pDev)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x0320004c, 4,
                                      pspDevUnkMmioRead0x0320004c, NULL, pThis,
                                      &pThis->hMmio0x0320004c);
+
+    /* Zen2 Ryzen on chip BL reads that. */
+    if (!rc)
+        rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03200048, 4,
+                                     pspDevUnkMmioRead0x03200048, NULL, pThis,
+                                     &pThis->hMmio0x03200048);
 
 #if 0
     if (!rc)
