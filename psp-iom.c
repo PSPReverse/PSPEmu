@@ -58,10 +58,12 @@ typedef PSPIOMTRACETYPE *PPSPIOMTRACETYPE;
 /**
  * Trace handler record.
  */
-typedef struct PSPIOMTRACEREC
+typedef struct PSPIOMTPINT
 {
     /** Pointer to the next record. */
-    struct PSPIOMTRACEREC           *pNext;
+    struct PSPIOMTPINT              *pNext;
+    /** I/O manager this belongs to. */
+    PPSPIOMINT                      pIoMgr;
     /** Access size. */
     size_t                          cbAccess;
     /** Flags given during registration. */
@@ -104,11 +106,11 @@ typedef struct PSPIOMTRACEREC
             PFNPSPIOMX86TRACE       pfnTrace;
         } X86;
     } u;
-} PSPIOMTRACEREC;
+} PSPIOMTPINT;
 /** Pointer to a trace handler record. */
-typedef PSPIOMTRACEREC *PPSPIOMTRACEREC;
+typedef PSPIOMTPINT *PPSPIOMTPINT;
 /** Pointer to a const trace handler record. */
-typedef const PSPIOMTRACEREC *PCPSPIOMTRACEREC;
+typedef const PSPIOMTPINT *PCPSPIOMTPINT;
 
 
 /**
@@ -337,7 +339,7 @@ typedef struct PSPIOMINT
     void                        *pvUserX86Unassigned;
 
     /* Registered trace points. */
-    PPSPIOMTRACEREC             pTpHead;
+    PPSPIOMTPINT                pTpHead;
 } PSPIOMINT;
 
 
@@ -407,8 +409,8 @@ static PPSPIOMREGIONHANDLEINT pspEmuIomSmnFindRegion(PPSPIOMINT pThis, SMNADDR S
  * @param   fFlagsRw                Read/Write flags matching the trace point.
  * @param   fFlagsAp                Access point (before/after) flags matching the trace point.
  */
-static PCPSPIOMTRACEREC pspEmuIomTpFindNext(PCPSPIOMTRACEREC pFirst, PSPIOMTRACETYPE enmType, size_t cbAccess,
-                                            uint32_t fFlagsRw, uint32_t fFlagsAp)
+static PCPSPIOMTPINT pspEmuIomTpFindNext(PCPSPIOMTPINT pFirst, PSPIOMTRACETYPE enmType, size_t cbAccess,
+                                         uint32_t fFlagsRw, uint32_t fFlagsAp)
 {
     while (pFirst)
     {
@@ -512,7 +514,7 @@ static void pspEmuIomUnassignedRegionWrite(PPSPIOMINT pThis, PSPTRACEEVTORIGIN e
 static void pspEmuIomSmnTpCall(PPSPIOMINT pThis, SMNADDR SmnAddr, PPSPIOMREGIONHANDLEINT pRegion, size_t cbAccess, const void *pvVal,
                                uint32_t fFlagsRw, uint32_t fFlagsAp)
 {
-    PCPSPIOMTRACEREC pTp = pThis->pTpHead;
+    PCPSPIOMTPINT pTp = pThis->pTpHead;
     for (;;)
     {
         pTp = pspEmuIomTpFindNext(pTp, PSPIOMTRACETYPE_SMN, cbAccess, fFlagsRw, fFlagsAp);
@@ -548,7 +550,7 @@ static void pspEmuIomSmnTpCall(PPSPIOMINT pThis, SMNADDR SmnAddr, PPSPIOMREGIONH
 static void pspEmuIomMmioTpCall(PPSPIOMINT pThis, PSPADDR PspAddrMmio, PPSPIOMREGIONHANDLEINT pRegion, size_t cbAccess, const void *pvVal,
                                 uint32_t fFlagsRw, uint32_t fFlagsAp)
 {
-    PCPSPIOMTRACEREC pTp = pThis->pTpHead;
+    PCPSPIOMTPINT pTp = pThis->pTpHead;
     for (;;)
     {
         pTp = pspEmuIomTpFindNext(pTp, PSPIOMTRACETYPE_MMIO, cbAccess, fFlagsRw, fFlagsAp);
@@ -584,7 +586,7 @@ static void pspEmuIomMmioTpCall(PPSPIOMINT pThis, PSPADDR PspAddrMmio, PPSPIOMRE
 static void pspEmuIomX86TpCall(PPSPIOMINT pThis, X86PADDR PhysX86Addr, PPSPIOMREGIONHANDLEINT pRegion, size_t cbAccess, const void *pvVal,
                                uint32_t fFlagsRw, uint32_t fFlagsAp)
 {
-    PCPSPIOMTRACEREC pTp = pThis->pTpHead;
+    PCPSPIOMTPINT pTp = pThis->pTpHead;
     for (;;)
     {
         pTp = pspEmuIomTpFindNext(pTp, PSPIOMTRACETYPE_X86, cbAccess, fFlagsRw, fFlagsAp);
@@ -1293,7 +1295,7 @@ static void pspEmuIoMgrX86MapCtrl3Write(PSPADDR offMmio, size_t cbWrite, const v
  * @param   ppTp                    Where to store the pointer to the created trace point on success.
  */
 static int pspEmuIomTpCreate(PPSPIOMINT pThis, PSPIOMTRACETYPE enmType, size_t cbAccess, uint32_t fFlags,
-                             void *pvUser, PPSPIOMTRACEREC *ppTp)
+                             void *pvUser, PPSPIOMTPINT *ppTp)
 {
     if (cbAccess != 0 && cbAccess != 1 && cbAccess != 2 && cbAccess != 4)
         return -1;
@@ -1305,9 +1307,10 @@ static int pspEmuIomTpCreate(PPSPIOMINT pThis, PSPIOMTRACETYPE enmType, size_t c
         return -1;
 
     int rc = 0;
-    PPSPIOMTRACEREC pTp = (PPSPIOMTRACEREC)calloc(1, sizeof(*pTp));
+    PPSPIOMTPINT pTp = (PPSPIOMTPINT)calloc(1, sizeof(*pTp));
     if (pTp)
     {
+        pTp->pIoMgr   = pThis;
         pTp->cbAccess = cbAccess;
         pTp->fFlags   = fFlags;
         pTp->pvUser   = pvUser;
@@ -1661,20 +1664,22 @@ int PSPEmuIoMgrMmioRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, size_t cbMm
 
 
 int PSPEmuIoMgrMmioTraceRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, PSPADDR PspAddrMmioEnd,
-                                 size_t cbAccess, uint32_t fFlags, PFNPSPIOMMMIOTRACE pfnTrace, void *pvUser)
+                                 size_t cbAccess, uint32_t fFlags, PFNPSPIOMMMIOTRACE pfnTrace, void *pvUser,
+                                 PPSPIOMTP phIoTp)
 {
     PPSPIOMINT pThis = hIoMgr;
 
     if (!pfnTrace)
         return -1;
 
-    PPSPIOMTRACEREC pTp = NULL;
+    PPSPIOMTPINT pTp = NULL;
     int rc = pspEmuIomTpCreate(pThis, PSPIOMTRACETYPE_MMIO, cbAccess, fFlags, pvUser, &pTp);
     if (!rc)
     {
         pTp->u.Mmio.PspAddrMmioStart = PspAddrMmioStart;
         pTp->u.Mmio.PspAddrMmioEnd   = PspAddrMmioEnd;
         pTp->u.Mmio.pfnTrace         = pfnTrace;
+        *phIoTp = pTp;
     }
 
     return rc;
@@ -1744,20 +1749,22 @@ int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
 
 
 int PSPEmuIoMgrSmnTraceRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, SMNADDR SmnAddrEnd,
-                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMSMNTRACE pfnTrace, void *pvUser)
+                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMSMNTRACE pfnTrace, void *pvUser,
+                                PPSPIOMTP phIoTp)
 {
     PPSPIOMINT pThis = hIoMgr;
 
     if (!pfnTrace)
         return -1;
 
-    PPSPIOMTRACEREC pTp = NULL;
+    PPSPIOMTPINT pTp = NULL;
     int rc = pspEmuIomTpCreate(pThis, PSPIOMTRACETYPE_SMN, cbAccess, fFlags, pvUser, &pTp);
     if (!rc)
     {
         pTp->u.Smn.SmnAddrStart = SmnAddrStart;
         pTp->u.Smn.SmnAddrEnd   = SmnAddrEnd;
         pTp->u.Smn.pfnTrace     = pfnTrace;
+        *phIoTp = pTp;
     }
 
     return rc;
@@ -1870,20 +1877,22 @@ int PSPEmuIoMgrX86MemWrite(PSPIOMREGIONHANDLE hX86Mem, X86PADDR offX86Mem, const
 
 
 int PSPEmuIoMgrX86TraceRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrStart, X86PADDR PhysX86AddrEnd,
-                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMX86TRACE pfnTrace, void *pvUser)
+                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMX86TRACE pfnTrace, void *pvUser,
+                                PPSPIOMTP phIoTp)
 {
     PPSPIOMINT pThis = hIoMgr;
 
     if (!pfnTrace)
         return -1;
 
-    PPSPIOMTRACEREC pTp = NULL;
+    PPSPIOMTPINT pTp = NULL;
     int rc = pspEmuIomTpCreate(pThis, PSPIOMTRACETYPE_X86, cbAccess, fFlags, pvUser, &pTp);
     if (!rc)
     {
         pTp->u.X86.PhysX86AddrStart = PhysX86AddrStart;
         pTp->u.X86.PhysX86AddrEnd   = PhysX86AddrEnd;
         pTp->u.X86.pfnTrace         = pfnTrace;
+        *phIoTp = pTp;
     }
 
     return rc;
@@ -1964,6 +1973,39 @@ int PSPEmuIoMgrDeregister(PSPIOMREGIONHANDLE hRegion)
             }
         }
         free(pRegion);
+    }
+    else /* Not found? */
+        return -1;
+
+    return 0;
+}
+
+
+int PSPEmuIoMgrTpDeregister(PSPIOMTP hIoTp)
+{
+    PPSPIOMTPINT pTp = hIoTp;
+    PPSPIOMINT pThis = pTp->pIoMgr;
+
+    /* Search for the trace point in the list and unlink it. */
+    PPSPIOMTPINT pPrev = NULL;
+    PPSPIOMTPINT pCur = pThis->pTpHead;
+
+    while (   pCur
+           && pCur != pTp)
+    {
+        pPrev = pCur;
+        pCur = pCur->pNext;
+    }
+
+    if (pCur)
+    {
+        /* Found */
+        if (pPrev)
+            pPrev->pNext = pCur->pNext;
+        else
+            pThis->pTpHead = pCur->pNext;
+
+        free(pTp);
     }
     else /* Not found? */
         return -1;

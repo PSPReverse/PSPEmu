@@ -37,6 +37,12 @@ typedef struct PSPIOMREGIONHANDLEINT *PSPIOMREGIONHANDLE;
 /** Pointer to a region handle. */
 typedef PSPIOMREGIONHANDLE *PPSPIOMREGIONHANDLE;
 
+/** A I/O trace point handle. */
+typedef struct PSPIOMTPINT *PSPIOMTP;
+/** Pointer to a trace point handle. */
+typedef PSPIOMTP *PPSPIOMTP;
+
+
 /**
  * SMN read handler.
  *
@@ -310,9 +316,11 @@ int PSPEmuIoMgrMmioRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, size_t cbMm
  *                                  hit.
  * @param   pfnTrace                The handler to call.
  * @param   pvUser                  Opaque user data to pass to the handler.
+ * @param   phIoTp                  Where to store the I/O trace point handle on success.
  */
 int PSPEmuIoMgrMmioTraceRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, PSPADDR PspAddrMmioEnd,
-                                 size_t cbAccess, uint32_t fFlags, PFNPSPIOMMMIOTRACE pfnTrace, void *pvUser);
+                                 size_t cbAccess, uint32_t fFlags, PFNPSPIOMMMIOTRACE pfnTrace, void *pvUser,
+                                 PPSPIOMTP phIoTp);
 
 
 /**
@@ -345,9 +353,11 @@ int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
  *                                  hit.
  * @param   pfnTrace                The handler to call.
  * @param   pvUser                  Opaque user data to pass to the handler.
+ * @param   phIoTp                  Where to store the I/O trace point handle on success.
  */
 int PSPEmuIoMgrSmnTraceRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, SMNADDR SmnAddrEnd,
-                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMSMNTRACE pfnTrace, void *pvUser);
+                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMSMNTRACE pfnTrace, void *pvUser,
+                                PPSPIOMTP phIoTp);
 
 
 /**
@@ -425,9 +435,11 @@ int PSPEmuIoMgrX86MemWrite(PSPIOMREGIONHANDLE hX86Mem, X86PADDR offX86Mem, const
  *                                  hit.
  * @param   pfnTrace                The handler to call.
  * @param   pvUser                  Opaque user data to pass to the handler.
+ * @param   phIoTp                  Where to store the I/O trace point handle on success.
  */
 int PSPEmuIoMgrX86TraceRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrStart, X86PADDR PhysX86AddrEnd,
-                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMX86TRACE pfnTrace, void *pvUser);
+                                size_t cbAccess, uint32_t fFlags, PFNPSPIOMX86TRACE pfnTrace, void *pvUser,
+                                PPSPIOMTP phIoTp);
 
 
 /**
@@ -437,6 +449,15 @@ int PSPEmuIoMgrX86TraceRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrStart, X86PAD
  * @param   hRegion                 The region handle to deregister.
  */
 int PSPEmuIoMgrDeregister(PSPIOMREGIONHANDLE hRegion);
+
+
+/**
+ * Deregisters the given I/O trace point.
+ *
+ * @returns Status code.
+ * @param   hIoTp                   The I/O trace point handle to deregister.
+ */
+int PSPEmuIoMgrTpDeregister(PSPIOMTP hIoTp);
 
 
 /**

@@ -339,22 +339,24 @@ static int gdbStubCmdIoBp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const ch
 
                     if (rcGdbStub == GDBSTUB_INF_SUCCESS)
                     {
+                        PSPIOMTP hIoTp = NULL;
+
                         if (pszAddrType[0] == 's' && pszAddrType[1] == 'm' && pszAddrType[2] == 'n' && pszAddrType[3] == ' ')
                         {
                             int rc = PSPEmuIoMgrSmnTraceRegister(hIoMgr, (SMNADDR)u64Addr, (SMNADDR)u64Addr, cbAccess,
-                                                                 fFlags, pspDbgIoSmnTpHit, pThis);
+                                                                 fFlags, pspDbgIoSmnTpHit, pThis, &hIoTp);
                             rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
                         }
                         else if (pszAddrType[0] == 'm' && pszAddrType[1] == 'm' && pszAddrType[2] == 'i' && pszAddrType[3] == 'o' && pszAddrType[4] == ' ')
                         {
                             int rc = PSPEmuIoMgrMmioTraceRegister(hIoMgr, (PSPADDR)u64Addr, (PSPADDR)u64Addr, cbAccess,
-                                                                  fFlags, pspDbgIoMmioTpHit, pThis);
+                                                                  fFlags, pspDbgIoMmioTpHit, pThis, &hIoTp);
                             rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
                         }
                         else if (pszAddrType[0] == 'x' && pszAddrType[1] == '8' && pszAddrType[2] == '6' && pszAddrType[3] == ' ')
                         {
                             int rc = PSPEmuIoMgrX86TraceRegister(hIoMgr, (X86PADDR)u64Addr, (X86PADDR)u64Addr, cbAccess,
-                                                                 fFlags, pspDbgIoX86TpHit, pThis);
+                                                                 fFlags, pspDbgIoX86TpHit, pThis, &hIoTp);
                             rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
                         }
                         else
