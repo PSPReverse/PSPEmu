@@ -665,6 +665,25 @@ static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 }
 
 
+/**
+ * Destroy all devices for the given CCD instance.
+ *
+ * @returns nothing.
+ * @param                           The CCD instance.
+ */
+static void pspEmuCcdDevicesDestroy(PPSPCCDINT pThis)
+{
+    /* Destroy all devices. */
+    PPSPDEV pCur = pThis->pDevsHead;
+    while (pCur)
+    {
+        PPSPDEV pFree = pCur;
+        pCur = pCur->pNext;
+        PSPEmuDevDestroy(pFree);
+    }
+}
+
+
 int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCFG pCfg)
 {
     int rc = 0;
@@ -709,6 +728,8 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                             *phCcd = pThis;
                             return 0;
                         }
+
+                        pspEmuCcdDevicesDestroy(pThis);
                     }
 
                 }
@@ -750,14 +771,7 @@ void PSPEmuCcdDestroy(PSPCCD hCcd)
         pThis->hPspProxyCtx = NULL;
     }
 
-    /* Destroy all devices. */
-    PPSPDEV pCur = pThis->pDevsHead;
-    while (pCur)
-    {
-        PPSPDEV pFree = pCur;
-        pCur = pCur->pNext;
-        PSPEmuDevDestroy(pFree);
-    }
+    pspEmuCcdDevicesDestroy(pThis);
 
     /* Destroy the I/O manager and then the emulation core and last this structure. */
     PSPEmuIoMgrDestroy(pThis->hIoMgr);
