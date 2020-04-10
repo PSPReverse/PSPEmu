@@ -1471,6 +1471,23 @@ static void pspEmuIomX86MemExecInsert(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT p
 }
 
 
+/**
+ * Frees the given region list.
+ *
+ * @returns nothing.
+ * @param   pHead                   Head of the region list to destroy.
+ */
+static void pspEmuIoMgrDestroyRegionList(PPSPIOMREGIONHANDLEINT pHead)
+{
+    while (pHead)
+    {
+        PPSPIOMREGIONHANDLEINT pFree = pHead;
+        pHead = pHead->pNext;
+        free(pFree);
+    }
+}
+
+
 int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
 {
     int rc = 0;
@@ -1597,6 +1614,20 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
 int PSPEmuIoMgrDestroy(PSPIOM hIoMgr)
 {
     PPSPIOMINT pThis = hIoMgr;
+
+    /* Free all trace points first. */
+    PPSPIOMTPINT pCur = pThis->pTpHead;
+    while (pCur)
+    {
+        PPSPIOMTPINT pFree = pCur;
+        pCur = pCur->pNext;
+        free(pFree);
+    }
+
+    pspEmuIoMgrDestroyRegionList(pThis->pMmioHead);
+    pspEmuIoMgrDestroyRegionList(pThis->pSmnHead);
+    pspEmuIoMgrDestroyRegionList(pThis->pX86Head);
+    /* pX86MemExecHead is already part of pX86Head, so freed already. */
 
     int rc = PSPEmuCoreMmioDeregister(pThis->hPspCore, 0x01000000, 0x01000000 + 32 * _1M);
     if (!rc)
