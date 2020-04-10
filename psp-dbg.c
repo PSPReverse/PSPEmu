@@ -54,8 +54,20 @@ typedef struct PSPDBGTP
     struct PSPDBGTP         *pNext;
     /** Pointer to the owning debugger instance. */
     PPSPDBGINT              pDbg;
-    /** The tracepoint address. */
-    PSPADDR                 PspAddrTp;
+    /** The tracepoint ID. */
+    uint32_t                idTp;
+    /** Number of times the trace point hit already. */
+    uint32_t                cHits;
+    /** Flag whether this is "normal" or I/O trace point. */
+    bool                    fIoTp;
+    /** Type dependent data. */
+    union
+    {
+        /** The tracepoint address. */
+        PSPADDR             PspAddrTp;
+        /** The IOM tracepoint handle. */
+        PSPIOMTP            hIoTp;
+    } u;
 } PSPDBGTP;
 /** Pointer to a tracepoint. */
 typedef PSPDBGTP *PPSPDBGTP;
@@ -82,6 +94,10 @@ typedef struct PSPDBGINT
     PPSPDBGTP               pTpsHead;
     /** Current breakpoint which hit. */
     PCPSPDBGTP              pTpHit;
+    /** Current I/O tracepoint which hit. */
+    PCPSPDBGTP              pIoTpHit;
+    /** Next tracepoint ID. */
+    uint32_t                idTpNext;
     /** Number of instructions to step when the code is running. */
     uint32_t                cInsnsStep;
     /** Number of CCDs in the array below. */
@@ -180,6 +196,101 @@ static PSPCCD pspEmuDbgGetCcdFromSelectedCcd(PPSPDBGINT pThis)
 
 
 /**
+ * Creates a new trace point and links it into the list.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP debugger instance.
+ * @param   fIoTp                   Flag whether this is a I/O or normal trace point.
+ * @param   ppTp                    Where to store the pointer to the created tracepoint on success.
+ *
+ * @note The trace point is already linked in to the list.
+ */
+static int pspDbgTpCreate(PPSPDBGINT pThis, bool fIoTp, PPSPDBGTP *ppTp)
+{
+    int rc = 0;
+    PPSPDBGTP pTp = (PPSPDBGTP)calloc(1, sizeof(*pTp));
+    if (pTp)
+    {
+        pTp->pNext = NULL;
+        pTp->pDbg  = pThis;
+        pTp->idTp  = pThis->idTpNext++;
+        pTp->cHits = 0;
+        pTp->fIoTp = fIoTp;
+
+        /* Link into the list. */
+        pTp->pNext = pThis->pTpsHead;
+        pThis->pTpsHead = pTp;
+
+        *ppTp = pTp;
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
+/**
+ * Unlinks and destroys the given trace point.
+ *
+ * @returns nothing.
+ * @param   pTp                     The trace point to destroy.
+ */
+static void pspDbgTpDestroy(PPSPDBGTP pTp)
+{
+    PPSPDBGINT pThis = pTp->pDbg;
+
+    /* Find the tracepoint to remove. */
+    PPSPDBGTP pTpPrev = NULL;
+    PPSPDBGTP pTpCur = pThis->pTpsHead;
+    while (   pTpCur
+           && pTpCur != pTp)
+    {
+        pTpPrev = pTpCur;
+        pTpCur = pTpCur->pNext;
+    }
+
+    if (pTpCur)
+    {
+        /* Unlink and free memory. */
+        if (pTpPrev)
+            pTpPrev->pNext = pTpCur->pNext;
+        else
+            pThis->pTpsHead = pTpCur->pNext;
+    }
+    /* else assert() should never happen */
+
+    free(pTp);
+}
+
+
+/**
+ * Handles normal and I/O trace points alike.
+ *
+ * @returns nothing.
+ * @param   hPspCore                The PSP core which hit the trace point.
+ * @param   pTp                     The trace point which hit.
+ */
+static void pspDbgTpHit(PSPCORE hCore, PPSPDBGTP pTp)
+{
+    PPSPDBGINT pThis = pTp->pDbg;
+
+    pTp->cHits++;
+
+    /* Stop the emulation if not in single stepping mode. */
+    if (!pThis->fSingleStep)
+    {
+        pThis->fCoreRunning = false;
+        if (pTp->fIoTp)
+            pThis->pIoTpHit = pTp;
+        else
+            pThis->pTpHit = pTp;
+        PSPEmuCoreExecStop(hCore);
+    }
+}
+
+
+/**
  * Callback when a tracepoint is hit.
  *
  * @returns Nothing.
@@ -190,16 +301,8 @@ static PSPCCD pspEmuDbgGetCcdFromSelectedCcd(PPSPDBGINT pThis)
  */
 static void pspDbgTpBpHit(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
 {
-    PCPSPDBGTP pTp = (PCPSPDBGTP)pvUser;
-    PPSPDBGINT pThis = pTp->pDbg;
-
-    /* Stop the emulation if not in single stepping mode. */
-    if (!pThis->fSingleStep)
-    {
-        pThis->fCoreRunning = false;
-        pThis->pTpHit = pTp;
-        PSPEmuCoreExecStop(hCore);
-    }
+    PPSPDBGTP pTp = (PPSPDBGTP)pvUser;
+    pspDbgTpHit(hCore, pTp);
 }
 
 
@@ -209,16 +312,10 @@ static void pspDbgTpBpHit(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void
  * @returns nothing.
  * @param   pThis                   The PSP debugger instance.
  */
-static void pspDbgIoTpHit(PPSPDBGINT pThis)
+static void pspDbgIoTpHit(PPSPDBGTP pTp)
 {
-    PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
-
-    /* Stop the emulation if not in single stepping mode. */
-    if (!pThis->fSingleStep)
-    {
-        pThis->fCoreRunning = false;
-        PSPEmuCoreExecStop(hPspCore);
-    }
+    PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pTp->pDbg);
+    pspDbgTpHit(hPspCore, pTp);
 }
 
 
@@ -228,8 +325,8 @@ static void pspDbgIoTpHit(PPSPDBGINT pThis)
 static void pspDbgIoSmnTpHit(SMNADDR offSmnAbs, const char *pszDevId, SMNADDR offSmnDev, size_t cbAccess,
                              const void *pvVal, uint32_t fFlags, void *pvUser)
 {
-    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
-    pspDbgIoTpHit(pThis);
+    PPSPDBGTP pTp = (PPSPDBGTP)pvUser;
+    pspDbgIoTpHit(pTp);
 }
 
 
@@ -239,8 +336,8 @@ static void pspDbgIoSmnTpHit(SMNADDR offSmnAbs, const char *pszDevId, SMNADDR of
 static void pspDbgIoMmioTpHit(PSPADDR offMmioAbs, const char *pszDevId, PSPADDR offMmioDev, size_t cbAccess,
                               const void *pvVal, uint32_t fFlags, void *pvUser)
 {
-    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
-    pspDbgIoTpHit(pThis);
+    PPSPDBGTP pTp = (PPSPDBGTP)pvUser;
+    pspDbgIoTpHit(pTp);
 }
 
 
@@ -250,8 +347,8 @@ static void pspDbgIoMmioTpHit(PSPADDR offMmioAbs, const char *pszDevId, PSPADDR 
 static void pspDbgIoX86TpHit(X86PADDR offX86Abs, const char *pszDevId, X86PADDR offX86Dev, size_t cbAccess,
                              const void *pvVal, uint32_t fFlags, void *pvUser)
 {
-    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
-    pspDbgIoTpHit(pThis);
+    PPSPDBGTP pTp = (PPSPDBGTP)pvUser;
+    pspDbgIoTpHit(pTp);
 }
 
 
@@ -339,28 +436,40 @@ static int gdbStubCmdIoBp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const ch
 
                     if (rcGdbStub == GDBSTUB_INF_SUCCESS)
                     {
-                        PSPIOMTP hIoTp = NULL;
+                        PPSPDBGTP pIoTp = NULL;
 
-                        if (pszAddrType[0] == 's' && pszAddrType[1] == 'm' && pszAddrType[2] == 'n' && pszAddrType[3] == ' ')
+                        int rc = pspDbgTpCreate(pThis, true /*fIoTp*/, &pIoTp);
+                        if (!rc)
                         {
-                            int rc = PSPEmuIoMgrSmnTraceRegister(hIoMgr, (SMNADDR)u64Addr, (SMNADDR)u64Addr, cbAccess,
-                                                                 fFlags, pspDbgIoSmnTpHit, pThis, &hIoTp);
-                            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+                            if (pszAddrType[0] == 's' && pszAddrType[1] == 'm' && pszAddrType[2] == 'n' && pszAddrType[3] == ' ')
+                            {
+                                rc = PSPEmuIoMgrSmnTraceRegister(hIoMgr, (SMNADDR)u64Addr, (SMNADDR)u64Addr, cbAccess,
+                                                                 fFlags, pspDbgIoSmnTpHit, pIoTp, &pIoTp->u.hIoTp);
+                                rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+                            }
+                            else if (pszAddrType[0] == 'm' && pszAddrType[1] == 'm' && pszAddrType[2] == 'i' && pszAddrType[3] == 'o' && pszAddrType[4] == ' ')
+                            {
+                                rc = PSPEmuIoMgrMmioTraceRegister(hIoMgr, (PSPADDR)u64Addr, (PSPADDR)u64Addr, cbAccess,
+                                                                  fFlags, pspDbgIoMmioTpHit, pIoTp, &pIoTp->u.hIoTp);
+                                rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+                            }
+                            else if (pszAddrType[0] == 'x' && pszAddrType[1] == '8' && pszAddrType[2] == '6' && pszAddrType[3] == ' ')
+                            {
+                                rc = PSPEmuIoMgrX86TraceRegister(hIoMgr, (X86PADDR)u64Addr, (X86PADDR)u64Addr, cbAccess,
+                                                                 fFlags, pspDbgIoX86TpHit, pIoTp, &pIoTp->u.hIoTp);
+                                rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+                            }
+                            else
+                                rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+
+                            if (rcGdbStub == GDBSTUB_INF_SUCCESS)
+                                pHlp->pfnPrintf(pHlp, "I/O trace point with ID %u created successfully\n", pIoTp->idTp);
+                            else
+                            {
+                                /* Destroy trace point again as the lower registration failed. */
+                                pspDbgTpDestroy(pIoTp);
+                            }
                         }
-                        else if (pszAddrType[0] == 'm' && pszAddrType[1] == 'm' && pszAddrType[2] == 'i' && pszAddrType[3] == 'o' && pszAddrType[4] == ' ')
-                        {
-                            int rc = PSPEmuIoMgrMmioTraceRegister(hIoMgr, (PSPADDR)u64Addr, (PSPADDR)u64Addr, cbAccess,
-                                                                  fFlags, pspDbgIoMmioTpHit, pThis, &hIoTp);
-                            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
-                        }
-                        else if (pszAddrType[0] == 'x' && pszAddrType[1] == '8' && pszAddrType[2] == '6' && pszAddrType[3] == ' ')
-                        {
-                            int rc = PSPEmuIoMgrX86TraceRegister(hIoMgr, (X86PADDR)u64Addr, (X86PADDR)u64Addr, cbAccess,
-                                                                 fFlags, pspDbgIoX86TpHit, pThis, &hIoTp);
-                            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
-                        }
-                        else
-                            rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
                     }
                 }
                 else
@@ -587,25 +696,20 @@ static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTM
 
     int rcGdbStub = GDBSTUB_INF_SUCCESS;
     PSPADDR PspAddrBp = (PSPADDR)GdbTgtTpAddr;
-    PPSPDBGTP pTp = (PPSPDBGTP)calloc(1, sizeof(*pTp));
-    if (pTp)
+    PPSPDBGTP pTp = NULL;
+    int rc = pspDbgTpCreate(pThis, false /*fIoTp*/, &pTp);
+    if (!rc)
     {
-        pTp->pNext     = NULL;
-        pTp->pDbg      = pThis;
-        pTp->PspAddrTp = PspAddrBp;
+        pTp->u.PspAddrTp = PspAddrBp;
 
         PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
-        int rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBp, PspAddrBp, fTraceFlags, pspDbgTpBpHit, pTp);
+        rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBp, PspAddrBp, fTraceFlags, pspDbgTpBpHit, pTp);
         if (!rc)
-        {
-            pTp->pNext = pThis->pTpsHead;
-            pThis->pTpsHead = pTp;
             return GDBSTUB_INF_SUCCESS;
-        }
         else
             rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
 
-        free(pTp);
+        pspDbgTpDestroy(pTp);
     }
     else
         rcGdbStub = GDBSTUB_ERR_NO_MEMORY;
@@ -623,31 +727,20 @@ static int pspDbgGdbStubIfTgtTpClear(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTG
     PSPADDR PspAddrBp = (PSPADDR)GdbTgtTpAddr;
 
     /* Find the tracepoint to remove. */
-    PPSPDBGTP pTpPrev = NULL;
     PPSPDBGTP pTpCur = pThis->pTpsHead;
     while (   pTpCur
-           && pTpCur->PspAddrTp != PspAddrBp)
-    {
-        pTpPrev = pTpCur;
+           && (    pTpCur->fIoTp
+               ||  pTpCur->u.PspAddrTp != PspAddrBp))
         pTpCur = pTpCur->pNext;
-    }
 
     int rcGdbStub = GDBSTUB_INF_SUCCESS;
     if (pTpCur)
     {
         PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
 
-        int rc = PSPEmuCoreTraceDeregister(hPspCore, pTpCur->PspAddrTp, pTpCur->PspAddrTp);
+        int rc = PSPEmuCoreTraceDeregister(hPspCore, pTpCur->u.PspAddrTp, pTpCur->u.PspAddrTp);
         if (!rc)
-        {
-            /* Unlink and free memory. */
-            if (pTpPrev)
-                pTpPrev->pNext = pTpCur->pNext;
-            else
-                pThis->pTpsHead = pTpCur->pNext;
-
-            free(pTpCur);
-        }
+            pspDbgTpDestroy(pTpCur);
         else
             rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
     }
@@ -893,6 +986,7 @@ int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, const PP
         pThis->iFdGdbCon    = 0;
         pThis->fCoreRunning = false;
         pThis->pTpsHead     = NULL;
+        pThis->pIoTpHit     = 0;
         pThis->cInsnsStep   = cInsnsStep;
         pThis->cCcds        = cCcds;
         pThis->idxCcd       = 0;
