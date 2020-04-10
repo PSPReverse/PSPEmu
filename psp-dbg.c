@@ -265,6 +265,28 @@ static void pspDbgTpDestroy(PPSPDBGTP pTp)
 
 
 /**
+ * Unlinks and destroys the given trace point.
+ *
+ * @returns nothing.
+ * @param   pThis                   The PSP debugger instance.
+ * @param   idTp                    The trace point ID to look for.
+ */
+static PPSPDBGTP pspDbgTpFindById(PPSPDBGINT pThis, uint32_t idTp)
+{
+    PPSPDBGTP pTpCur = pThis->pTpsHead;
+    while (pTpCur)
+    {
+        if (pTpCur->idTp == idTp)
+            return pTpCur;
+
+        pTpCur = pTpCur->pNext;
+    }
+
+    return NULL;
+}
+
+
+/**
  * Handles normal and I/O trace points alike.
  *
  * @returns nothing.
@@ -488,6 +510,43 @@ static int gdbStubCmdIoBp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const ch
 }
 
 
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdIoBpDel(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    /* Parse all arguments. */
+    int rcGdbStub = GDBSTUB_INF_SUCCESS;
+    char *pszArgsEnd = NULL;
+    uint32_t idTp = strtoul(pszArgs, &pszArgsEnd, 10);
+    if (   pszArgsEnd
+        && *pszArgsEnd == '\0')
+    {
+        PPSPDBGTP pIoTp = pspDbgTpFindById(pThis, idTp);
+        if (   pIoTp
+            && pIoTp->fIoTp)
+        {
+            int rc = PSPEmuIoMgrTpDeregister(pIoTp->u.hIoTp);
+            if (!rc)
+                pspDbgTpDestroy(pIoTp);
+            else
+                pHlp->pfnPrintf(pHlp, "Trace point with id %u couldn't get deregistered from the underlying I/O manager which is really weird\n",
+                                idTp);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Trace point with id %u doesn't exist or is not an I/O tracepoint."
+                                  " Use the standard GDB delete command for normal breakpoints to prevent GDB from getting out of sync\n",
+                            idTp);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid argument %s given\n", pszArgs);
+
+    return rcGdbStub;
+}
+
+
 static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser);
 
 /**
@@ -499,6 +558,7 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "restart", "Restarts the whole emulation",                                                                    gdbStubCmdRestart },
     { "reset",   "Restarts the whole emulation",                                                                    gdbStubCmdRestart }, /* Alias for restart */
     { "iobp",    "Sets an I/O breakpoint, arguments: mmio|smn|x86 <address> <sz (1,2,4 or 0)> r|w|rw before|after", gdbStubCmdIoBp    },
+    { "iobpdel", "Deletes an I/O breakpoint, arguments: <id>",                                                      gdbStubCmdIoBpDel },
     { NULL,      NULL,                                                                                              NULL              }
 };
 
