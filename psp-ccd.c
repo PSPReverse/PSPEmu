@@ -142,12 +142,18 @@ static void pspEmuCcdProxyPspMmioUnassignedRead(PSPADDR offMmio, size_t cbRead, 
     int rc = PSPProxyCtxPspMmioRead(hPspProxyCtx, offMmio, cbRead, pvVal);
     if (rc)
         fprintf(stderr, "pspEmuProxyPspMmioUnassignedRead: Failed with %d\n", rc);
+
+    PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
+                             "<PASSTHROUGH>", offMmio, pvVal, cbRead);
 }
 
 
 static void pspEmuCcdProxyPspMmioUnassignedWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
+                              "<PASSTHROUGH>", offMmio, pvVal, cbWrite);
 
     int rc = PSPProxyCtxPspMmioWrite(hPspProxyCtx, offMmio, cbWrite, pvVal);
     if (rc)
@@ -162,12 +168,18 @@ static void pspEmuCcdProxyPspSmnUnassignedRead(SMNADDR offSmn, size_t cbRead, vo
     int rc = PSPProxyCtxPspSmnRead(hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbRead, pvVal);
     if (rc)
         fprintf(stderr, "pspEmuProxyPspSmnUnassignedRead: Failed with %d\n", rc);
+
+    PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
+                             "<PASSTHROUGH>", offSmn, pvVal, cbRead);
 }
 
 
 static void pspEmuCcdProxyPspSmnUnassignedWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
+                              "<PASSTHROUGH>", offSmn, pvVal, cbWrite);
 
     int rc = PSPProxyCtxPspSmnWrite(hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbWrite, pvVal);
     if (rc)
@@ -182,12 +194,18 @@ static void pspEmuCcdProxyX86UnassignedRead(X86PADDR offX86Phys, size_t cbRead, 
     int rc = PSPProxyCtxPspX86MmioRead(hPspProxyCtx, offX86Phys, cbRead, pvVal);
     if (rc)
         fprintf(stderr, "pspEmuProxyPspX86UnassignedRead: Failed with %d\n", rc);
+
+    PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
+                             "<PASSTHROUGH>", offX86Phys, pvVal, cbRead);
 }
 
 
 static void pspEmuCcdProxyX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite, const void *pvVal, void *pvUser)
 {
     PSPPROXYCTX hPspProxyCtx = (PSPPROXYCTX)pvUser;
+
+    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
+                              "<PASSTHROUGH>", offX86Phys, pvVal, cbWrite);
 
     int rc = PSPProxyCtxPspX86MmioWrite(hPspProxyCtx, offX86Phys, cbWrite, pvVal);
     if (rc)
