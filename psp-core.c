@@ -815,7 +815,7 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
             {
                 if (pThis->fSvcPending)
                 {
-                    /* Set new PC (assuming the exception table starting at 0x100 here), LR, CPSR and SPSR. */
+                    /* Set new PC, LR, CPSR and SPSR. */
                     uint32_t uCpsrOld;
                     uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
 
@@ -844,8 +844,12 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                                 rcUc2 = uc_hook_add(pThis->pUcEngine, &pThis->hUcHookSvcAfter, UC_HOOK_CODE,
                                                     pspEmuCoreSvcAfterHook, pThis, uPc, uPc);
 
-                            /** @todo Determine base of exception table from VBAR register. */
-                            uPc = 0x100 + 2 * sizeof(uint32_t); /* Switches to ARM mode. */
+                            if (rcUc2 == UC_ERR_OK)
+                            {
+                                uint32_t u32VBar = 0;
+                                rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_VBAR, &u32VBar);
+                                uPc = u32VBar + 2 * sizeof(uint32_t); /* Switches to ARM mode. */
+                            }
                             if (rcUc2 == UC_ERR_OK)
                                 rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
                             if (rcUc2 == UC_ERR_OK)
