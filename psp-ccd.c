@@ -65,6 +65,8 @@ typedef struct PSPCCDINT
     uint32_t                    idSocket;
     /** The CCD ID. */
     uint32_t                    idCcd;
+    /** Flag whether to register the SMN handlers. */
+    bool                        fRegSmnHandlers;
 } PSPCCDINT;
 /** Pointer to a single CCD instance. */
 typedef PSPCCDINT *PPSPCCDINT;
@@ -113,6 +115,30 @@ static const PSPCORESVCREG g_Svc6Reg =
 
 
 /**
+ * Device registration structure.
+ *
+ * @note This is special as it doesn't is a proper devices
+ *       but just acts as marker so we can skip handler registration
+ *       if not given in the emulated device list (think of proxy mode).
+ */
+const PSPDEVREG g_DevRegCcd =
+{
+    /** pszName */
+    "ccd",
+    /** pszDesc */
+    "CCD related handlers",
+    /** cbInstance */
+    0,
+    /** pfnInit */
+    NULL,
+    /** pfnDestruct */
+    NULL,
+    /** pfnReset */
+    NULL
+};
+
+
+/**
  * List of known devices.
  */
 static PCPSPDEVREG g_apDevs[] =
@@ -130,6 +156,9 @@ static PCPSPDEVREG g_apDevs[] =
     &g_DevRegX86Unk,
     &g_DevRegX86Uart,
     &g_DevRegX86Mem,
+
+    /* Special CCD device. */
+    &g_DevRegCcd,
 
     /* Special device only present for debugging and not existing on real hardware. */
     &g_DevRegTest,
@@ -373,12 +402,19 @@ static PCPSPDEVREG pspEmuCcdDeviceFindByName(const char *pszDevName)
  */
 static int pspEmuCcdDeviceInstantiate(PPSPCCDINT pThis, PCPSPDEVREG pDevReg, PCPSPEMUCFG pCfg)
 {
-    PPSPDEV pDev = NULL;
-    int rc = PSPEmuDevCreate(pThis->hIoMgr, pDevReg, pCfg, &pDev);
-    if (!rc)
+    int rc = 0;
+
+    if (pDevReg == &g_DevRegCcd)
+        pThis->fRegSmnHandlers = true;
+    else
     {
-        pDev->pNext = pThis->pDevsHead;
-        pThis->pDevsHead = pDev;
+        PPSPDEV pDev = NULL;
+        rc = PSPEmuDevCreate(pThis->hIoMgr, pDevReg, pCfg, &pDev);
+        if (!rc)
+        {
+            pDev->pNext = pThis->pDevsHead;
+            pThis->pDevsHead = pDev;
+        }
     }
 
     return rc;
@@ -690,9 +726,10 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
     PPSPCCDINT pThis = (PPSPCCDINT)calloc(1, sizeof(*pThis));
     if (pThis)
     {
-        pThis->pCfg     = pCfg;
-        pThis->idSocket = idSocket;
-        pThis->idCcd    = idCcd;
+        pThis->pCfg            = pCfg;
+        pThis->idSocket        = idSocket;
+        pThis->idCcd           = idCcd;
+        pThis->fRegSmnHandlers = false;
 
         rc = PSPEmuCoreCreate(&pThis->hPspCore, pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K);
         if (!rc)
@@ -715,7 +752,8 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                     {
                         /* Initialize the memory content for the PSP. */
                         rc = pspEmuCcdMemoryInit(pThis, pCfg);
-                        if (!rc)
+                        if (   !rc
+                            && pThis->fRegSmnHandlers)
                             rc = pspEmuCcdMmioSmnInit(pThis);
                         if (!rc)
                             rc = pspEmuCcdProxyInit(pThis, pCfg);
