@@ -307,6 +307,14 @@ static void pspEmuCcdProxyX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite
 }
 
 
+static void pspEmuCcdProxyLogMsg(PSPPROXYCTX hCtx, const char *pszMsg, void *pvUser)
+{
+    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
+                            "%s", pszMsg);
+}
+
+
 /**
  * CCD ID register read callback.
  */
@@ -616,7 +624,7 @@ static int pspEmuCcdProxyInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
     if (pCfg->pszPspProxyAddr)
     {
         printf("PSP proxy: Connecting to %s\n", pCfg->pszPspProxyAddr);
-        rc = PSPProxyCtxCreate(&pThis->hPspProxyCtx, pCfg->pszPspProxyAddr);
+        rc = PSPProxyCtxCreate(&pThis->hPspProxyCtx, pCfg->pszPspProxyAddr, pspEmuCcdProxyLogMsg, pThis);
         if (!rc)
         {
             printf("PSP proxy: Connected to %s\n", pCfg->pszPspProxyAddr);
