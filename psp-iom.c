@@ -1375,6 +1375,11 @@ static int pspEmuIomMmioRegionRegister(PPSPIOMINT pThis, PSPADDR PspAddrMmioStar
         pRegion->u.Mmio.pfnRead          = pfnRead;
         pRegion->u.Mmio.pfnWrite         = pfnWrite;
 
+        if (pfnRead)
+            pRegion->fFlags |= PSP_IOM_REGION_F_READ;
+        if (pfnWrite)
+            pRegion->fFlags |= PSP_IOM_REGION_F_WRITE;
+
         PPSPIOMREGIONHANDLEINT pPrev = NULL;
         PPSPIOMREGIONHANDLEINT pCur = pThis->pMmioHead;
 
