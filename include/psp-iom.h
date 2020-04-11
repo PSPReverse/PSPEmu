@@ -242,6 +242,21 @@ int PSPEmuIoMgrDestroy(PSPIOM hIoMgr);
 
 
 /**
+ * Configures whether any I/O access is logged no matter whether it is to an unassigned
+ * region or not.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   fEnable                 true to enable logging for all accesses, false to return to default behavior
+ *                                  where only the access to unassigned regions is logged.
+ *
+ * @note This is a separate API and not a flag given during instantiation of the I/O manager
+ *       so it can be changed easily during runtime.
+ */
+int PSPEmuIoMgrTraceAllAccessesSet(PSPIOM hIoMgr, bool fEnable);
+
+
+/**
  * Sets callbacks for intercepting accesses to unassigned MMIO regions.
  *
  * @returns Status code.

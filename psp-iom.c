@@ -150,6 +150,8 @@ typedef struct PSPIOMREGIONHANDLEINT
     void                            *pvUser;
     /** Description for this region. */
     const char                      *pszDesc;
+    /** Flags for this region. */
+    uint32_t                        fFlags;
     /** Type dependent data. */
     union
     {
@@ -219,6 +221,11 @@ typedef struct PSPIOMREGIONHANDLEINT
 } PSPIOMREGIONHANDLEINT;
 /** Pointer to an internal region handle. */
 typedef PSPIOMREGIONHANDLEINT *PPSPIOMREGIONHANDLEINT;
+
+/** The region has a read handler. */
+#define PSP_IOM_REGION_F_READ           BIT(0)
+/** The region has a write handler. */
+#define PSP_IOM_REGION_F_WRITE          BIT(1)
 
 
 /** Forward declaration of a X86 mapping control slot pointer. */
@@ -340,8 +347,10 @@ typedef struct PSPIOMINT
     /** Opaque user data for the unassigned x86 read/write callbacks. */
     void                        *pvUserX86Unassigned;
 
-    /* Registered trace points. */
+    /** Registered trace points. */
     PPSPIOMTPINT                pTpHead;
+    /** Flag whether to log all accesses or only ones to unassigned regions. */
+    bool                        fLogAllAccesses;
 } PSPIOMINT;
 
 
@@ -450,19 +459,34 @@ static SMNADDR pspEmuIomGetSmnAddrFromSlotAndOffset(PPSPIOMINT pThis, PSPADDR of
  *
  * @returns nothing.
  * @param   pThis                   I/O manager instance.
- * @param   enmSeverity             The trace event severity.
+ * @param   pRegion                 The region or NULL if unassigned.
  * @param   enmOrigin               The trace event origin.
- * @param   pszDevId                The device the read accessed, NULL means unknown.
  * @param   u64Addr                 The address of the region being read from.
  * @param   pvDst                   The data being read.
  * @param   cbRead                  Number of bytes read.
  */
-static void pspEmuIomTraceRegionRead(PPSPIOMINT pThis, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
-                                     const char *pszDevId, uint64_t u64Addr, const void *pvDst, size_t cbRead)
+static void pspEmuIomTraceRegionRead(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pRegion, PSPTRACEEVTORIGIN enmEvtOrigin,
+                                     uint64_t u64Addr, const void *pvDst, size_t cbRead)
 {
-    if (!pszDevId)
-        pszDevId = "<UNKNOWN>";
-    PSPEmuTraceEvtAddDevRead(NULL, enmSeverity, enmEvtOrigin, pszDevId, u64Addr, pvDst, cbRead);
+    PSPTRACEEVTSEVERITY enmSeverity = PSPTRACEEVTSEVERITY_INFO;
+    const char *pszRegId = NULL;
+
+    if (   !pRegion
+        || !(pRegion->fFlags & PSP_IOM_REGION_F_READ)) /* Writeonly regions get treated as unassigned for now. */
+    {
+        pszRegId = "<UNASSIGNED>";
+        enmSeverity = PSPTRACEEVTSEVERITY_WARNING;
+    }
+    else if (pThis->fLogAllAccesses)
+    {
+        if (!pRegion->pszDesc)
+            pszRegId = "<UNKNOWN>";
+        else
+            pszRegId = pRegion->pszDesc;
+    }
+
+    if (pszRegId)
+        PSPEmuTraceEvtAddDevRead(NULL, enmSeverity, enmEvtOrigin, pszRegId, u64Addr, pvDst, cbRead);
 }
 
 
@@ -471,33 +495,34 @@ static void pspEmuIomTraceRegionRead(PPSPIOMINT pThis, PSPTRACEEVTSEVERITY enmSe
  *
  * @returns nothing.
  * @param   pThis                   I/O manager instance.
- * @param   enmSeverity             The trace event severity.
+ * @param   pRegion                 The region or NULL if unassigned.
  * @param   enmOrigin               The trace event origin.
- * @param   pszDevId                The device the write accessed, NULL means unknown.
  * @param   u64Addr                 The address of the region being written to.
  * @param   pvData                  The data being written.
  * @param   cbWrite                 Number of bytes written.
  */
-static void pspEmuIomTraceRegionWrite(PPSPIOMINT pThis, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
-                                      const char *pszDevId, uint64_t u64Addr, const void *pvData, size_t cbWrite)
+static void pspEmuIomTraceRegionWrite(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pRegion, PSPTRACEEVTORIGIN enmEvtOrigin,
+                                      uint64_t u64Addr, const void *pvData, size_t cbWrite)
 {
-    if (!pszDevId)
-        pszDevId = "<UNKNOWN>";
-    PSPEmuTraceEvtAddDevWrite(NULL, enmSeverity, enmEvtOrigin, pszDevId, u64Addr, pvData, cbWrite);
-}
+    PSPTRACEEVTSEVERITY enmSeverity = PSPTRACEEVTSEVERITY_INFO;
+    const char *pszRegId = NULL;
 
+    if (   !pRegion
+        || !(pRegion->fFlags & PSP_IOM_REGION_F_WRITE)) /* Readonly regions get treated as unassigned for now. */
+    {
+        pszRegId = "<UNASSIGNED>";
+        enmSeverity = PSPTRACEEVTSEVERITY_WARNING;
+    }
+    else if (pThis->fLogAllAccesses)
+    {
+        if (!pRegion->pszDesc)
+            pszRegId = "<UNKNOWN>";
+        else
+            pszRegId = pRegion->pszDesc;
+    }
 
-static void pspEmuIomUnassignedRegionRead(PPSPIOMINT pThis, PSPTRACEEVTORIGIN enmEvtOrigin, uint64_t u64Addr, void *pvDst, size_t cbRead)
-{
-    /* Unassigned read, log and return 0. */
-    memset(pvDst, 0, cbRead);
-    pspEmuIomTraceRegionRead(pThis, PSPTRACEEVTSEVERITY_WARNING, enmEvtOrigin, "<UNASSIGNED>", u64Addr, pvDst, cbRead);
-}
-
-
-static void pspEmuIomUnassignedRegionWrite(PPSPIOMINT pThis, PSPTRACEEVTORIGIN enmEvtOrigin, uint64_t u64Addr, const void *pvSrc, size_t cbWrite)
-{
-    pspEmuIomTraceRegionWrite(pThis, PSPTRACEEVTSEVERITY_WARNING, enmEvtOrigin, "<UNASSIGNED>", u64Addr, pvSrc, cbWrite);
+    if (pszRegId)
+        PSPEmuTraceEvtAddDevWrite(NULL, enmSeverity, enmEvtOrigin, pszRegId, u64Addr, pvData, cbWrite);
 }
 
 
@@ -622,13 +647,14 @@ static void pspEmuIomSmnSlotsRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead
         if (pRegion->u.Smn.pfnRead)
             pRegion->u.Smn.pfnRead(SmnAddr - pRegion->u.Smn.SmnAddrStart, cbRead, pvDst, pRegion->pvUser);
         else
-            pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvDst, cbRead); /** @todo Technically not unassigned, just write only. */
+            memset(pvDst, 0, cbRead);
     }
     else if (pThis->pfnSmnUnassignedRead)
         pThis->pfnSmnUnassignedRead(SmnAddr, cbRead, pvDst, pThis->pvUserSmnUnassigned);
     else
-        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvDst, cbRead);
+        memset(pvDst, 0, cbRead);
 
+    pspEmuIomTraceRegionRead(pThis, pRegion, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvDst, cbRead);
     pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
@@ -640,18 +666,15 @@ static void pspEmuIomSmnSlotsWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWri
     SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
 
+    pspEmuIomTraceRegionWrite(pThis, pRegion, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvSrc, cbWrite);
     pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->u.Smn.pfnWrite)
             pRegion->u.Smn.pfnWrite(SmnAddr - pRegion->u.Smn.SmnAddrStart, cbWrite, pvSrc, pRegion->pvUser);
-        else
-            pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvSrc, cbWrite); /** @todo Technically not unassigned, just read only. */
     }
     else if (pThis->pfnSmnUnassignedWrite)
         pThis->pfnSmnUnassignedWrite(SmnAddr, cbWrite, pvSrc, pThis->pvUserSmnUnassigned);
-    else
-        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvSrc, cbWrite);
 
     pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
 }
@@ -670,13 +693,14 @@ static void pspEmuIomMmioRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
         if (pRegion->u.Mmio.pfnRead)
             pRegion->u.Mmio.pfnRead(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbRead, pvDst, pRegion->pvUser);
         else
-            pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvDst, cbRead); /** @todo Technically not unassigned, just write only. */
+            memset(pvDst, 0, cbRead);
     }
     else if (pThis->pfnMmioUnassignedRead)
         pThis->pfnMmioUnassignedRead(uPspAddr, cbRead, pvDst, pThis->pvUserMmioUnassigned);
     else
-        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvDst, cbRead);
+        memset(pvDst, 0, cbRead);
 
+    pspEmuIomTraceRegionRead(pThis, pRegion, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvDst, cbRead);
     pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
@@ -688,18 +712,15 @@ static void pspEmuIomMmioWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
     uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
 
+    pspEmuIomTraceRegionWrite(pThis, pRegion, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvSrc, cbWrite);
     pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->u.Mmio.pfnWrite)
             pRegion->u.Mmio.pfnWrite(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbWrite, pvSrc, pRegion->pvUser);
-        else
-            pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvSrc, cbWrite); /** @todo Technically not unassigned, just read only. */
     }
     else if (pThis->pfnMmioUnassignedWrite)
         pThis->pfnMmioUnassignedWrite(uPspAddr, cbWrite, pvSrc, pThis->pvUserMmioUnassigned);
-    else
-        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvSrc, cbWrite);
 
     pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
 }
@@ -857,27 +878,32 @@ static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, 
 
     X86PADDR PhysX86Addr = pX86MapSlot->PhysX86Base | uPspAddr;
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
+    PSPTRACEEVTORIGIN enmEvtOrigin = PSPTRACEEVTORIGIN_X86;
 
     pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
         if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MMIO)
         {
+            enmEvtOrigin = PSPTRACEEVTORIGIN_X86_MMIO;
+
             if (pRegion->u.X86.u.Mmio.pfnRead)
                 pRegion->u.X86.u.Mmio.pfnRead(PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, cbRead, pvDst, pRegion->pvUser);
             else
-                pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvDst, cbRead);
+                memset(pvDst, 0, cbRead);
         }
         else if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
+        {
+            enmEvtOrigin = PSPTRACEEVTORIGIN_X86_MEM;
             pspEmuIoMgrX86MemReadWorker(pThis, pRegion, PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, pvDst, cbRead);
-        else /* Huh? */
-            pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvDst, cbRead); /** @todo assert or throw an error. */
+        }
     }
     else if (pThis->pfnX86UnassignedRead)
         pThis->pfnX86UnassignedRead(PhysX86Addr, cbRead, pvDst, pThis->pvUserX86Unassigned);
     else
-        pspEmuIomUnassignedRegionRead(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvDst, cbRead);
+        memset(pvDst, 0, cbRead);
 
+    pspEmuIomTraceRegionRead(pThis, pRegion, enmEvtOrigin, PhysX86Addr, pvDst, cbRead);
     pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
 }
 
@@ -890,6 +916,16 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
     X86PADDR PhysX86Addr = pX86MapSlot->PhysX86Base | uPspAddr;
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
 
+    PSPTRACEEVTORIGIN enmEvtOrigin = PSPTRACEEVTORIGIN_X86;
+    if (pRegion)
+    {
+        if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MMIO)
+            enmEvtOrigin = PSPTRACEEVTORIGIN_X86_MMIO;
+        else if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
+            enmEvtOrigin = PSPTRACEEVTORIGIN_X86_MEM;
+    }
+    pspEmuIomTraceRegionWrite(pThis, pRegion, enmEvtOrigin, PhysX86Addr, pvSrc, cbWrite);
+
     pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
@@ -897,18 +933,12 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
         {
             if (pRegion->u.X86.u.Mmio.pfnWrite)
                 pRegion->u.X86.u.Mmio.pfnWrite(PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, cbWrite, pvSrc, pRegion->pvUser);
-            else
-                pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvSrc, cbWrite);
         }
         else if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
             pspEmuIoMgrX86MemWriteWorker(pThis, pRegion, PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, pvSrc, cbWrite);
-        else /* Huh? */
-            pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86_MMIO, PhysX86Addr, pvSrc, cbWrite); /** @todo assert or throw an error. */
     }
     else if (pThis->pfnX86UnassignedWrite)
         pThis->pfnX86UnassignedWrite(PhysX86Addr, cbWrite, pvSrc, pThis->pvUserX86Unassigned);
-    else
-        pspEmuIomUnassignedRegionWrite(pThis, PSPTRACEEVTORIGIN_X86, PhysX86Addr, pvSrc, cbWrite);
 
     pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
 }
@@ -1520,6 +1550,7 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
         pThis->pfnX86UnassignedWrite  = NULL;
         pThis->pvUserX86Unassigned    = NULL;
         pThis->pTpHead                = NULL;
+        pThis->fLogAllAccesses        = false;
 
         /* Register the MMIO region, where the SMN devices get mapped to (32 slots each 1MiB wide). */
         rc = PSPEmuCoreMmioRegister(hPspCore, 0x01000000, 32 * _1M,
@@ -1645,6 +1676,15 @@ int PSPEmuIoMgrDestroy(PSPIOM hIoMgr)
 }
 
 
+int PSPEmuIoMgrTraceAllAccessesSet(PSPIOM hIoMgr, bool fEnable)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    pThis->fLogAllAccesses = fEnable;
+    return 0;
+}
+
+
 int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser)
 {
     PPSPIOMINT pThis = hIoMgr;
@@ -1742,6 +1782,11 @@ int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
         pRegion->u.Smn.pfnRead      = pfnRead;
         pRegion->u.Smn.pfnWrite     = pfnWrite;
 
+        if (pfnRead)
+            pRegion->fFlags |= PSP_IOM_REGION_F_READ;
+        if (pfnWrite)
+            pRegion->fFlags |= PSP_IOM_REGION_F_WRITE;
+
         PPSPIOMREGIONHANDLEINT pPrev = NULL;
         PPSPIOMREGIONHANDLEINT pCur = pThis->pSmnHead;
 
@@ -1828,6 +1873,11 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
         pRegion->u.X86.u.Mmio.pfnRead   = pfnRead;
         pRegion->u.X86.u.Mmio.pfnWrite  = pfnWrite;
 
+        if (pfnRead)
+            pRegion->fFlags |= PSP_IOM_REGION_F_READ;
+        if (pfnWrite)
+            pRegion->fFlags |= PSP_IOM_REGION_F_WRITE;
+
         rc = pspEmuIomX86RegionInsert(pThis, pRegion);
         if (!rc)
         {
@@ -1859,6 +1909,7 @@ int PSPEmuIoMgrX86MemRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMemStart, size_
         pRegion->enmType                = PSPIOMREGIONTYPE_X86_MEM;
         pRegion->pvUser                 = pvUser;
         pRegion->pszDesc                = pszDesc;
+        pRegion->fFlags                 = PSP_IOM_REGION_F_READ | PSP_IOM_REGION_F_WRITE;
         pRegion->u.X86.PhysX86AddrStart = PhysX86AddrMemStart;
         pRegion->u.X86.cbX86            = cbX86Mem;
         pRegion->u.X86.u.Mem.pExecNext  = NULL;
