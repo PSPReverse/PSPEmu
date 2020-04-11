@@ -1282,33 +1282,26 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                                       false /*fWriteRev*/);
         if (!rc)
         {
-            /*
-             * The storage buffer contains the initial sha256 state, which we will ignore
-             * because that is already part of the openssl context.
-             */
-            if (fInit)
+            const uint8_t *pbKey = NULL;
+            rc = pspDevCcpKeyQueryPointerFromReq(pThis, pReq, cbKey, &pbKey);
+            if (!rc)
             {
-                const uint8_t *pbKey = NULL;
-                rc = pspDevCcpKeyQueryPointerFromReq(pThis, pReq, cbKey, &pbKey);
-                if (!rc)
+                pThis->pOsslAesCtx = EVP_CIPHER_CTX_new();
+                if (!pThis->pOsslAesCtx)
+                    rc = -1;
+                else if (fEncrypt)
                 {
-                    pThis->pOsslAesCtx = EVP_CIPHER_CTX_new();
-                    if (!pThis->pOsslAesCtx)
-                        rc = -1;
-                    else if (fEncrypt)
-                    {
-                        if (EVP_EncryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, pbKey, NULL) != 1)
-                            rc = -1;
-                    }
-                    else
-                    {
-                        if (EVP_DecryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, pbKey, NULL) != 1)
-                            rc = -1;
-                    }
-
-                    if (EVP_CIPHER_CTX_set_padding(pThis->pOsslAesCtx, 0) != 1)
+                    if (EVP_EncryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, pbKey, NULL) != 1)
                         rc = -1;
                 }
+                else
+                {
+                    if (EVP_DecryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, pbKey, NULL) != 1)
+                        rc = -1;
+                }
+
+                if (EVP_CIPHER_CTX_set_padding(pThis->pOsslAesCtx, 0) != 1)
+                    rc = -1;
             }
 
             while (   !rc
