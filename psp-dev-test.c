@@ -161,7 +161,7 @@ static int pspDevTestInit(PPSPDEV pDev)
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03133700, 16,
                                      pspDevTestMmioRead, pspDevTestMmioWrite, pThis,
-                                     &pThis->hMmio);
+                                     "Test", &pThis->hMmio);
     return rc;
 }
 

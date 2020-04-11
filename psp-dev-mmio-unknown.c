@@ -99,30 +99,30 @@ static int pspDevMmioUnkInit(PPSPDEV pDev)
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03006038, 4,
                                      pspDevUnkMmioRead0x03006038, NULL, pThis,
-                                     &pThis->hMmio0x03006038);
+                                     NULL /*pszDesc*/, &pThis->hMmio0x03006038);
 
     /* For the Ryzen off chip bootloader determining whether to print strings to x86 UART. */
     if (!rc)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x0301003c, 4,
                                      pspDevUnkMmioRead0x0301003c, NULL, pThis,
-                                     &pThis->hMmio0x0301003c);
+                                     NULL /*pszDesc*/, &pThis->hMmio0x0301003c);
 
     if (   !rc
         && pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x030101c0, 4,
                                      pspDevUnkMmioRead0x030101c0, NULL, pThis,
-                                     &pThis->hMmio0x030101c0);
+                                     NULL /*pszDesc*/, &pThis->hMmio0x030101c0);
 
     if (!rc)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x0320004c, 4,
                                      pspDevUnkMmioRead0x0320004c, NULL, pThis,
-                                     &pThis->hMmio0x0320004c);
+                                     NULL /*pszDesc*/, &pThis->hMmio0x0320004c);
 
     /* Zen2 Ryzen on chip BL reads that. */
     if (!rc)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03200048, 4,
                                      pspDevUnkMmioRead0x03200048, NULL, pThis,
-                                     &pThis->hMmio0x03200048);
+                                     NULL /*pszDesc*/, &pThis->hMmio0x03200048);
 
 #if 0
     if (!rc)

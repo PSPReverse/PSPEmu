@@ -97,16 +97,16 @@ static int pspDevMmioFuseInit(PPSPDEV pDev)
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010104, 4,
                                      pspDevFuseMmioRead, NULL, pThis,
-                                     &pThis->hMmio);
+                                     "Fuse1", &pThis->hMmio);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03810104, 4,
                                     pspDevFuseSmnRead, NULL, pThis,
-                                    &pThis->hSmn);
+                                    "Fuse1", &pThis->hSmn);
     if (   !rc
         && pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x3200050, 4,
                                      pspDevFuseKeySzMmioRead, NULL, pThis,
-                                     &pThis->hMmioKeySz);
+                                     "FuseKeySz", &pThis->hMmioKeySz);
     return rc;
 }
 

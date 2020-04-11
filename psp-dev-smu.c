@@ -170,19 +170,19 @@ static int pspDevSmuInit(PPSPDEV pDev)
     SMNADDR SmnAddrSmu = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x03b10024 : 0x03b10034;
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrSmu, 4,
                                     pspDevSmuRead, NULL, pThis,
-                                    &pThis->hSmn);
+                                    "SmuSts", &pThis->hSmn);
     if (!rc) /* The off chip Ryzen bootloader waits for the interrupt ready flag. */
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10028, 4,
                                     pspDevSmuRead, NULL, pThis,
-                                    &pThis->hSmnIntrRdy);
+                                    "SmuSts2", &pThis->hSmnIntrRdy);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03b10700, 7 * sizeof(uint32_t),
                                     pspDevSmuMsgRead, pspDevSmuMsgWrite, pThis,
-                                    &pThis->hSmnMsg);
+                                    "SmuMsg", &pThis->hSmnMsg);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03c00000, sizeof(pThis->abFw),
                                     pspDevSmuFwRead, pspDevSmuFwWrite, pThis,
-                                    &pThis->hSmnFw);
+                                    "SmuFw", &pThis->hSmnFw);
     return rc;
 }
 

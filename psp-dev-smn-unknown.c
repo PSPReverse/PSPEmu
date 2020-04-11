@@ -262,171 +262,171 @@ static int pspDevUnkInit(PPSPDEV pDev)
 
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005e000, 4,
                                     pspDevUnkSmnRead0x0005e000, NULL, pThis,
-                                    &pThis->hSmn0x0005e000);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0005e000);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005d0cc, 4,
                                     pspDevUnkSmnRead0x0005d0cc, NULL, pThis,
-                                    &pThis->hSmn0x0005d0cc);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0005d0cc);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01025034, 4,
                                     pspDevUnkSmnRead0x01025034, NULL, pThis,
-                                    &pThis->hSmn0x01025034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01025034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01004034, 4,
                                     pspDevUnkSmnRead0x01004034, NULL, pThis,
-                                    &pThis->hSmn0x01004034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01004034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01003034, 4,
                                     pspDevUnkSmnRead0x01004034, NULL, pThis,
-                                    &pThis->hSmn0x01003034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01003034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x18080064, 4,
                                     pspDevUnkSmnRead0x18080064, NULL, pThis,
-                                    &pThis->hSmn0x18080064);
+                                    NULL /*pszDesc */, &pThis->hSmn0x18080064);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x18480064, 4,
                                     pspDevUnkSmnRead0x18080064, NULL, pThis,
-                                    &pThis->hSmn0x18480064);
+                                    NULL /*pszDesc */, &pThis->hSmn0x18480064);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01018034, 4,
                                     pspDevUnkSmnRead0x01025034, NULL, pThis,
-                                    &pThis->hSmn0x18480064);
+                                    NULL /*pszDesc */, &pThis->hSmn0x18480064);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0102e034, 4,
                                     pspDevUnkSmnRead0x0102e034, NULL, pThis,
-                                    &pThis->hSmn0x0102e034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0102e034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01030034, 4,
                                     pspDevUnkSmnRead0x0102e034, NULL, pThis,
-                                    &pThis->hSmn0x01030034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01030034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01046034, 4,
                                     pspDevUnkSmnRead0x01046034, NULL, pThis,
-                                    &pThis->hSmn0x01046034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01046034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01047034, 4,
                                     pspDevUnkSmnRead0x01046034, NULL, pThis,
-                                    &pThis->hSmn0x01047034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01047034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0106c034, 4,
                                     pspDevUnkSmnRead0x01025034, NULL, pThis,
-                                    &pThis->hSmn0x0106c034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0106c034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0106d034, 4,
                                     pspDevUnkSmnRead0x01025034, NULL, pThis,
-                                    &pThis->hSmn0x0106d034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0106d034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0106e034, 4,
                                     pspDevUnkSmnRead0x0102e034, NULL, pThis,
-                                    &pThis->hSmn0x0106e034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0106e034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01080034, 4,
                                     pspDevUnkSmnRead0x01025034, NULL, pThis,
-                                    &pThis->hSmn0x01080034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01080034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01081034, 4,
                                     pspDevUnkSmnRead0x01025034, NULL, pThis,
-                                    &pThis->hSmn0x01081034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01081034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01096034, 4,
                                     pspDevUnkSmnRead0x0102e034, NULL, pThis,
-                                    &pThis->hSmn0x01096034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01096034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01097034, 4,
                                     pspDevUnkSmnRead0x0102e034, NULL, pThis,
-                                    &pThis->hSmn0x01097034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01097034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x010a8034, 4,
                                     pspDevUnkSmnRead0x0102e034, NULL, pThis,
-                                    &pThis->hSmn0x010a8034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x010a8034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x010d8034, 4,
                                     pspDevUnkSmnRead0x0102e034, NULL, pThis,
-                                    &pThis->hSmn0x010d8034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x010d8034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005a088, 4,
                                     pspDevUnkSmnRead0x0005e000, NULL, pThis,
-                                    &pThis->hSmn0x0005a088);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0005a088);
 
     /* For the Ryzen on chip bootloader, the actual value is not known so far. */
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01010034, 4,
                                     pspDevUnkSmnRead0x01025034, NULL, pThis,
-                                    &pThis->hSmn0x01010034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01010034);
     /* The Ryzen on chip bootloader waits for the first bit to become 1. */
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005a098, 4,
                                     pspDevUnkSmnRead0x0005e000, NULL, pThis,
-                                    &pThis->hSmn0x0005a098);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0005a098);
     /* The Ryzen on chip bootloader waits for bit 13 to become one. */
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x01002034, 4,
                                     pspDevUnkSmnRead0x01002034, NULL, pThis,
-                                    &pThis->hSmn0x01002034);
+                                    NULL /*pszDesc */, &pThis->hSmn0x01002034);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005b310, 4,
                                     pspDevUnkSmnRead0x0005b310, NULL, pThis,
-                                    &pThis->hSmn0x0005b310);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0005b310);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005bb10, 4,
                                     pspDevUnkSmnRead0x0005b310, NULL, pThis,
-                                    &pThis->hSmn0x0005bb10);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0005bb10);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005c310, 4,
                                     pspDevUnkSmnRead0x0005b310, NULL, pThis,
-                                    &pThis->hSmn0x0005c310);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0005c310);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x0005fb10, 4,
                                     pspDevUnkSmnRead0x0005b310, NULL, pThis,
-                                    &pThis->hSmn0x0005fb10);
+                                    NULL /*pszDesc */, &pThis->hSmn0x0005fb10);
 
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x51050, 4,
                                     pspDevUnkSmnRead0x51050, NULL, pThis,
-                                    &pThis->hSmn0x51050);
+                                    NULL /*pszDesc */, &pThis->hSmn0x51050);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5105c, 4,
                                     pspDevUnkSmnRead0x5105c, NULL, pThis,
-                                    &pThis->hSmn0x5105c);
+                                    NULL /*pszDesc */, &pThis->hSmn0x5105c);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a86c, 4,
                                     pspDevUnkSmnRead0x5a86c, NULL, pThis,
-                                    &pThis->hSmn0x5a86c);
+                                    NULL /*pszDesc */, &pThis->hSmn0x5a86c);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x501ec, 4,
                                     pspDevUnkSmnRead0x501ec, NULL, pThis,
-                                    &pThis->hSmn0x501ec);
+                                    NULL /*pszDesc */, &pThis->hSmn0x501ec);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a870, 4,
                                     pspDevUnkSmnRead0x5a870, NULL, pThis,
-                                    &pThis->hSmn0x5a870);
+                                    NULL /*pszDesc */, &pThis->hSmn0x5a870);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5b304, 4,
                                     pspDevUnkSmnRead0x5b304, NULL, pThis,
-                                    &pThis->hSmn0x5b304);
+                                    NULL /*pszDesc */, &pThis->hSmn0x5b304);
     PSPIOMREGIONHANDLE hSmn;
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5bb04, 4,
                                     pspDevUnkSmnRead0x5b304, NULL, pThis,
-                                    &hSmn);
+                                    NULL /*pszDesc */, &hSmn);
 
     /* For the Zen2 Ryzen on chip bootloader, the actual value is not known so far. */
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x9025034, 4,
                                     pspDevUnkSmnRead0x01025034, NULL, pThis,
-                                    &hSmn);
+                                    NULL /*pszDesc */, &hSmn);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5c14c, 4,
                                     pspDevUnkSmnRead0x5c14c, NULL, pThis,
-                                    &hSmn);
+                                    NULL /*pszDesc */, &hSmn);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5c94c, 4,
                                     pspDevUnkSmnRead0x5c14c, NULL, pThis,
-                                    &hSmn);
+                                    NULL /*pszDesc */, &hSmn);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x5a304, 4,
                                     pspDevUnkSmnRead0x5a304, NULL, pThis,
-                                    &hSmn);
+                                    NULL /*pszDesc */, &hSmn);
 
     return rc;
 }

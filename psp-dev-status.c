@@ -185,11 +185,11 @@ static int pspDevStsInit(PPSPDEV pDev)
     PSPADDR MmioAddrSts = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x32000d8 : 0x32000e8; /* Why oh why? */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, MmioAddrSts, 4,
                                      pspDevStsMmioRead, pspDevStsMmioWrite, pThis,
-                                     &pThis->hMmio);
+                                     "PspSts", &pThis->hMmio);
     if (!rc)
         rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfffdfc000080, 4,
                                         pspDevStsX86Read, pspDevStsX86Write, pThis,
-                                        &pThis->hX86Mmio);
+                                        "X86Sts",&pThis->hX86Mmio);
     return rc;
 }
 

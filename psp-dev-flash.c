@@ -384,7 +384,7 @@ static int pspDevFlashInit(PPSPDEV pDev)
     SMNADDR SmnAddrFlash = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x44000000 : 0x0a000000;
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrFlash, pDev->pCfg->cbFlashRom,
                                     pspDevFlashRead, pspDevFlashWrite, pThis,
-                                    &pThis->hSmn);
+                                    "SPI flash", &pThis->hSmn);
     if (   !rc
         && pDev->pCfg->uEm100FlashEmuPort)
         rc = pspEm100EmuCreate(&pThis->pEm100, pDev->pCfg->uEm100FlashEmuPort,

@@ -84,11 +84,11 @@ static int pspDevMp2Init(PPSPDEV pDev)
 
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03f00000, sizeof(pThis->abFw),
                                     pspDevMp2FwRead, pspDevMp2FwWrite, pThis,
-                                    &pThis->hSmnFw);
+                                    "MP2 SRAM0", &pThis->hSmnFw);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x03f50000, sizeof(pThis->abSram1),
                                     pspDevMp2Sram1Read, pspDevMp2Sram1Write, pThis,
-                                    &pThis->hSmnSram1);
+                                    "MP2 SRAM1", &pThis->hSmnSram1);
 
     return rc;
 }

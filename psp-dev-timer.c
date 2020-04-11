@@ -196,7 +196,7 @@ static int pspDevTimerInit(PPSPDEV pDev)
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010400, 2*36,
                                      pspDevTimerMmioRead, pspDevTimerMmioWrite, pThis,
-                                     &pThis->hMmio);
+                                     "Timer", &pThis->hMmio);
     return rc;
 }
 

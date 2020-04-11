@@ -296,11 +296,12 @@ int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86MMIOREAD pfnRead, PFN
  * @param   pfnRead                 Callback to call on a read access, optional (NULL means write only).
  * @param   pfnWrite                Callback to call on a write access, optional (NULL means readonly).
  * @param   pvUser                  Opaque user data passed in the callback.
+ * @param   pszDesc                 Description for this region which must be valid for the lifetime of this region, optional.
  * @param   phMmio                  Where to store the handle to the MMIO region on success.
  */
 int PSPEmuIoMgrMmioRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, size_t cbMmio,
                             PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser,
-                            PPSPIOMREGIONHANDLE phMmio);
+                            const char *pszDesc, PPSPIOMREGIONHANDLE phMmio);
 
 
 /**
@@ -333,11 +334,12 @@ int PSPEmuIoMgrMmioTraceRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, PSPADD
  * @param   pfnRead                 Callback to call on a read access, optional (NULL means write only).
  * @param   pfnWrite                Callback to call on a write access, optional (NULL means readonly).
  * @param   pvUser                  Opaque user data passed in the callback.
+ * @param   pszDesc                 Description for this region which must be valid for the lifetime of this region, optional.
  * @param   phSmn                   Where to store the handle to the SMN region on success.
  */
 int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
                            PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser,
-                           PPSPIOMREGIONHANDLE phSmn);
+                           const char *pszDesc, PPSPIOMREGIONHANDLE phSmn);
 
 
 /**
@@ -370,11 +372,12 @@ int PSPEmuIoMgrSmnTraceRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, SMNADDR Smn
  * @param   pfnRead                 Callback to call on a read access, optional (NULL means write only).
  * @param   pfnWrite                Callback to call on a write access, optional (NULL means readonly).
  * @param   pvUser                  Opaque user data passed in the callback.
+ * @param   pszDesc                 Description for this region which must be valid for the lifetime of this region, optional.
  * @param   phX86Mmio               Where to store the handle to the X86 MMIO region on success.
  */
 int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, size_t cbX86Mmio,
                                PFNPSPIOMX86MMIOREAD pfnRead, PFNPSPIOMX86MMIOWRITE pfnWrite, void *pvUser,
-                               PPSPIOMREGIONHANDLE phX86Mmio);
+                               const char *pszDesc, PPSPIOMREGIONHANDLE phX86Mmio);
 
 
 /**
@@ -388,11 +391,12 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
  * @param   pfnFetch                Callback to call on a first read access to dynamically initialize the memory content,
  *                                  optional (NULL means reads return 0 on first access).
  * @param   pvUser                  Opaque user data passed in the fetch callback.
+ * @param   pszDesc                 Description for this region which must be valid for the lifetime of this region, optional.
  * @param   phX86Mem                Where to store the handle to the X86 memory region on success.
  */
 int PSPEmuIoMgrX86MemRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMemStart, size_t cbX86Mem,
                               bool fCanExec, PFNPSPIOMX86MEMFETCH pfnFetch, void *pvUser,
-                              PPSPIOMREGIONHANDLE phX86Mem);
+                              const char *pszDesc, PPSPIOMREGIONHANDLE phX86Mem);
 
 
 /**

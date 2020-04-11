@@ -148,6 +148,8 @@ typedef struct PSPIOMREGIONHANDLEINT
     struct PSPIOMREGIONHANDLEINT    *pNext;
     /** Opaque user data to pass in the callbacks. */
     void                            *pvUser;
+    /** Description for this region. */
+    const char                      *pszDesc;
     /** Type dependent data. */
     union
     {
@@ -1328,7 +1330,7 @@ static int pspEmuIomTpCreate(PPSPIOMINT pThis, PSPIOMTRACETYPE enmType, size_t c
 
 static int pspEmuIomMmioRegionRegister(PPSPIOMINT pThis, PSPADDR PspAddrMmioStart, size_t cbMmio,
                                        PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser,
-                                       PPSPIOMREGIONHANDLEINT *ppMmio)
+                                       const char *pszDesc, PPSPIOMREGIONHANDLEINT *ppMmio)
 {
     int rc = 0;
     PPSPIOMREGIONHANDLEINT pRegion = (PPSPIOMREGIONHANDLEINT)calloc(1, sizeof(*pRegion));
@@ -1337,6 +1339,7 @@ static int pspEmuIomMmioRegionRegister(PPSPIOMINT pThis, PSPADDR PspAddrMmioStar
         pRegion->pIoMgr                  = pThis;
         pRegion->enmType                 = PSPIOMREGIONTYPE_PSP_MMIO;
         pRegion->pvUser                  = pvUser;
+        pRegion->pszDesc                 = pszDesc;
         pRegion->u.Mmio.PspAddrMmioStart = PspAddrMmioStart;
         pRegion->u.Mmio.cbMmio           = cbMmio;
         pRegion->u.Mmio.pfnRead          = pfnRead;
@@ -1558,21 +1561,25 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
                     /* Register our SMN mapping control registers into the MMIO region. */
                     rc = pspEmuIomMmioRegionRegister(pThis, 0x03220000, 16 * sizeof(uint32_t),
                                                      pspEmuIoMgrMmioSmnCtrlRead, pspEmuIoMgrMmioSmnCtrlWrite,
-                                                     pThis, &pThis->pMmioRegionSmnCtrl);
+                                                     pThis, "SMN mapping control",
+                                                     &pThis->pMmioRegionSmnCtrl);
                     if (!rc)
                     {
                         /* Register our X86 mapping control registers into the MMIO region. */
                         rc = pspEmuIomMmioRegionRegister(pThis, 0x03230000, 15 * 4 * sizeof(uint32_t),
                                                          pspEmuIoMgrX86MapCtrlRead, pspEmuIoMgrX86MapCtrlWrite,
-                                                         pThis, &pThis->pMmioRegionX86MapCtrl);
+                                                         pThis, "x86 mapping control 1",
+                                                         &pThis->pMmioRegionX86MapCtrl);
                         if (!rc)
                             rc = pspEmuIomMmioRegionRegister(pThis, 0x032303e0, 15 * sizeof(uint32_t),
                                                              pspEmuIoMgrX86MapCtrl2Read, pspEmuIoMgrX86MapCtrl2Write,
-                                                             pThis, &pThis->pMmioRegionX86MapCtrl2);
+                                                             pThis, "x86 mapping control 2",
+                                                             &pThis->pMmioRegionX86MapCtrl2);
                         if (!rc)
                             rc = pspEmuIomMmioRegionRegister(pThis, 0x032304d8, 15 * sizeof(uint32_t),
                                                              pspEmuIoMgrX86MapCtrl3Read, pspEmuIoMgrX86MapCtrl3Write,
-                                                             pThis, &pThis->pMmioRegionX86MapCtrl3);
+                                                             pThis, "x86 mapping control 3",
+                                                             &pThis->pMmioRegionX86MapCtrl3);
                         if(!rc)
                         {
                             *phIoMgr = pThis;
@@ -1685,12 +1692,12 @@ int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86MMIOREAD pfnRead, PFN
 
 int PSPEmuIoMgrMmioRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, size_t cbMmio,
                             PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser,
-                            PPSPIOMREGIONHANDLE phMmio)
+                            const char *pszDesc, PPSPIOMREGIONHANDLE phMmio)
 {
     PPSPIOMINT pThis = hIoMgr;
 
     return pspEmuIomMmioRegionRegister(pThis, PspAddrMmioStart, cbMmio,
-                                       pfnRead, pfnWrite, pvUser, phMmio);
+                                       pfnRead, pfnWrite, pvUser, pszDesc, phMmio);
 }
 
 
@@ -1719,7 +1726,7 @@ int PSPEmuIoMgrMmioTraceRegister(PSPIOM hIoMgr, PSPADDR PspAddrMmioStart, PSPADD
 
 int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
                            PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser,
-                           PPSPIOMREGIONHANDLE phSmn)
+                           const char *pszDesc, PPSPIOMREGIONHANDLE phSmn)
 {
     int rc = 0;
     PPSPIOMINT pThis = hIoMgr;
@@ -1729,6 +1736,7 @@ int PSPEmuIoMgrSmnRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, size_t cbSmn,
         pRegion->pIoMgr             = pThis;
         pRegion->enmType            = PSPIOMREGIONTYPE_SMN;
         pRegion->pvUser             = pvUser;
+        pRegion->pszDesc            = pszDesc;
         pRegion->u.Smn.SmnAddrStart = SmnAddrStart;
         pRegion->u.Smn.cbSmn        = cbSmn;
         pRegion->u.Smn.pfnRead      = pfnRead;
@@ -1804,7 +1812,7 @@ int PSPEmuIoMgrSmnTraceRegister(PSPIOM hIoMgr, SMNADDR SmnAddrStart, SMNADDR Smn
 
 int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, size_t cbX86Mmio,
                                PFNPSPIOMX86MMIOREAD pfnRead, PFNPSPIOMX86MMIOWRITE pfnWrite, void *pvUser,
-                               PPSPIOMREGIONHANDLE phX86Mmio)
+                               const char *pszDesc, PPSPIOMREGIONHANDLE phX86Mmio)
 {
     int rc = 0;
     PPSPIOMINT pThis = hIoMgr;
@@ -1814,6 +1822,7 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
         pRegion->pIoMgr                 = pThis;
         pRegion->enmType                = PSPIOMREGIONTYPE_X86_MMIO;
         pRegion->pvUser                 = pvUser;
+        pRegion->pszDesc                = pszDesc;
         pRegion->u.X86.PhysX86AddrStart = PhysX86AddrMmioStart;
         pRegion->u.X86.cbX86            = cbX86Mmio;
         pRegion->u.X86.u.Mmio.pfnRead   = pfnRead;
@@ -1839,7 +1848,7 @@ int PSPEmuIoMgrX86MmioRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMmioStart, siz
 
 int PSPEmuIoMgrX86MemRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMemStart, size_t cbX86Mem,
                               bool fCanExec, PFNPSPIOMX86MEMFETCH pfnFetch, void *pvUser,
-                              PPSPIOMREGIONHANDLE phX86Mem)
+                              const char *pszDesc, PPSPIOMREGIONHANDLE phX86Mem)
 {
     int rc = 0;
     PPSPIOMINT pThis = hIoMgr;
@@ -1849,6 +1858,7 @@ int PSPEmuIoMgrX86MemRegister(PSPIOM hIoMgr, X86PADDR PhysX86AddrMemStart, size_
         pRegion->pIoMgr                 = pThis;
         pRegion->enmType                = PSPIOMREGIONTYPE_X86_MEM;
         pRegion->pvUser                 = pvUser;
+        pRegion->pszDesc                = pszDesc;
         pRegion->u.X86.PhysX86AddrStart = PhysX86AddrMemStart;
         pRegion->u.X86.cbX86            = cbX86Mem;
         pRegion->u.X86.u.Mem.pExecNext  = NULL;

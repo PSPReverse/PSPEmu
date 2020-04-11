@@ -88,7 +88,7 @@ static int pspDevAcpiInit(PPSPDEV pDev)
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfed80804, 2,
                                         pspDevX86AcpiRead, NULL, pThis,
-                                        &pThis->hMmioX86);
+                                        "AcpiPmCtrl", &pThis->hMmioX86);
     return rc;
 }
 

@@ -64,7 +64,7 @@ static int pspDevX86UnkInit(PPSPDEV pDev)
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfed81e77, 1,
                                         pspDevX86UnkMmioRead, NULL, NULL,
-                                        &pThis->hMmio);
+                                        NULL /*pszDesc*/, &pThis->hMmio);
 
     return rc;
 }

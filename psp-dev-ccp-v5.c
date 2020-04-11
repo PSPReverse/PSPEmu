@@ -1821,14 +1821,14 @@ static int pspDevCcpInit(PPSPDEV pDev)
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + CCP_V5_Q_SIZE,
                                      pspDevCcpMmioRead, pspDevCcpMmioWrite, pThis,
-                                     &pThis->hMmio);
+                                     "CCPv5 Global+Queue", &pThis->hMmio);
     /** @todo Not sure this really belongs to the CCP (could be some other hardware block) but
      * a register in that range is accessed starting with Zen2 after a CCP zlib decompression operation.
      */
     if (!rc)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS_2, CCP_V5_MMIO_SIZE_2,
                                      pspDevCcpMmioRead2, NULL, pThis,
-                                     &pThis->hMmio2);
+                                     "CCPv5 + 0x6000", &pThis->hMmio2);
     return rc;
 }
 
