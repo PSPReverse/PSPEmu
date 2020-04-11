@@ -547,6 +547,34 @@ static int gdbStubCmdIoBpDel(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const
 }
 
 
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdIoSetPc(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    /* Parse all arguments. */
+    int rcGdbStub = GDBSTUB_INF_SUCCESS;
+    char *pszArgsEnd = NULL;
+    uint32_t uPc = strtoul(pszArgs, &pszArgsEnd, 0);
+    if (   pszArgsEnd
+        && *pszArgsEnd == '\0')
+    {
+        PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
+        int rc = PSPEmuCoreExecSetStartAddr(hPspCore, uPc);
+        if (rc)
+            pHlp->pfnPrintf(pHlp, "Failed to set %#x as the new PC\n", uPc);
+        else
+            pHlp->pfnPrintf(pHlp, "Set %#x as the new PC\n", uPc);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid argument %s given\n", pszArgs);
+
+    return rcGdbStub;
+}
+
+
 static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser);
 
 /**
@@ -559,6 +587,7 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "reset",   "Restarts the whole emulation",                                                                    gdbStubCmdRestart }, /* Alias for restart */
     { "iobp",    "Sets an I/O breakpoint, arguments: mmio|smn|x86 <address> <sz (1,2,4 or 0)> r|w|rw before|after", gdbStubCmdIoBp    },
     { "iobpdel", "Deletes an I/O breakpoint, arguments: <id>",                                                      gdbStubCmdIoBpDel },
+    { "pcset",   "Sets the PC when GDB is too stupid to do it",                                                     gdbStubCmdIoSetPc },
     { NULL,      NULL,                                                                                              NULL              }
 };
 
