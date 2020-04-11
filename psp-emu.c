@@ -71,6 +71,7 @@ static struct option g_aOptions[] =
     {"emulate-single-socket-id",     required_argument, 0, 'O'},
     {"emulate-single-die-id",        required_argument, 0, 'D'},
     {"emulate-devices",              required_argument, 0, 'E'},
+    {"iom-log-all-accesses",         no_argument      , 0, 'I'},
     {"dbg-step-count",               required_argument, 0, 'G'},
 
     {"help",                         no_argument,       0, 'H'},
@@ -204,6 +205,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fTraceSvcs            = false;
     pCfg->fTimerRealtime        = false;
     pCfg->fBootRomSvcPageModify = true;
+    pCfg->fIomLogAllAccesses    = false;
     pCfg->pvFlashRom            = NULL;
     pCfg->cbFlashRom            = 0;
     pCfg->pvOnChipBl            = NULL;
@@ -262,6 +264,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --emulate-single-socket-id <id> Emulate only a single PSP with the given socket ID\n"
                        "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n"
                        "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n"
+                       "    --iom-log-all-accesses I/O manager logs all device accesses not only the ones to unassigned regions\n"
                        "    --dbg-step-count <count> Number of instructions to step through in a single round, use at own RISK\n",
                        argv[0]);
                 exit(0);
@@ -401,6 +404,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'F':
                 pCfg->pszSpiFlashTrace = optarg;
+                break;
+            case 'I':
+                pCfg->fIomLogAllAccesses = true;
                 break;
             case 'G':
                 pCfg->cDbgInsnStep = strtoul(optarg, NULL, 10);

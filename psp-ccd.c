@@ -748,6 +748,8 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                 /* Set the on chip bootloader if configured. */
                 if (pCfg->enmMode == PSPEMUMODE_SYSTEM_ON_CHIP_BL)
                     rc = PSPEmuCoreSetOnChipBl(pThis->hPspCore, pCfg->pvOnChipBl, pCfg->cbOnChipBl);
+                if (!rc)
+                    rc = PSPEmuIoMgrTraceAllAccessesSet(pThis->hIoMgr, pCfg->fIomLogAllAccesses);
 
                 if (!rc)
                 {
