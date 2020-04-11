@@ -260,7 +260,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --spi-flash-trace <path/to/psptrace/compatible/flash/trace>\n"
                        "    --sockets <number of sockets to emulate>\n"
                        "    --ccds-per-sockets <number of CCDS per socket to emulate>\n"
-                       "    --new-style Enable the new style code (WIP)\n"
                        "    --emulate-single-socket-id <id> Emulate only a single PSP with the given socket ID\n"
                        "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n"
                        "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n"
