@@ -438,7 +438,7 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
         {
             PPSPTRACEEVTDEVXFER pDevXfer = (PPSPTRACEEVTDEVXFER)&pEvt->abContent[0];
 
-            rcStr = snprintf(pszCur, cchLeft, "DEV %s %s %#16lx %u",
+            rcStr = snprintf(pszCur, cchLeft, "DEV %s %-32s %#16lx %u",
                              pDevXfer->fRead ? "READ " : "WRITE",
                              pDevXfer->pszDevId,
                              pDevXfer->uAddrDev,
