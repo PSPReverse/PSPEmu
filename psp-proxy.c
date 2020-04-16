@@ -26,7 +26,7 @@
 
 
 /**
- * PSP MMIO blacklist descripto.
+ * PSP MMIO blacklist descriptor.
  */
 typedef struct PSPMMIOBLACKLISTDESC
 {
@@ -48,11 +48,43 @@ typedef const PSPMMIOBLACKLISTDESC *PCPSPMMIOBLACKLISTDESC;
 
 
 /**
+ * PSP SMN blacklist descriptor.
+ */
+typedef struct PSPSMNBLACKLISTDESC
+{
+    /** SMN address being blacklisted. */
+    SMNADDR                         SmnAddr;
+    /** Access size, 0 means size doesn't matter. */
+    size_t                          cbAcc;
+    /** Flag whether writes are blacklisted. */
+    bool                            fWrites;
+    /** Flag whether reads are blacklisted. */
+    bool                            fReads;
+    /** Value to return on reads if blacklisted. */
+    uint32_t                        u32ValRead;
+} PSPSMNBLACKLISTDESC;
+/** Pointer to a blacklist descriptor. */
+typedef PSPSMNBLACKLISTDESC *PPSPSMNBLACKLISTDESC;
+/** Pointer to a const blacklist descriptor. */
+typedef const PSPSMNBLACKLISTDESC *PCPSPSMNBLACKLISTDESC;
+
+
+/**
  * MMIO address blacklisted for the Zen on chip bootloader.
  */
 static const PSPMMIOBLACKLISTDESC g_aMmioBlacklistedZenOnChip[] =
 {
      { 0x320001c, 0, true, false, 0 } /* Writing hangs the proxy stub. */
+};
+
+
+/**
+ * SMN address blacklisted for the Zen off chip bootloader.
+ */
+static const PSPSMNBLACKLISTDESC g_aSmnBlacklistedZenOffChip[] =
+{
+     { 0x00000c00, 0, true, true, 0 }, /* Reading hangs the proxy stub. */
+     { 0x00000c0c, 0, true, true, 0 }  /* Reading hangs the proxy stub. */
 };
 
 
@@ -120,6 +152,35 @@ bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite,
 bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
                                 PCPSPEMUCFG pCfg, void *pvReadVal)
 {
+    if (   (   enmStage == PSPPROXYBLSTAGE_OFF_CHIP
+            || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
+        && pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN)
+    {
+        for (uint32_t i = 0; i < ELEMENTS(g_aSmnBlacklistedZenOffChip); i++)
+        {
+            PCPSPSMNBLACKLISTDESC pDesc = &g_aSmnBlacklistedZenOffChip[i];
+
+            if (pDesc->SmnAddr == SmnAddr)
+            {
+                if (   (   pDesc->cbAcc == cbAcc
+                        || pDesc->cbAcc == 0)
+                    && (   (   fWrite
+                            && pDesc->fWrites)
+                        || (   !fWrite
+                            && pDesc->fReads)))
+                {
+                    /* On a read return the value to be used instead. */
+                    if (!fWrite)
+                        pspProxyRead(pvReadVal, pDesc->u32ValRead, cbAcc);
+                    return false;
+                }
+
+                /* Other checks failed so we can stop searching here (every address only has one descriptor). */
+                break;
+            }
+        }
+    }
+
     return true;
 }
 
