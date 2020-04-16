@@ -130,16 +130,21 @@ static void pspEmuCfgFree(PPSPEMUCFG pCfg)
 static const char **pspEmuCfgParseDevices(const char *pszDevString)
 {
     /* Count the number of : separators first. */
-    uint32_t cDevs = 2; /* Account for the first device + NULL entry in the table. */
+    uint32_t cDevs = 1; /* Account for the NULL entry in the table. */
     const char *pszCur = pszDevString;
-    for (;;)
+    while (*pszCur != '\0')
     {
         char *pszSep = strchr(pszCur, ':');
+        if (!pszSep) /* Last device? */
+            pszSep = strchr(pszCur, '\0');
         if (!pszSep)
             break;
 
         cDevs++;
-        pszCur = pszSep + 1;
+        if (*pszSep != '\0')
+            pszCur = pszSep + 1;
+        else
+            pszCur = pszSep;
     }
 
     const char **papszDevs = (const char **)calloc(cDevs, sizeof(const char *));
@@ -148,9 +153,11 @@ static const char **pspEmuCfgParseDevices(const char *pszDevString)
         uint32_t idxDev = 0;
 
         pszCur = pszDevString;
-        for (;;)
+        while (*pszCur != '\0')
         {
             char *pszSep = strchr(pszCur, ':');
+            if (!pszSep)
+                pszSep = strchr(pszCur, '\0');
             if (!pszSep)
                 break;
 
@@ -171,7 +178,10 @@ static const char **pspEmuCfgParseDevices(const char *pszDevString)
             }
 
             idxDev++;
-            pszCur = pszSep + 1;
+            if (*pszSep != '\0')
+                pszCur = pszSep + 1;
+            else
+                pszCur = pszSep;
         }
     }
 
