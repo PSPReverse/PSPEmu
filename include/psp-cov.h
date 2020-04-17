@@ -43,7 +43,7 @@ typedef PSPCOV *PPSPCOV;
  * @param   phCov                   Where to store the coverage tracer handle on success.
  * @param   hPspCore                PSP core handle to create the coverage trace for.
  * @param   PspAddrBegin            Where to start collecting coverage information.
- * @param   PspAddrEnd              Where to stop collecting coverage information, exclusive.
+ * @param   PspAddrEnd              Where to stop collecting coverage information, inclusive.
  */
 int PSPEmuCovCreate(PPSPCOV phCov, PSPCORE hPspCore, PSPADDR PspAddrBegin, PSPADDR PspAddrEnd);
 

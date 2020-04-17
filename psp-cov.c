@@ -281,14 +281,14 @@ int PSPEmuCovCreate(PPSPCOV phCov, PSPCORE hPspCore, PSPADDR PspAddrBegin, PSPAD
          * Allocate the bitmap, one instruction is at least two bytes (Thumb), so we need
          * one bit for every two bytes in the range.
          */
-        size_t cbBmHit = (PspAddrEnd - PspAddrBegin) / 2 + 1; /* One byte extra in case the range is odd (which it shouldn't be) */
+        size_t cbBmHit = (PspAddrEnd - PspAddrBegin + 1) / 2 + 1; /* One byte extra in case the range is odd (which it shouldn't be) */
         pThis->pbmHit = (uint8_t *)calloc(1, cbBmHit);
         if (pThis->pbmHit)
         {
             pThis->cbBmHit = cbBmHit;
 
             /* Register the handler with the core. */
-            rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBegin, PspAddrEnd - 1 /*inclusive*/,
+            rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBegin, PspAddrEnd /*inclusive*/,
                                          PSPEMU_CORE_TRACE_F_EXEC | PSPEMU_CORE_TRACE_F_EXEC_BASIC_BLOCK,
                                          pspEmuCovBbTrace, pThis);
             if (!rc)
