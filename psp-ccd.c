@@ -38,6 +38,7 @@
 #include <psp-svc.h>
 #include <psp-trace.h>
 #include <psp-proxy.h>
+#include <psp-cov.h>
 
 
 /**
@@ -57,6 +58,8 @@ typedef struct PSPCCDINT
     PSPPROXYCTX                 hPspProxyCtx;
     /** The trace log handle. */
     PSPTRACE                    hTrace;
+    /** The coverage trace handle. */
+    PSPCOV                      hCov;
     /** The SMN region handle for the ID register. */
     PSPIOMREGIONHANDLE          hSmnRegId;
     /** Head of the instantiated devices. */
@@ -700,10 +703,43 @@ static int pspEmuCcdExecEnvInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
  */
 static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 {
-    int rc = PSPEmuTraceCreateForFile(&pThis->hTrace, PSPEMU_TRACE_F_DEFAULT, pThis->hPspCore,
+    int rc = 0;
+
+    if (pCfg->pszTraceLog)
+    {
+        rc = PSPEmuTraceCreateForFile(&pThis->hTrace, PSPEMU_TRACE_F_DEFAULT, pThis->hPspCore,
                                       0, pCfg->pszTraceLog);
-    if (!rc)
-        rc = PSPEmuTraceSetDefault(pThis->hTrace);
+        if (!rc)
+            rc = PSPEmuTraceSetDefault(pThis->hTrace);
+    }
+
+    if (pCfg->pszCovTrace)
+    {
+        PSPADDR PspAddrBegin = 0;
+        PSPADDR PspAddrEnd   = 0;
+
+        /* Determine coverage trace range based on the emulation mode. */
+        switch (pCfg->enmMode)
+        {
+            case PSPEMUMODE_APP:
+                PspAddrBegin = 0x15100;
+                PspAddrEnd   = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x4f000 : 0x3f000;
+                break;
+            case PSPEMUMODE_SYSTEM:
+                PspAddrBegin = 0x100;
+                PspAddrEnd   = 0x15000;
+                break;
+            case PSPEMUMODE_SYSTEM_ON_CHIP_BL:
+                PspAddrBegin = 0xffff0000;
+                PspAddrEnd   = 0xffffffff;
+                break;
+            default:
+                rc = -1; /* Should not happen. */
+        }
+
+        if (!rc)
+            rc = PSPEmuCovCreate(&pThis->hCov, pThis->hPspCore, PspAddrBegin, PspAddrEnd);
+    }
 
     return rc;
 }
@@ -738,6 +774,7 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
         pThis->idSocket        = idSocket;
         pThis->idCcd           = idCcd;
         pThis->fRegSmnHandlers = false;
+        pThis->hCov            = NULL;
 
         rc = PSPEmuCoreCreate(&pThis->hPspCore, pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K);
         if (!rc)
@@ -805,6 +842,18 @@ void PSPEmuCcdDestroy(PSPCCD hCcd)
     {
         PSPEmuTraceDestroy(pThis->hTrace);
         pThis->hTrace = NULL;
+    }
+
+    if (pThis->hCov)
+    {
+        /* Dump to file. */
+        int rc = PSPEmuCovDumpToFile(pThis->hCov, pThis->pCfg->pszCovTrace);
+        if (rc)
+            printf("Dumping the coverage trace to %s failed with %d\n", pThis->pCfg->pszCovTrace, rc);
+        else
+            printf("Dumped the coverage trace successfully to %s\n", pThis->pCfg->pszCovTrace, rc);
+        PSPEmuCovDestroy(pThis->hCov);
+        pThis->hCov = NULL;
     }
 
     if (pThis->hSvc)

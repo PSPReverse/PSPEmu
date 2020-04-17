@@ -66,6 +66,7 @@ static struct option g_aOptions[] =
     {"preload-app",                  required_argument, 0, 'j'},
     {"em100-emu-port",               required_argument, 0, 'e'},
     {"spi-flash-trace",              required_argument, 0, 'F'},
+    {"coverage-trace",               required_argument, 0, 'V'},
     {"sockets",                      required_argument, 0, 'S'},
     {"ccds-per-socket",              required_argument, 0, 'C'},
     {"emulate-single-socket-id",     required_argument, 0, 'O'},
@@ -235,11 +236,12 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszAppPreload         = NULL;
     pCfg->uEm100FlashEmuPort    = 0;
     pCfg->pszSpiFlashTrace      = NULL;
+    pCfg->pszCovTrace           = NULL;
     pCfg->cSockets              = 1;
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -268,6 +270,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --preload-app <path/to/app/binary/with/hdr>\n"
                        "    --em100-emu-port <port for the EM100 network emulation>\n"
                        "    --spi-flash-trace <path/to/psptrace/compatible/flash/trace>\n"
+                       "    --coverage-trace <path/to/coverage/trace/file>\n"
                        "    --sockets <number of sockets to emulate>\n"
                        "    --ccds-per-sockets <number of CCDS per socket to emulate>\n"
                        "    --emulate-single-socket-id <id> Emulate only a single PSP with the given socket ID\n"
@@ -413,6 +416,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'F':
                 pCfg->pszSpiFlashTrace = optarg;
+                break;
+            case 'V':
+                pCfg->pszCovTrace = optarg;
                 break;
             case 'I':
                 pCfg->fIomLogAllAccesses = true;
