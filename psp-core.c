@@ -930,7 +930,15 @@ int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAd
         pHook->pfnTrace     = pfnTrace;
         pHook->pvUser       = pvUser;
 
-        uc_hook_type fHook = fFlags & PSPEMU_CORE_TRACE_F_EXEC ? UC_HOOK_CODE : 0;
+        uc_hook_type fHook = 0;
+        if (fFlags & PSPEMU_CORE_TRACE_F_EXEC)
+        {
+            if (fFlags & PSPEMU_CORE_TRACE_F_EXEC_BASIC_BLOCK)
+                fHook = UC_HOOK_BLOCK;
+            else
+                fHook = UC_HOOK_CODE;
+        }
+
         void *pfnHook = (void *)(uintptr_t)pspEmuCoreUcHookWrapper;
         if (fFlags & PSPEMU_CORE_TRACE_F_READ)
         {

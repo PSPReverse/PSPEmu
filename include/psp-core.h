@@ -84,6 +84,8 @@ typedef enum PSPCOREREG
 #define PSPEMU_CORE_TRACE_F_READ                BIT(1)
 /** Callback is triggered when data is written the specified range. */
 #define PSPEMU_CORE_TRACE_F_WRITE               BIT(2)
+/** Callback triggers on the basic block instead of the particular instruction for PSPEMU_CORE_TRACE_F_EXEC. */
+#define PSPEMU_CORE_TRACE_F_EXEC_BASIC_BLOCK    BIT(3)
 
 
 /** The mapped memory region has execute permissions. */
