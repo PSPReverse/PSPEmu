@@ -127,34 +127,14 @@ static bool pspEmuCovBbRangeSet(PPSPCOVINT pThis, PSPADDR PspAddr, size_t cbBb)
     uint8_t *pbmHit = &pThis->pbmHit[idxByte];
     if (idxBit != 0)
     {
-        switch (idxBit)
+        while (   idxBit < 8
+               && cBits)
         {
-            case 1:
-                *pbmHit = 0xfe;
-                break;
-            case 2:
-                *pbmHit = 0xfc;
-                break;
-            case 3:
-                *pbmHit = 0xf8;
-                break;
-            case 4:
-                *pbmHit = 0xf0;
-                break;
-            case 5:
-                *pbmHit = 0xe0;
-                break;
-            case 6:
-                *pbmHit = 0xc0;
-                break;
-            case 7:
-                *pbmHit = 0x80;
-                break;
-            default:
-                break; /* This is not supposed to happen at all. */
+            *pbmHit |= BIT(idxBit);
+            idxBit++;
+            cBits--;
         }
 
-        cBits -= 8 - idxBit;
         pbmHit++;
     }
 
@@ -170,26 +150,28 @@ static bool pspEmuCovBbRangeSet(PPSPCOVINT pThis, PSPADDR PspAddr, size_t cbBb)
     idxBit = 0;
     switch (cBits)
     {
+        case 0:
+            break;
         case 1:
-            *pbmHit = 0x01;
+            *pbmHit |= 0x01;
             break;
         case 2:
-            *pbmHit = 0x03;
+            *pbmHit |= 0x03;
             break;
         case 3:
-            *pbmHit = 0x07;
+            *pbmHit |= 0x07;
             break;
         case 4:
-            *pbmHit = 0x0f;
+            *pbmHit |= 0x0f;
             break;
         case 5:
-            *pbmHit = 0x1f;
+            *pbmHit |= 0x1f;
             break;
         case 6:
-            *pbmHit = 0x3f;
+            *pbmHit |= 0x3f;
             break;
         case 7:
-            *pbmHit = 0x7f;
+            *pbmHit |= 0x7f;
             break;
         default:
             break; /* This is not supposed to happen at all. */
@@ -198,7 +180,13 @@ static bool pspEmuCovBbRangeSet(PPSPCOVINT pThis, PSPADDR PspAddr, size_t cbBb)
 
 
 /**
+ * The PSP core tracing callback.
  *
+ * @returns nothing.
+ * @param   hCore                   The PSP core handle causing the call.
+ * @param   PspAddr                 The PSP address.
+ * @param   cbBb                    Size of the basic block.
+ * @param   pvUser                  Opaque user data passed during registration.
  */
 static void pspEmuCovBbTrace(PSPCORE hCore, PSPADDR PspAddr, uint32_t cbBb, void *pvUser)
 {
