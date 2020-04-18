@@ -39,10 +39,27 @@
 #include <common/cdefs.h>
 
 #include <psp-dbg.h>
+#include <psp-cov.h>
 
 
 /** Pointer to the debugger instance data. */
 typedef struct PSPDBGINT *PPSPDBGINT;
+
+
+/**
+ * A coverage tracer instance.
+ */
+typedef struct PSPDBGCOV
+{
+    /** Next coverage tracer in the list. */
+    struct PSPDBGCOV        *pNext;
+    /** Coverage tracer ID. */
+    uint32_t                idCov;
+    /** The coverage tracer instance handle. */
+    PSPCOV                  hCov;
+} PSPDBGCOV;
+/** Pointer to to a coverage tracer instance. */
+typedef PSPDBGCOV *PPSPDBGCOV;
 
 
 /**
@@ -96,8 +113,12 @@ typedef struct PSPDBGINT
     PCPSPDBGTP              pTpHit;
     /** Current I/O tracepoint which hit. */
     PCPSPDBGTP              pIoTpHit;
+    /** List of active coverage tracers. */
+    PPSPDBGCOV              pCovHead;
     /** Next tracepoint ID. */
     uint32_t                idTpNext;
+    /** Next coverage trace ID. */
+    uint32_t                idCovNext;
     /** Number of instructions to step when the code is running. */
     uint32_t                cInsnsStep;
     /** Number of CCDs in the array below. */
@@ -342,6 +363,61 @@ static void pspDbgIoTpHit(PPSPDBGTP pTp)
 
 
 /**
+ * Finds a coverage tracer by the given ID.
+ *
+ * @returns Pointer to the coverage tracer on success or NULL if not found.
+ * @param   pThis                   The PSP debugger instance.
+ * @param   idCov                   The trace point ID to look for.
+ */
+static PPSPDBGCOV pspDbgCovFindById(PPSPDBGINT pThis, uint32_t idCov)
+{
+    PPSPDBGCOV pCovCur = pThis->pCovHead;
+    while (pCovCur)
+    {
+        if (pCovCur->idCov == idCov)
+            return pCovCur;
+
+        pCovCur = pCovCur->pNext;
+    }
+
+    return NULL;
+}
+
+
+/**
+ * Unlinks and destroys the given coverage tracer.
+ *
+ * @returns nothing.
+ * @param   pThis                   The PSP debugger instance.
+ * @param   pCov                    The coverage tracer to destroy.
+ */
+static void pspDbgCovDestroy(PPSPDBGINT pThis, PPSPDBGCOV pCov)
+{
+    /* Find the coverage to remove. */
+    PPSPDBGCOV pCovPrev = NULL;
+    PPSPDBGCOV pCovCur = pThis->pCovHead;
+    while (   pCovCur
+           && pCovCur != pCov)
+    {
+        pCovPrev = pCovCur;
+        pCovCur = pCovCur->pNext;
+    }
+
+    if (pCovCur)
+    {
+        /* Unlink and free memory. */
+        if (pCovPrev)
+            pCovPrev->pNext = pCovCur->pNext;
+        else
+            pThis->pCovHead = pCovCur->pNext;
+    }
+    /* else assert() should never happen */
+
+    free(pCov);
+}
+
+
+/**
  * @copydoc{FNPSPIOMSMNTRACE}
  */
 static void pspDbgIoSmnTpHit(SMNADDR offSmnAbs, const char *pszDevId, SMNADDR offSmnDev, size_t cbAccess,
@@ -575,6 +651,137 @@ static int gdbStubCmdIoSetPc(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const
 }
 
 
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdCovTrace(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD  hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+    PSPCORE hPspCore = NULL;
+
+    int rc = PSPEmuCcdQueryCore(hCcd, &hPspCore);
+    if (rc)
+        return pspEmuDbgErrConvertToGdbStubErr(rc);
+
+    /* Parse all arguments. */
+    const char *pszAddrBegin = pszArgs;
+    const char *pszAddrEnd   = pszAddrBegin ? strchr(pszAddrBegin + 1, ' ') : NULL;
+    if (   pszAddrBegin
+        && pszAddrEnd)
+    {
+        pszAddrEnd++; /* Get past the space. */
+
+        char *pszTmp = NULL;
+        PSPADDR PspAddrBegin = strtoul(pszAddrBegin, &pszTmp, 0 /*base*/);
+        if (   pszTmp != pszAddrBegin
+            && *pszTmp == ' ')
+        {
+            PSPADDR PspAddrEnd = strtoul(pszAddrEnd, &pszTmp, 0 /*base*/);
+            if (   pszTmp != pszAddrBegin
+                && *pszTmp == '\0')
+            {
+                PPSPDBGCOV pCov = (PPSPDBGCOV)calloc(1, sizeof(*pCov));
+                if (pCov)
+                {
+                    rc = PSPEmuCovCreate(&pCov->hCov, hPspCore, PspAddrBegin, PspAddrEnd);
+                    if (!rc)
+                    {
+                        pCov->idCov = pThis->idCovNext++;
+                        pCov->pNext = pThis->pCovHead;
+                        pThis->pCovHead = pCov;
+                        pHlp->pfnPrintf(pHlp, "Cover tracer with ID %u created succcessfully\n", pCov->idCov);
+                    }
+                    else
+                        pHlp->pfnPrintf(pHlp, "Creating the coverage trace failed with %d\n", rc);
+                }
+                else
+                    pHlp->pfnPrintf(pHlp, "Out of memory allocating coverage tracer tracking structure\n");
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Invalid characters in end address detected: \"%s\"\n", pszArgs);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Invalid characters in start address detected: \"%s\"\n", pszArgs);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly two arguments: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdCovTraceDump(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    /* Parse all arguments. */
+    const char *pszId = pszArgs;
+    const char *pszFilename = pszId ? strchr(pszId + 1, ' ') : NULL;
+    if (   pszId
+        && pszFilename)
+    {
+        pszFilename++; /* Get past the space. */
+
+        char *pszTmp = NULL;
+        uint32_t idCov = strtoul(pszId, &pszTmp, 10);
+        PPSPDBGCOV pCov = pspDbgCovFindById(pThis, idCov);
+        if (pCov)
+        {
+            int rc = PSPEmuCovDumpToFile(pCov->hCov, pszFilename);
+            if (!rc)
+                pHlp->pfnPrintf(pHlp, "Coverage trace dumped to file \"%s\"\n", pszFilename);
+            else
+                pHlp->pfnPrintf(pHlp, "Dumping coverage trace to file \"%s\" failed with %d\n", pszFilename, rc);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Coverage tracer with ID %u not found\n", idCov);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly two arguments: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdCovTraceDel(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    /* Parse all arguments. */
+    const char *pszId = pszArgs;
+    if (pszId)
+    {
+        char *pszTmp = NULL;
+        uint32_t idCov = strtoul(pszId, &pszTmp, 10);
+        if (   pszId != pszTmp
+            && *pszTmp == '\0')
+        {
+            PPSPDBGCOV pCov = pspDbgCovFindById(pThis, idCov);
+            if (pCov)
+            {
+                pspDbgCovDestroy(pThis, pCov);
+                pHlp->pfnPrintf(pHlp, "Coverage tracer with ID %u destroyed successfully\n", idCov);
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Coverage tracer with ID %u not found\n", idCov);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Coverage trace ID contains invalid characters: \"%s\"\n", pszId);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly one argument: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
 static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser);
 
 /**
@@ -582,13 +789,16 @@ static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const ch
  */
 static const GDBSTUBCMD g_aGdbCmds[] =
 {
-    { "help",    "This help text",                                                                                  gdbStubCmdHelp    },
-    { "restart", "Restarts the whole emulation",                                                                    gdbStubCmdRestart },
-    { "reset",   "Restarts the whole emulation",                                                                    gdbStubCmdRestart }, /* Alias for restart */
-    { "iobp",    "Sets an I/O breakpoint, arguments: mmio|smn|x86 <address> <sz (1,2,4 or 0)> r|w|rw before|after", gdbStubCmdIoBp    },
-    { "iobpdel", "Deletes an I/O breakpoint, arguments: <id>",                                                      gdbStubCmdIoBpDel },
-    { "pcset",   "Sets the PC when GDB is too stupid to do it",                                                     gdbStubCmdIoSetPc },
-    { NULL,      NULL,                                                                                              NULL              }
+    { "help",         "This help text",                                                                                  gdbStubCmdHelp         },
+    { "restart",      "Restarts the whole emulation",                                                                    gdbStubCmdRestart      },
+    { "reset",        "Restarts the whole emulation",                                                                    gdbStubCmdRestart      }, /* Alias for restart */
+    { "iobp",         "Sets an I/O breakpoint, arguments: mmio|smn|x86 <address> <sz (1,2,4 or 0)> r|w|rw before|after", gdbStubCmdIoBp         },
+    { "iobpdel",      "Deletes an I/O breakpoint, arguments: <id>",                                                      gdbStubCmdIoBpDel      },
+    { "pcset",        "Sets the PC when GDB is too stupid to do it",                                                     gdbStubCmdIoSetPc      },
+    { "covtrace",     "Enable a new coverage trace, arguments: <begin> <end>",                                           gdbStubCmdCovTrace     },
+    { "covtracedump", "Dumps a coverage trace to the given file, arguments: <id> <filename>",                            gdbStubCmdCovTraceDump },
+    { "covtracedel",  "Delete a coverage tracer, arguments: <id>",                                                       gdbStubCmdCovTraceDel  },
+    { NULL,           NULL,                                                                                              NULL                   }
 };
 
 
@@ -1075,10 +1285,12 @@ int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, const PP
         pThis->iFdGdbCon    = 0;
         pThis->fCoreRunning = false;
         pThis->pTpsHead     = NULL;
+        pThis->pCovHead     = NULL;
         pThis->pIoTpHit     = 0;
         pThis->cInsnsStep   = cInsnsStep;
         pThis->cCcds        = cCcds;
         pThis->idxCcd       = 0;
+        pThis->idCovNext    = 0;
         for (uint32_t i = 0; i < cCcds; i++)
             pThis->ahCcds[i] = pahCcds[i];
 
