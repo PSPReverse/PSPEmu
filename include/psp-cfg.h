@@ -147,6 +147,8 @@ typedef struct PSPEMUCFG
     uint16_t                uDbgPort;
     /** Maximum number of instructions to execute in one round, used to workaround a unicorn sync sate issue. */
     uint32_t                cDbgInsnStep;
+    /** Address to run up to before dropping into the debugger. */
+    PSPADDR                 PspAddrDbgRunUpTo;
     /** Pointer to the read flash rom content. */
     void                    *pvFlashRom;
     /** Size of the flash ROM in bytes. */

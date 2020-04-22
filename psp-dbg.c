@@ -1396,7 +1396,9 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
         pTp->u.PspAddrTp = pThis->PspAddrRunUpTo;
         PSPEmuCoreTraceRegister(hPspCore, pThis->PspAddrRunUpTo, pThis->PspAddrRunUpTo,
                                 PSPEMU_CORE_TRACE_F_EXEC, pspDbgTpBpHit, pTp);
-        rc = pspEmuDbgRunloopCoreRunning(pThis);
+        pThis->fCoreRunning = true;
+        rc = PSPEmuCoreExecRun(hPspCore, 0, PSPEMU_CORE_EXEC_INDEFINITE);
+        pThis->fCoreRunning = false;
     }
 
     while (!rc)

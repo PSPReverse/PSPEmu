@@ -74,6 +74,7 @@ static struct option g_aOptions[] =
     {"emulate-devices",              required_argument, 0, 'E'},
     {"iom-log-all-accesses",         no_argument      , 0, 'I'},
     {"dbg-step-count",               required_argument, 0, 'G'},
+    {"dbg-run-up-to",                required_argument, 0, 'U'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -211,6 +212,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fBinContainsHdr       = false;
     pCfg->uDbgPort              = 0;
     pCfg->cDbgInsnStep          = 0;
+    pCfg->PspAddrDbgRunUpTo     = UINT32_MAX;
     pCfg->fLoadPspDir           = false;
     pCfg->fIncptSvc6            = false;
     pCfg->fTraceSvcs            = false;
@@ -241,7 +243,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -277,6 +279,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n"
                        "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n"
                        "    --iom-log-all-accesses I/O manager logs all device accesses not only the ones to unassigned regions\n"
+                       "    --dbg-run-up-to <addr> Runs until the given address is hit and drops then into the debugger instead of right at the start\n"
                        "    --dbg-step-count <count> Number of instructions to step through in a single round, use at own RISK\n",
                        argv[0]);
                 exit(0);
@@ -426,6 +429,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'G':
                 pCfg->cDbgInsnStep = strtoul(optarg, NULL, 10);
                 break;
+            case 'U':
+                pCfg->PspAddrDbgRunUpTo = strtoul(optarg, NULL, 0);
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
@@ -556,7 +562,7 @@ static int pspEmuDbgRun(PSPCCD hCcd, PCPSPEMUCFG pCfg)
         {
             PSPDBG hDbg = NULL;
 
-            rc = PSPEmuDbgCreate(&hDbg, pCfg->uDbgPort, pCfg->cDbgInsnStep, UINT32_MAX /*PspAddrRunUpTo*/,
+            rc = PSPEmuDbgCreate(&hDbg, pCfg->uDbgPort, pCfg->cDbgInsnStep, pCfg->PspAddrDbgRunUpTo,
                                  &hCcd, 1);
             if (!rc)
             {
