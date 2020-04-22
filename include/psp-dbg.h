@@ -42,10 +42,12 @@ typedef PSPDBG *PPSPDBG;
  * @param   cInsnStep               Number of instructions to step in a single round
  *                                  when the CCD is running, 0 for default count.
  *                                  Only use something different when you know what you are doing.
+ * @param   PspAddrRunUpTo          Runs until this address is hit like without a debugger enabled
+ *                                  and drops into it when hit.
  * @param   pahCcds                 Array of CCD handles to handle with this debugger instance.
  * @param   cCcds                   NUmber of entris in the given array.
  */
-int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, const PPSPCCD pahCcds, uint32_t cCcds);
+int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR PspAddrRunUpTo, const PPSPCCD pahCcds, uint32_t cCcds);
 
 /**
  * Destroys the given debugger handle.

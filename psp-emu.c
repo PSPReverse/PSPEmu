@@ -556,7 +556,8 @@ static int pspEmuDbgRun(PSPCCD hCcd, PCPSPEMUCFG pCfg)
         {
             PSPDBG hDbg = NULL;
 
-            rc = PSPEmuDbgCreate(&hDbg, pCfg->uDbgPort, pCfg->cDbgInsnStep, &hCcd, 1);
+            rc = PSPEmuDbgCreate(&hDbg, pCfg->uDbgPort, pCfg->cDbgInsnStep, UINT32_MAX /*PspAddrRunUpTo*/,
+                                 &hCcd, 1);
             if (!rc)
             {
                 printf("Debugger is listening on port %u...\n", pCfg->uDbgPort);

@@ -75,6 +75,8 @@ typedef struct PSPDBGTP
     uint32_t                idTp;
     /** Number of times the trace point hit already. */
     uint32_t                cHits;
+    /** Number of time the trace point should hit until it is delete. */
+    uint32_t                cHitsMax;
     /** Flag whether this is "normal" or I/O trace point. */
     bool                    fIoTp;
     /** Type dependent data. */
@@ -109,16 +111,15 @@ typedef struct PSPDBGINT
     bool                    fSingleStep;
     /** Head of tracepoint list. */
     PPSPDBGTP               pTpsHead;
-    /** Current breakpoint which hit. */
-    PCPSPDBGTP              pTpHit;
-    /** Current I/O tracepoint which hit. */
-    PCPSPDBGTP              pIoTpHit;
     /** List of active coverage tracers. */
     PPSPDBGCOV              pCovHead;
     /** Next tracepoint ID. */
     uint32_t                idTpNext;
     /** Next coverage trace ID. */
     uint32_t                idCovNext;
+    /** Execute for the first time until this particular instruction is hit and
+     * then wait for a debugger to connect. */
+    PSPADDR                 PspAddrRunUpTo;
     /** Number of instructions to step when the code is running. */
     uint32_t                cInsnsStep;
     /** Number of CCDs in the array below. */
@@ -222,21 +223,24 @@ static PSPCCD pspEmuDbgGetCcdFromSelectedCcd(PPSPDBGINT pThis)
  * @returns Status code.
  * @param   pThis                   The PSP debugger instance.
  * @param   fIoTp                   Flag whether this is a I/O or normal trace point.
+ * @param   cHitsMax                Maximum amount of hits until the TP is removed.
+ *                                  Use 0 to disable removing the trace point altogether.
  * @param   ppTp                    Where to store the pointer to the created tracepoint on success.
  *
  * @note The trace point is already linked in to the list.
  */
-static int pspDbgTpCreate(PPSPDBGINT pThis, bool fIoTp, PPSPDBGTP *ppTp)
+static int pspDbgTpCreate(PPSPDBGINT pThis, bool fIoTp, uint32_t cHitsMax, PPSPDBGTP *ppTp)
 {
     int rc = 0;
     PPSPDBGTP pTp = (PPSPDBGTP)calloc(1, sizeof(*pTp));
     if (pTp)
     {
-        pTp->pNext = NULL;
-        pTp->pDbg  = pThis;
-        pTp->idTp  = pThis->idTpNext++;
-        pTp->cHits = 0;
-        pTp->fIoTp = fIoTp;
+        pTp->pNext    = NULL;
+        pTp->pDbg     = pThis;
+        pTp->idTp     = pThis->idTpNext++;
+        pTp->cHits    = 0;
+        pTp->cHitsMax = cHitsMax;
+        pTp->fIoTp    = fIoTp;
 
         /* Link into the list. */
         pTp->pNext = pThis->pTpsHead;
@@ -324,12 +328,13 @@ static void pspDbgTpHit(PSPCORE hCore, PPSPDBGTP pTp)
     if (!pThis->fSingleStep)
     {
         pThis->fCoreRunning = false;
-        if (pTp->fIoTp)
-            pThis->pIoTpHit = pTp;
-        else
-            pThis->pTpHit = pTp;
         PSPEmuCoreExecStop(hCore);
     }
+
+    /* Remove the trace point when it reached the hit limit. */
+    if (   pTp->cHits >= pTp->cHitsMax
+        && pTp->cHitsMax > 0)
+        pspDbgTpDestroy(pTp);
 }
 
 
@@ -536,7 +541,7 @@ static int gdbStubCmdIoBp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const ch
                     {
                         PPSPDBGTP pIoTp = NULL;
 
-                        int rc = pspDbgTpCreate(pThis, true /*fIoTp*/, &pIoTp);
+                        int rc = pspDbgTpCreate(pThis, true /*fIoTp*/, 0 /*cHitsMax*/, &pIoTp);
                         if (!rc)
                         {
                             if (pszAddrType[0] == 's' && pszAddrType[1] == 'm' && pszAddrType[2] == 'n' && pszAddrType[3] == ' ')
@@ -782,6 +787,32 @@ static int gdbStubCmdCovTraceDel(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, c
 }
 
 
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdInsnStepCnt(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    /* Parse all arguments. */
+    const char *pszCnt = pszArgs;
+    if (pszCnt)
+    {
+        char *pszTmp = NULL;
+        uint32_t cCnt = strtoul(pszCnt, &pszTmp, 10);
+        if (   pszCnt != pszTmp
+            && *pszTmp == '\0')
+            pThis->cInsnsStep = cCnt;
+        else
+            pHlp->pfnPrintf(pHlp, "Step count must be numeric: \"%s\"\n", pszCnt);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly one argument: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
 static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser);
 
 /**
@@ -798,6 +829,7 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "covtrace",     "Enable a new coverage trace, arguments: <begin> <end>",                                           gdbStubCmdCovTrace     },
     { "covtracedump", "Dumps a coverage trace to the given file, arguments: <id> <filename>",                            gdbStubCmdCovTraceDump },
     { "covtracedel",  "Delete a coverage tracer, arguments: <id>",                                                       gdbStubCmdCovTraceDel  },
+    { "insnstepcnt",  "Sets the instruction step count for one debug runloop round, US AT OWN RISK!",                    gdbStubCmdInsnStepCnt  },
     { NULL,           NULL,                                                                                              NULL                   }
 };
 
@@ -996,7 +1028,7 @@ static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTM
     int rcGdbStub = GDBSTUB_INF_SUCCESS;
     PSPADDR PspAddrBp = (PSPADDR)GdbTgtTpAddr;
     PPSPDBGTP pTp = NULL;
-    int rc = pspDbgTpCreate(pThis, false /*fIoTp*/, &pTp);
+    int rc = pspDbgTpCreate(pThis, false /*fIoTp*/, 0 /*cHitsMax*/, &pTp);
     if (!rc)
     {
         pTp->u.PspAddrTp = PspAddrBp;
@@ -1276,21 +1308,21 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
 }
 
 
-int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, const PPSPCCD pahCcds, uint32_t cCcds)
+int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR PspAddrRunUpTo, const PPSPCCD pahCcds, uint32_t cCcds)
 {
     int rc = 0;
     PPSPDBGINT pThis = (PPSPDBGINT)calloc(1, sizeof(*pThis) + cCcds * sizeof(PSPCCD));
     if (pThis)
     {
-        pThis->iFdGdbCon    = 0;
-        pThis->fCoreRunning = false;
-        pThis->pTpsHead     = NULL;
-        pThis->pCovHead     = NULL;
-        pThis->pIoTpHit     = 0;
-        pThis->cInsnsStep   = cInsnsStep;
-        pThis->cCcds        = cCcds;
-        pThis->idxCcd       = 0;
-        pThis->idCovNext    = 0;
+        pThis->iFdGdbCon      = 0;
+        pThis->fCoreRunning   = false;
+        pThis->pTpsHead       = NULL;
+        pThis->pCovHead       = NULL;
+        pThis->cInsnsStep     = cInsnsStep;
+        pThis->cCcds          = cCcds;
+        pThis->idxCcd         = 0;
+        pThis->idCovNext      = 0;
+        pThis->PspAddrRunUpTo = PspAddrRunUpTo;
         for (uint32_t i = 0; i < cCcds; i++)
             pThis->ahCcds[i] = pahCcds[i];
 
@@ -1352,6 +1384,20 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
 {
     int rc = 0;
     PPSPDBGINT pThis = hDbg;
+
+    /* We are supposed to be running up to a specified point insert a single shot trace point
+     * and a excercise the running runloop until the trace point is hit.
+     */
+    if (pThis->PspAddrRunUpTo != UINT32_MAX)
+    {
+        PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
+        PPSPDBGTP pTp = NULL;
+        pspDbgTpCreate(pThis, false /*fIoTp*/, 1 /*cHitsMax*/, &pTp);
+        pTp->u.PspAddrTp = pThis->PspAddrRunUpTo;
+        PSPEmuCoreTraceRegister(hPspCore, pThis->PspAddrRunUpTo, pThis->PspAddrRunUpTo,
+                                PSPEMU_CORE_TRACE_F_EXEC, pspDbgTpBpHit, pTp);
+        rc = pspEmuDbgRunloopCoreRunning(pThis);
+    }
 
     while (!rc)
     {
