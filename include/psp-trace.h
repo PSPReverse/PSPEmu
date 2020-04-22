@@ -83,6 +83,8 @@ typedef enum PSPTRACEEVTORIGIN
     PSPTRACEEVTORIGIN_STS,
     /** ACPI device related. */
     PSPTRACEEVTORIGIN_ACPI,
+    /** GPIO device related. */
+    PSPTRACEEVTORIGIN_GPIO,
     /** x86 UART related. */
     PSPTRACEEVTORIGIN_X86_UART,
     /** PSP proxy related. */
