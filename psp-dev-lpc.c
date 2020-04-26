@@ -35,6 +35,8 @@ typedef struct PSPDEVLPC
     PPSPDEV                 pDev;
     /** MMIO region handle for the SuperIO access port. */
     PSPIOMREGIONHANDLE      hMmioX86;
+    /** MMIO region handle for the SuperIO access port (0x2e/0x2f). */
+    PSPIOMREGIONHANDLE      hMmioX862e;
 } PSPDEVLPC;
 /** Pointer to an LPC device instance. */
 typedef PSPDEVLPC *PPSPDEVLPC;
@@ -81,6 +83,10 @@ static int pspDevLpcInit(PPSPDEV pDev)
     rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfffdfc00164e, 2,
                                     pspDevLpcRead, pspDevLpcWrite, pThis,
                                     "LPC host bridge", &pThis->hMmioX86);
+    if (!rc)
+        rc = PSPEmuIoMgrX86MmioRegister(pDev->hIoMgr, 0xfffdfc00002e, 2,
+                                        pspDevLpcRead, pspDevLpcWrite, pThis,
+                                        "SuperIO 0x2e", &pThis->hMmioX862e);
 
     return rc;
 }
