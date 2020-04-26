@@ -56,13 +56,13 @@ typedef const CMOSBANK *PCCMOSBANK;
 
 
 /**
- * GPIO device instance data.
+ * RTC device instance data.
  */
 typedef struct PSPDEVRTC
 {
     /** Pointer to the owning device instance. */
     PPSPDEV                 pDev;
-    /** The GPIO banks. */
+    /** The CMOS banks. */
     CMOSBANK                aBanks[2];
 } PSPDEVRTC;
 
@@ -80,7 +80,7 @@ static void pspDevRtcCmosBankRead(X86PADDR offMmio, size_t cbRead, void *pvVal, 
 
     if (cbRead != sizeof(uint8_t))
     {
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_GPIO,
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_RTC,
                                 "Invalid register read size %u cbRead=%zu", offMmio, cbRead);
         return;
     }
@@ -99,7 +99,7 @@ static void pspDevRtcCmosBankWrite(X86PADDR offMmio, size_t cbWrite, const void 
 
     if (cbWrite != sizeof(uint8_t))
     {
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_GPIO,
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_RTC,
                                 "Invalid register write size %u cbWrite=%zu", offMmio, cbWrite);
         return;
     }

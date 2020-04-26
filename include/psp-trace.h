@@ -87,6 +87,8 @@ typedef enum PSPTRACEEVTORIGIN
     PSPTRACEEVTORIGIN_GPIO,
     /** IOMUX device related. */
     PSPTRACEEVTORIGIN_IOMUX,
+    /** RTC device related. */
+    PSPTRACEEVTORIGIN_RTC,
     /** LPC device related. */
     PSPTRACEEVTORIGIN_LPC,
     /** x86 UART related. */
