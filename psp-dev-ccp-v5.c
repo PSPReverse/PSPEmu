@@ -1172,7 +1172,7 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
             while (   !rc
                    && cbLeft)
             {
-                uint8_t abData[32];
+                uint8_t abData[512];
                 size_t cbThisProc = MIN(cbLeft, sizeof(abData));
 
                 rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
