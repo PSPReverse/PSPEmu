@@ -70,11 +70,33 @@ typedef const PSPSMNBLACKLISTDESC *PCPSPSMNBLACKLISTDESC;
 
 
 /**
+ * x86 MMIO blacklist descriptor.
+ */
+typedef struct PSPX86BLACKLISTDESC
+{
+    /** SMN address being blacklisted. */
+    X86PADDR                        PhysX86Addr;
+    /** Access size, 0 means size doesn't matter. */
+    size_t                          cbAcc;
+    /** Flag whether writes are blacklisted. */
+    bool                            fWrites;
+    /** Flag whether reads are blacklisted. */
+    bool                            fReads;
+    /** Value to return on reads if blacklisted. */
+    uint32_t                        u32ValRead;
+} PSPX86BLACKLISTDESC;
+/** Pointer to a blacklist descriptor. */
+typedef PSPX86BLACKLISTDESC *PPSPX86BLACKLISTDESC;
+/** Pointer to a const blacklist descriptor. */
+typedef const PSPX86BLACKLISTDESC *PCPSPX86BLACKLISTDESC;
+
+
+/**
  * MMIO address blacklisted for the Zen on chip bootloader.
  */
 static const PSPMMIOBLACKLISTDESC g_aMmioBlacklistedZenOnChip[] =
 {
-     { 0x320001c, 0, true, false, 0 } /* Writing hangs the proxy stub. */
+    { 0xfffffff, 4, false, false, 0 } /* Dummy which never triggers. */
 };
 
 
@@ -83,8 +105,19 @@ static const PSPMMIOBLACKLISTDESC g_aMmioBlacklistedZenOnChip[] =
  */
 static const PSPSMNBLACKLISTDESC g_aSmnBlacklistedZenOffChip[] =
 {
-     { 0x00000c00, 0, true, true, 0 }, /* Reading hangs the proxy stub. */
-     { 0x00000c0c, 0, true, true, 0 }  /* Reading hangs the proxy stub. */
+    { 0x02dc4000, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
+    { 0x02dc4003, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
+    { 0x02dc401e, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
+    { 0x02dc401f, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
+};
+
+
+/**
+ * x86 address blacklisted for the Zen off chip bootloader.
+ */
+static const PSPX86BLACKLISTDESC g_ax86BlacklistedZenOffChip[] =
+{
+    { 0xffffffffffffffff, 8, false, false, 0 } /* Dummy which never triggers. */
 };
 
 
@@ -188,6 +221,35 @@ bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPP
 bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
                                 PCPSPEMUCFG pCfg, void *pvReadVal)
 {
+    if (   (   enmStage == PSPPROXYBLSTAGE_OFF_CHIP
+            || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
+        && pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN)
+    {
+        for (uint32_t i = 0; i < ELEMENTS(g_ax86BlacklistedZenOffChip); i++)
+        {
+            PCPSPX86BLACKLISTDESC pDesc = &g_ax86BlacklistedZenOffChip[i];
+
+            if (pDesc->PhysX86Addr == PhysX86Addr)
+            {
+                if (   (   pDesc->cbAcc == cbAcc
+                        || pDesc->cbAcc == 0)
+                    && (   (   fWrite
+                            && pDesc->fWrites)
+                        || (   !fWrite
+                            && pDesc->fReads)))
+                {
+                    /* On a read return the value to be used instead. */
+                    if (!fWrite)
+                        pspProxyRead(pvReadVal, pDesc->u32ValRead, cbAcc);
+                    return false;
+                }
+
+                /* Other checks failed so we can stop searching here (every address only has one descriptor). */
+                break;
+            }
+        }
+    }
+
     return true;
 }
 
