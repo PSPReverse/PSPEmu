@@ -27,7 +27,7 @@
 
 
 /**
- * GPIO device instance data.
+ * I/O MUX device instance data.
  */
 typedef struct PSPDEVIOMUX
 {
