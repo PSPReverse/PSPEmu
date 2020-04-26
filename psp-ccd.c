@@ -158,6 +158,7 @@ static PCPSPDEVREG g_apDevs[] =
     &g_DevRegGpio,
     &g_DevRegIoMux,
     &g_DevRegRtc,
+    &g_DevRegLpc,
     &g_DevRegSmnUnk,
     &g_DevRegX86Unk,
     &g_DevRegX86Uart,

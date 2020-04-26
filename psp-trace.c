@@ -228,6 +228,7 @@ static const char *pspEmuTraceGetEvtOriginStr(PSPTRACEEVTORIGIN enmOrigin)
         case PSPTRACEEVTORIGIN_STS:         return "STS";
         case PSPTRACEEVTORIGIN_GPIO:        return "GPIO";
         case PSPTRACEEVTORIGIN_IOMUX:       return "IOMUX";
+        case PSPTRACEEVTORIGIN_LPC:         return "LPC";
         case PSPTRACEEVTORIGIN_X86_UART:    return "X86_UART";
         case PSPTRACEEVTORIGIN_PROXY:       return "PROXY";
     }
