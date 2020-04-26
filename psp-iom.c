@@ -634,13 +634,18 @@ static void pspEmuIomX86TpCall(PPSPIOMINT pThis, X86PADDR PhysX86Addr, PPSPIOMRE
 }
 
 
-static void pspEmuIomSmnSlotsRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
+/**
+ * Reads from the given SMN based region.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager instance data.
+ * @param   pRegion                 The region to read from.
+ * @param   SmnAddr                 Absolute SMN address being read from.
+ * @param   cbRead                  How much to read.
+ * @param   pvDst                   Where to store the read data.
+ */
+static void pspEmuIomSmnRegionRead(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pRegion, SMNADDR SmnAddr, size_t cbRead, void *pvDst)
 {
-    PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
-
-    SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
-    PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
-
     pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
     {
@@ -659,13 +664,18 @@ static void pspEmuIomSmnSlotsRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead
 }
 
 
-static void pspEmuIomSmnSlotsWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser)
+/**
+ * Writes to the given SMN based region.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager instance data.
+ * @param   pRegion                 The region to read from.
+ * @param   SmnAddr                 Absolute SMN address being written to.
+ * @param   cbWrite                 How much to write.
+ * @param   pvSrc                   The data to write.
+ */
+static void pspEmuIomSmnRegionWrite(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pRegion, SMNADDR SmnAddr, size_t cbWrite, const void *pvSrc)
 {
-    PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
-
-    SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
-    PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
-
     pspEmuIomTraceRegionWrite(pThis, pRegion, PSPTRACEEVTORIGIN_SMN, SmnAddr, pvSrc, cbWrite);
     pspEmuIomSmnTpCall(pThis, SmnAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
     if (pRegion)
@@ -680,6 +690,84 @@ static void pspEmuIomSmnSlotsWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWri
 }
 
 
+/**
+ * Reads from the given MMIO based region.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager instance data.
+ * @param   pRegion                 The region to read from.
+ * @param   PspAddrMmio             Absolute MMIO address being read from.
+ * @param   cbRead                  How much to read.
+ * @param   pvDst                   Where to store the read data.
+ */
+static void pspEmuIomMmioRegionRead(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pRegion, PSPADDR PspAddrMmio, size_t cbRead, void *pvDst)
+{
+    pspEmuIomMmioTpCall(pThis, PspAddrMmio, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_BEFORE);
+    if (pRegion)
+    {
+        if (pRegion->u.Mmio.pfnRead)
+            pRegion->u.Mmio.pfnRead(PspAddrMmio - pRegion->u.Mmio.PspAddrMmioStart, cbRead, pvDst, pRegion->pvUser);
+        else
+            memset(pvDst, 0, cbRead);
+    }
+    else if (pThis->pfnMmioUnassignedRead)
+        pThis->pfnMmioUnassignedRead(PspAddrMmio, cbRead, pvDst, pThis->pvUserMmioUnassigned);
+    else
+        memset(pvDst, 0, cbRead);
+
+    pspEmuIomTraceRegionRead(pThis, pRegion, PSPTRACEEVTORIGIN_MMIO, PspAddrMmio, pvDst, cbRead);
+    pspEmuIomMmioTpCall(pThis, PspAddrMmio, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
+}
+
+
+/**
+ * Writes to the given MMIO based region.
+ *
+ * @returns nothing.
+ * @param   pThis                   The I/O manager instance data.
+ * @param   pRegion                 The region to read from.
+ * @param   PspAddrMmio             Absolute MMIO address being written to.
+ * @param   cbWrite                 How much to write.
+ * @param   pvSrc                   The data to write.
+ */
+static void pspEmuIomMmioRegionWrite(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pRegion, PSPADDR PspAddrMmio, size_t cbWrite, const void *pvSrc)
+{
+    pspEmuIomTraceRegionWrite(pThis, pRegion, PSPTRACEEVTORIGIN_MMIO, PspAddrMmio, pvSrc, cbWrite);
+    pspEmuIomMmioTpCall(pThis, PspAddrMmio, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
+    if (pRegion)
+    {
+        if (pRegion->u.Mmio.pfnWrite)
+            pRegion->u.Mmio.pfnWrite(PspAddrMmio - pRegion->u.Mmio.PspAddrMmioStart, cbWrite, pvSrc, pRegion->pvUser);
+    }
+    else if (pThis->pfnMmioUnassignedWrite)
+        pThis->pfnMmioUnassignedWrite(PspAddrMmio, cbWrite, pvSrc, pThis->pvUserMmioUnassigned);
+
+    pspEmuIomMmioTpCall(pThis, PspAddrMmio, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
+}
+
+
+static void pspEmuIomSmnSlotsRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
+{
+    PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
+
+    SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
+    PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
+
+    pspEmuIomSmnRegionRead(pThis, pRegion, SmnAddr, cbRead, pvDst);
+}
+
+
+static void pspEmuIomSmnSlotsWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser)
+{
+    PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
+
+    SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, uPspAddr);
+    PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
+
+    pspEmuIomSmnRegionWrite(pThis, pRegion, SmnAddr, cbWrite, pvSrc);
+}
+
+
 static void pspEmuIomMmioRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, void *pvDst, void *pvUser)
 {
     PPSPIOMINT pThis = (PPSPIOMINT)pvUser;
@@ -687,21 +775,7 @@ static void pspEmuIomMmioRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, vo
     uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
 
-    pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_BEFORE);
-    if (pRegion)
-    {
-        if (pRegion->u.Mmio.pfnRead)
-            pRegion->u.Mmio.pfnRead(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbRead, pvDst, pRegion->pvUser);
-        else
-            memset(pvDst, 0, cbRead);
-    }
-    else if (pThis->pfnMmioUnassignedRead)
-        pThis->pfnMmioUnassignedRead(uPspAddr, cbRead, pvDst, pThis->pvUserMmioUnassigned);
-    else
-        memset(pvDst, 0, cbRead);
-
-    pspEmuIomTraceRegionRead(pThis, pRegion, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvDst, cbRead);
-    pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbRead, pvDst, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
+    pspEmuIomMmioRegionRead(pThis, pRegion, uPspAddr, cbRead, pvDst);
 }
 
 
@@ -712,17 +786,7 @@ static void pspEmuIomMmioWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, 
     uPspAddr += 0x01000000 + 32 * _1M; /* The address contains the offset from the beginning of the registered range */
     PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomMmioFindRegion(pThis, uPspAddr);
 
-    pspEmuIomTraceRegionWrite(pThis, pRegion, PSPTRACEEVTORIGIN_MMIO, uPspAddr, pvSrc, cbWrite);
-    pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
-    if (pRegion)
-    {
-        if (pRegion->u.Mmio.pfnWrite)
-            pRegion->u.Mmio.pfnWrite(uPspAddr - pRegion->u.Mmio.PspAddrMmioStart, cbWrite, pvSrc, pRegion->pvUser);
-    }
-    else if (pThis->pfnMmioUnassignedWrite)
-        pThis->pfnMmioUnassignedWrite(uPspAddr, cbWrite, pvSrc, pThis->pvUserMmioUnassigned);
-
-    pspEmuIomMmioTpCall(pThis, uPspAddr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
+    pspEmuIomMmioRegionWrite(pThis, pRegion, uPspAddr, cbWrite, pvSrc);
 }
 
 
@@ -1526,6 +1590,61 @@ static void pspEmuIoMgrDestroyRegionList(PPSPIOMREGIONHANDLEINT pHead)
 }
 
 
+/**
+ * Checks whether the given PSP address is inside the SMN region and returns the proper region handle
+ * if asked for and the absolute SMN address being accessed.
+ *
+ * @returns Flag whether the given addres belongs to an SMN region.
+ * @param   pThis                   The I/O manager instance.
+ * @param   PspAddr                 The PSP address to check.
+ * @param   ppRegion                Where to store the pointer to the region, optional.
+ * @param   pSmnAddr                Where to store the SMN address on success.
+ */
+static bool pspEmuIoMgrAddrIsSmn(PPSPIOMINT pThis, PSPADDR PspAddr, PPSPIOMREGIONHANDLEINT *ppRegion,
+                                 SMNADDR *pSmnAddr)
+{
+    if (PspAddr >= 0x01000000 && PspAddr < 0x01000000 + 32 * _1M)
+    {
+        /* SMN device region. */
+        if (ppRegion)
+        {
+            PspAddr -= 0x01000000;
+
+            SMNADDR SmnAddr = pspEmuIomGetSmnAddrFromSlotAndOffset(pThis, PspAddr);
+            PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomSmnFindRegion(pThis, SmnAddr);
+            *ppRegion = pRegion;
+            *pSmnAddr = SmnAddr;
+        }
+        return true;
+    }
+
+    return false;
+}
+
+
+/**
+ * Checks whether the given PSP address is inside the MMIO region and returns the proper region handle
+ * if asked for.
+ *
+ * @returns Flag whether the given addres belongs to an MMIO region.
+ * @param   pThis                   The I/O manager instance.
+ * @param   PspAddr                 The PSP address to check.
+ * @param   ppRegion                Where to store the pointer to the region, optional.
+ */
+static bool pspEmuIoMgrAddrIsMmio(PPSPIOMINT pThis, PSPADDR PspAddr, PPSPIOMREGIONHANDLEINT *ppRegion)
+{
+    if (PspAddr >= 0x03000000 && PspAddr < 0x04000000)
+    {
+        /* Standard MMIO region. */
+        if (ppRegion)
+            *ppRegion = pspEmuIomMmioFindRegion(pThis, PspAddr);
+        return true;
+    }
+
+    return false;
+}
+
+
 int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
 {
     int rc = 0;
@@ -2115,7 +2234,20 @@ int PSPEmuIoMgrPspAddrRead(PSPIOM hIoMgr, PSPADDR PspAddr, void *pvDst, size_t c
 {
     PPSPIOMINT pThis = hIoMgr;
 
-    /** @todo Access handlers. */
+    PPSPIOMREGIONHANDLEINT pRegion;
+    SMNADDR SmnAddr;
+    if (pspEmuIoMgrAddrIsMmio(pThis, PspAddr, &pRegion))
+    {
+        pspEmuIomMmioRegionRead(pThis, pRegion, PspAddr, cbRead, pvDst);
+        return 0;
+    }
+    else if (pspEmuIoMgrAddrIsSmn(pThis, PspAddr, &pRegion, &SmnAddr))
+    {
+        pspEmuIomSmnRegionRead(pThis, pRegion, SmnAddr, cbRead, pvDst);
+        return 0;
+    }
+    /** @todo x86 */
+
     return PSPEmuCoreMemRead(pThis->hPspCore, PspAddr, pvDst, cbRead);
 }
 
@@ -2124,7 +2256,20 @@ int PSPEmuIoMgrPspAddrWrite(PSPIOM hIoMgr, PSPADDR PspAddr, const void *pvSrc, s
 {
     PPSPIOMINT pThis = hIoMgr;
 
-    /** @todo Access handlers. */
+    PPSPIOMREGIONHANDLEINT pRegion;
+    SMNADDR SmnAddr;
+    if (pspEmuIoMgrAddrIsMmio(pThis, PspAddr, &pRegion))
+    {
+        pspEmuIomMmioRegionWrite(pThis, pRegion, PspAddr, cbWrite, pvSrc);
+        return 0;
+    }
+    else if (pspEmuIoMgrAddrIsSmn(pThis, PspAddr, &pRegion, &SmnAddr))
+    {
+        pspEmuIomSmnRegionWrite(pThis, pRegion, SmnAddr, cbWrite, pvSrc);
+        return 0;
+    }
+    /** @todo x86 */
+
     return PSPEmuCoreMemWrite(pThis->hPspCore, PspAddr, pvSrc, cbWrite);
 }
 
