@@ -1403,6 +1403,10 @@ static int pspDevCcpReqZlibProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uF
                 rc = -1;
         }
 
+        uint8_t abDecomp[_4K];
+        uint32_t offDecomp = 0;
+        memset(&abDecomp[0], 0, sizeof(abDecomp));
+
         while (   !rc
                && cbReadLeft)
         {
@@ -1418,13 +1422,22 @@ static int pspDevCcpReqZlibProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uF
                 while (   pThis->Zlib.avail_in
                        && !rc)
                 {
-                    uint8_t abDecomp[_4K];
-                    pThis->Zlib.next_out  = (Bytef *)&abDecomp[0];
-                    pThis->Zlib.avail_out = sizeof(abDecomp);
+                    size_t cbDecompLeft = sizeof(abDecomp) - offDecomp;
+
+                    pThis->Zlib.next_out  = (Bytef *)&abDecomp[offDecomp];
+                    pThis->Zlib.avail_out = cbDecompLeft;
 
                     int rcZlib = inflate(&pThis->Zlib, Z_NO_FLUSH);
-                    if (pThis->Zlib.avail_out < sizeof(abDecomp))
-                        rc = pspDevCcpXferCtxWrite(&XferCtx, &abDecomp[0], sizeof(abDecomp) - pThis->Zlib.avail_out, NULL);
+                    if (pThis->Zlib.avail_out < cbDecompLeft)
+                    {
+                        offDecomp += cbDecompLeft - pThis->Zlib.avail_out;
+                        /* Write the chunk if the decompression buffer is full. */
+                        if (offDecomp == sizeof(abDecomp))
+                        {
+                            rc = pspDevCcpXferCtxWrite(&XferCtx, &abDecomp[0], sizeof(abDecomp), NULL);
+                            offDecomp = 0; /* Off to the next round. */
+                        }
+                    }
                     if (   !rc
                         && rcZlib == Z_STREAM_END)
                         break;
@@ -1433,6 +1446,11 @@ static int pspDevCcpReqZlibProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uF
 
             cbReadLeft -= cbThisRead;
         }
+
+        /* Write the last chunk. */
+        if (   !rc
+            && offDecomp)
+            rc = pspDevCcpXferCtxWrite(&XferCtx, &abDecomp[0], offDecomp, NULL);
 
         if (fEom)
         {
