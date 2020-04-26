@@ -88,6 +88,8 @@ typedef struct PSPDEVFLASH
     PPSPDEV                     pDev;
     /** SMN region handle. */
     PSPIOMREGIONHANDLE          hSmn;
+    /** SMN region handle to the control interface living at 0x2dc4000. */
+    PSPIOMREGIONHANDLE          hSmnCtrl;
     /** The EM100 flash emulation state if enabled. */
     PEM100EMU                   pEm100;
     /** SPI flash trace file if configured. */
@@ -373,6 +375,23 @@ static void pspDevFlashWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, 
 }
 
 
+static void pspDevFlashSpiCtrlRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pvUser)
+{
+    PPSPDEVFLASH pThis = (PPSPDEVFLASH)pvUser;
+
+    printf("%s: ATTEMPTED read from offSmn=%#x cbRead=%zu -> return all 0\n", __FUNCTION__, offSmn, cbRead);
+    memset(pvDst, 0, cbRead);
+}
+
+
+static void pspDevFlashSpiCtrlWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
+{
+    PPSPDEVFLASH pThis = (PPSPDEVFLASH)pvUser;
+
+    printf("%s: ATTEMPTED write access to offSmn=%#x cbWrite=%zu -> IGNORED\n", __FUNCTION__, offSmn, cbWrite);
+}
+
+
 static int pspDevFlashInit(PPSPDEV pDev)
 {
     PPSPDEVFLASH pThis = (PPSPDEVFLASH)&pDev->abInstance[0];
@@ -385,6 +404,10 @@ static int pspDevFlashInit(PPSPDEV pDev)
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrFlash, pDev->pCfg->cbFlashRom,
                                     pspDevFlashRead, pspDevFlashWrite, pThis,
                                     "SPI flash", &pThis->hSmn);
+    if (!rc)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x2dc4000, 0x20,
+                                    pspDevFlashSpiCtrlRead, pspDevFlashSpiCtrlWrite, pThis,
+                                    "SPI Control", &pThis->hSmnCtrl);
     if (   !rc
         && pDev->pCfg->uEm100FlashEmuPort)
         rc = pspEm100EmuCreate(&pThis->pEm100, pDev->pCfg->uEm100FlashEmuPort,
