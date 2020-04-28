@@ -341,9 +341,9 @@ typedef struct PSPIOMINT
     void                        *pvUserSmnUnassigned;
 
     /** Callback for unassigned x86 reads. */
-    PFNPSPIOMX86MMIOREAD        pfnX86UnassignedRead;
+    PFNPSPIOMX86READ            pfnX86UnassignedRead;
     /** Callback for unassigned x86 writes. */
-    PFNPSPIOMX86MMIOWRITE       pfnX86UnassignedWrite;
+    PFNPSPIOMX86WRITE           pfnX86UnassignedWrite;
     /** Opaque user data for the unassigned x86 read/write callbacks. */
     void                        *pvUserX86Unassigned;
 
@@ -963,7 +963,8 @@ static void pspEmuIomX86MapRead(PSPCORE hCore, PSPADDR uPspAddr, size_t cbRead, 
         }
     }
     else if (pThis->pfnX86UnassignedRead)
-        pThis->pfnX86UnassignedRead(PhysX86Addr, cbRead, pvDst, pThis->pvUserX86Unassigned);
+        pThis->pfnX86UnassignedRead(PhysX86Addr, cbRead, pvDst, pX86MapSlot->u32RegUnk2 == 6 ? true : false /*fMmio*/,
+                                    pX86MapSlot->u32RegUnk5, pThis->pvUserX86Unassigned);
     else
         memset(pvDst, 0, cbRead);
 
@@ -1002,7 +1003,8 @@ static void pspEmuIomX86MapWrite(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite
             pspEmuIoMgrX86MemWriteWorker(pThis, pRegion, PhysX86Addr - pRegion->u.X86.PhysX86AddrStart, pvSrc, cbWrite);
     }
     else if (pThis->pfnX86UnassignedWrite)
-        pThis->pfnX86UnassignedWrite(PhysX86Addr, cbWrite, pvSrc, pThis->pvUserX86Unassigned);
+        pThis->pfnX86UnassignedWrite(PhysX86Addr, cbWrite, pvSrc,  pX86MapSlot->u32RegUnk2 == 6 ? true : false /*fMmio*/,
+                                     pX86MapSlot->u32RegUnk5, pThis->pvUserX86Unassigned);
 
     pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cbWrite, pvSrc, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
 }
@@ -1839,7 +1841,7 @@ int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPI
 }
 
 
-int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86MMIOREAD pfnRead, PFNPSPIOMX86MMIOWRITE pfnWrite, void *pvUser)
+int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86READ pfnRead, PFNPSPIOMX86WRITE pfnWrite, void *pvUser)
 {
     PPSPIOMINT pThis = hIoMgr;
 

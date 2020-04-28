@@ -176,6 +176,40 @@ typedef FNPSPIOMX86MMIOWRITE *PFNPSPIOMX86MMIOWRITE;
 
 
 /**
+ * X86 address read handler.
+ *
+ * @returns nothing.
+ * @param   offX86Mmio              Offset from the beginning of the registered range the read starts at
+ *                                  (when used as the unassigned region callback this is the absolute address).
+ * @param   cbRead                  Number of bytes to read.
+ * @param   pvVal                   Where to store the read data.
+ * @param   fMmio                   Flag whether this address is accesses as MMIO.
+ * @param   fCaching                Flags the ampping was created with.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
+typedef void (FNPSPIOMX86READ)(X86PADDR offX86Mmio, size_t cbRead, void *pvVal, bool fMmio, uint32_t fCaching, void *pvUser);
+/** X86 MMIO read handler pointer. */
+typedef FNPSPIOMX86READ *PFNPSPIOMX86READ;
+
+
+/**
+ * X86 MMIO write handler.
+ *
+ * @returns nothing.
+ * @param   offX86Mmio              Offset from the beginning of the registered range the write starts at
+ *                                  (when used as the unassigned region callback this is the absolute address).
+ * @param   cbWrite                 Number of bytes to write.
+ * @param   pvVal                   The data to write.
+ * @param   fMmio                   Flag whether this address is accesses as MMIO.
+ * @param   fCaching                Flags the ampping was created with.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
+typedef void (FNPSPIOMX86WRITE)(X86PADDR offX86Mmio, size_t cbRead, const void *pvVal, bool fMmio, uint32_t fCaching, void *pvUser);
+/** X86 MMIO write handler pointer. */
+typedef FNPSPIOMX86WRITE *PFNPSPIOMX86WRITE;
+
+
+/**
  * X86 memory fetch handler.
  *
  * @returns nothing.
@@ -298,7 +332,7 @@ int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPI
  * @note By default there is no callback registered and accesses to unassigned regions get logged, reads return all bits 0
  *       and writes get ignored otherwise.
  */
-int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86MMIOREAD pfnRead, PFNPSPIOMX86MMIOWRITE pfnWrite, void *pvUser);
+int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86READ pfnRead, PFNPSPIOMX86WRITE pfnWrite, void *pvUser);
 
 
 /**
