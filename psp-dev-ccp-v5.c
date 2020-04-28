@@ -1085,7 +1085,7 @@ static int pspDevCcpReqPassthruProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_
                                   uByteSwap == CCP_V5_ENGINE_PASSTHRU_BYTESWAP_256BIT ? true : false /*fWriteRev*/);
         if (!rc)
         {
-            uint8_t abData[32];
+            uint8_t abData[_4K];
             while (   !rc
                    && cbLeft)
             {
