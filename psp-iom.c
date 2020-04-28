@@ -332,6 +332,8 @@ typedef struct PSPIOMINT
     PFNPSPIOMMMIOWRITE          pfnMmioUnassignedWrite;
     /** Opaque user data for the unassigned MMIO read/write callbacks. */
     void                        *pvUserMmioUnassigned;
+    /** Description used for access tracing. */
+    const char                  *pszMmioUnassignedDesc;
 
     /** Callback for unassigned SMN reads. */
     PFNPSPIOMSMNREAD            pfnSmnUnassignedRead;
@@ -339,6 +341,8 @@ typedef struct PSPIOMINT
     PFNPSPIOMSMNWRITE           pfnSmnUnassignedWrite;
     /** Opaque user data for the unassigned SMN read/write callbacks. */
     void                        *pvUserSmnUnassigned;
+    /** Description used for access tracing. */
+    const char                  *pszSmnUnassignedDesc;
 
     /** Callback for unassigned x86 reads. */
     PFNPSPIOMX86READ            pfnX86UnassignedRead;
@@ -346,6 +350,8 @@ typedef struct PSPIOMINT
     PFNPSPIOMX86WRITE           pfnX86UnassignedWrite;
     /** Opaque user data for the unassigned x86 read/write callbacks. */
     void                        *pvUserX86Unassigned;
+    /** Description used for access tracing. */
+    const char                  *pszX86UnassignedDesc;
 
     /** Registered trace points. */
     PPSPIOMTPINT                pTpHead;
@@ -475,6 +481,24 @@ static void pspEmuIomTraceRegionRead(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT pR
         || !(pRegion->fFlags & PSP_IOM_REGION_F_READ)) /* Writeonly regions get treated as unassigned for now. */
     {
         pszRegId = "<UNASSIGNED>";
+        switch (enmEvtOrigin)
+        {
+            case PSPTRACEEVTORIGIN_MMIO:
+                if (pThis->pszMmioUnassignedDesc)
+                    pszRegId = pThis->pszMmioUnassignedDesc;
+                break;
+            case PSPTRACEEVTORIGIN_SMN:
+                if (pThis->pszSmnUnassignedDesc)
+                    pszRegId = pThis->pszSmnUnassignedDesc;
+                break;
+            case PSPTRACEEVTORIGIN_X86:
+                if (pThis->pszX86UnassignedDesc)
+                    pszRegId = pThis->pszX86UnassignedDesc;
+                break;
+            default:
+                break;
+        }
+
         enmSeverity = PSPTRACEEVTSEVERITY_WARNING;
     }
     else if (pThis->fLogAllAccesses)
@@ -511,6 +535,24 @@ static void pspEmuIomTraceRegionWrite(PPSPIOMINT pThis, PPSPIOMREGIONHANDLEINT p
         || !(pRegion->fFlags & PSP_IOM_REGION_F_WRITE)) /* Readonly regions get treated as unassigned for now. */
     {
         pszRegId = "<UNASSIGNED>";
+        switch (enmEvtOrigin)
+        {
+            case PSPTRACEEVTORIGIN_MMIO:
+                if (pThis->pszMmioUnassignedDesc)
+                    pszRegId = pThis->pszMmioUnassignedDesc;
+                break;
+            case PSPTRACEEVTORIGIN_SMN:
+                if (pThis->pszSmnUnassignedDesc)
+                    pszRegId = pThis->pszSmnUnassignedDesc;
+                break;
+            case PSPTRACEEVTORIGIN_X86:
+                if (pThis->pszX86UnassignedDesc)
+                    pszRegId = pThis->pszX86UnassignedDesc;
+                break;
+            default:
+                break;
+        }
+
         enmSeverity = PSPTRACEEVTSEVERITY_WARNING;
     }
     else if (pThis->fLogAllAccesses)
@@ -1811,7 +1853,8 @@ int PSPEmuIoMgrTraceAllAccessesSet(PSPIOM hIoMgr, bool fEnable)
 }
 
 
-int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser)
+int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, const char *pszDesc,
+                                 void *pvUser)
 {
     PPSPIOMINT pThis = hIoMgr;
 
@@ -1822,11 +1865,13 @@ int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPS
     pThis->pfnMmioUnassignedRead  = pfnRead;
     pThis->pfnMmioUnassignedWrite = pfnWrite;
     pThis->pvUserMmioUnassigned   = pvUser;
+    pThis->pszMmioUnassignedDesc  = pszDesc;
     return 0;
 }
 
 
-int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser)
+int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, const char *pszDesc,
+                                void *pvUser)
 {
     PPSPIOMINT pThis = hIoMgr;
 
@@ -1837,11 +1882,13 @@ int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPI
     pThis->pfnSmnUnassignedRead  = pfnRead;
     pThis->pfnSmnUnassignedWrite = pfnWrite;
     pThis->pvUserSmnUnassigned   = pvUser;
+    pThis->pszSmnUnassignedDesc  = pszDesc;
     return 0;
 }
 
 
-int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86READ pfnRead, PFNPSPIOMX86WRITE pfnWrite, void *pvUser)
+int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86READ pfnRead, PFNPSPIOMX86WRITE pfnWrite, const char *pszDesc,
+                                void *pvUser)
 {
     PPSPIOMINT pThis = hIoMgr;
 
@@ -1852,6 +1899,7 @@ int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86READ pfnRead, PFNPSPI
     pThis->pfnX86UnassignedRead  = pfnRead;
     pThis->pfnX86UnassignedWrite = pfnWrite;
     pThis->pvUserX86Unassigned   = pvUser;
+    pThis->pszX86UnassignedDesc  = pszDesc;
     return 0;
 }
 

@@ -297,12 +297,14 @@ int PSPEmuIoMgrTraceAllAccessesSet(PSPIOM hIoMgr, bool fEnable);
  * @param   hIoMgr                  The I/O manager handle.
  * @param   pfnRead                 Callback to call on a read access, optional (NULL means reads don't get intercepted).
  * @param   pfnWrite                Callback to call on a write access, optional (NULL means writes don't get intercepted).
+ * @param   pszDesc                 The description used for access logging.
  * @param   pvUser                  Opaque user data passed in the callback.
  *
  * @note By default there is no callback registered and accesses to unassigned regions get logged, reads return all bits 0
  *       and writes get ignored otherwise.
  */
-int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, void *pvUser);
+int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPSPIOMMMIOWRITE pfnWrite, const char *pszDesc,
+                                 void *pvUser);
 
 
 /**
@@ -312,12 +314,14 @@ int PSPEmuIoMgrMmioUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMMMIOREAD pfnRead, PFNPS
  * @param   hIoMgr                  The I/O manager handle.
  * @param   pfnRead                 Callback to call on a read access, optional (NULL means reads don't get intercepted).
  * @param   pfnWrite                Callback to call on a write access, optional (NULL means writes don't get intercepted).
+ * @param   pszDesc                 The description used for access logging.
  * @param   pvUser                  Opaque user data passed in the callback.
  *
  * @note By default there is no callback registered and accesses to unassigned regions get logged, reads return all bits 0
  *       and writes get ignored otherwise.
  */
-int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, void *pvUser);
+int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPIOMSMNWRITE pfnWrite, const char *pszDesc,
+                                void *pvUser);
 
 
 /**
@@ -327,12 +331,14 @@ int PSPEmuIoMgrSmnUnassignedSet(PSPIOM hIoMgr, PFNPSPIOMSMNREAD pfnRead, PFNPSPI
  * @param   hIoMgr                  The I/O manager handle.
  * @param   pfnRead                 Callback to call on a read access, optional (NULL means reads don't get intercepted).
  * @param   pfnWrite                Callback to call on a write access, optional (NULL means writes don't get intercepted).
+ * @param   pszDesc                 The description used for access logging.
  * @param   pvUser                  Opaque user data passed in the callback.
  *
  * @note By default there is no callback registered and accesses to unassigned regions get logged, reads return all bits 0
  *       and writes get ignored otherwise.
  */
-int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86READ pfnRead, PFNPSPIOMX86WRITE pfnWrite, void *pvUser);
+int PSPEmuIoMgrX86UnassignedSet(PSPIOM hIoMgr, PFNPSPIOMX86READ pfnRead, PFNPSPIOMX86WRITE pfnWrite, const char *pszDesc,
+                                void *pvUser);
 
 
 /**
