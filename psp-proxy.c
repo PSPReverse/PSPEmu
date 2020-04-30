@@ -101,15 +101,19 @@ typedef const PSPX86BLACKLISTDESC *PCPSPX86BLACKLISTDESC;
 
 
 /**
- * Trinary value.
+ * Ternary value.
  */
-typedef enum PSPTRINARY
+typedef enum PSPTERNARY
 {
-    PSPTRINARY_INVALID = 0,
-    PSPTRINARY_UNDECIDED,
-    PSPTRINARY_TRUE,
-    PSPTRINARY_FALSE
-} PSPTRINARY;
+    /** Invalid value. */
+    PSPTERNARY_INVALID = 0,
+    /** Undecided value. */
+    PSPTERNARY_UNDECIDED,
+    /** True value. */
+    PSPTERNARY_TRUE,
+    /** False value. */
+    PSPTERNARY_FALSE
+} PSPTERNARY;
 
 /** Forward declaration of the PSP proxy instance data. */
 typedef struct PSPPROXYINT *PPSPPROXYINT;
@@ -134,9 +138,9 @@ typedef struct PSPPROXYCCD
     size_t                      cbWrBuffered;
     /** Flag whether the writes all happen to the same address or
      * whether the write will increase the address by the write stride. */
-    PSPTRINARY                  enmTriAddrIncrByStride;
+    PSPTERNARY                  enmTriAddrIncrByStride;
     /** Flag whether this is a memset like operation. */
-    PSPTRINARY                  enmTriMemset;
+    PSPTERNARY                  enmTriMemset;
     /** Next offset into the data buffer to write to. */
     uint32_t                    offData;
     /** The buffered data. */
@@ -190,6 +194,24 @@ static const PSPX86BLACKLISTDESC g_ax86BlacklistedZenOffChip[] =
 };
 
 
+static const char *pspEmuProxyTernaryToStr(PSPTERNARY enmTernary)
+{
+    switch (enmTernary)
+    {
+        case PSPTERNARY_UNDECIDED:
+            return "UNDECIDED";
+        case PSPTERNARY_TRUE:
+            return "TRUE";
+        case PSPTERNARY_FALSE:
+            return "FALSE";
+        default:
+            break;
+    }
+
+    return "<WHAT>";
+}
+
+
 /**
  * Checks whether two PSP proxy addresses are considered equal.
  *
@@ -212,11 +234,13 @@ static inline bool pspEmuProxyAddrIsEqual(PCPSPPROXYADDR pAddr1, PCPSPPROXYADDR 
         case PSPPROXYADDRSPACE_SMN:
             if (pAddr1->u.SmnAddr != pAddr2->u.SmnAddr)
                 return false;
+            break;
         case PSPPROXYADDRSPACE_X86_MEM:
         case PSPPROXYADDRSPACE_X86_MMIO:
             if (   pAddr1->u.X86.PhysX86Addr != pAddr2->u.X86.PhysX86Addr
                 || pAddr1->u.X86.fCaching != pAddr2->u.X86.fCaching)
                 return false;
+            break;
         default:
             return false;
     }
@@ -334,24 +358,31 @@ static int pspEmuProxyCcdWrBufFlush(PPSPPROXYINT pThis, PPSPPROXYCCD pCcdRec)
     {
         uint32_t fFlags = PSPPROXY_CTX_ADDR_XFER_F_WRITE;
 
-        if (pCcdRec->enmTriMemset == PSPTRINARY_TRUE)
+        if (pCcdRec->enmTriMemset == PSPTERNARY_TRUE)
             fFlags = PSPPROXY_CTX_ADDR_XFER_F_MEMSET;
-        if (pCcdRec->enmTriAddrIncrByStride == PSPTRINARY_TRUE)
+        if (pCcdRec->enmTriAddrIncrByStride == PSPTERNARY_TRUE)
             fFlags |= PSPPROXY_CTX_ADDR_XFER_F_INCR_ADDR;
+
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_PROXY,
+                                "Flushing to proxy: cbStride=%zu cbWrBuffered=%zu enmTriMemset=%s enmTriAddrIncrByStride=%s",
+                                pCcdRec->cbWrStride, pCcdRec->cbWrBuffered, pspEmuProxyTernaryToStr(pCcdRec->enmTriMemset),
+                                pspEmuProxyTernaryToStr(pCcdRec->enmTriAddrIncrByStride));
 
         rc = PSPProxyCtxPspAddrXfer(pThis->hPspProxyCtx, &pCcdRec->ProxyAddr, fFlags, pCcdRec->cbWrStride,
                                     pCcdRec->cbWrBuffered, &pCcdRec->abWrData[0]);
         if (rc)
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
-                                    "Flushing write buffer to proxy failed with %d\n", rc);
-        else
+                                    "Flushing write buffer to proxy failed with %d", rc);
+        else if (pCcdRec->cbWrStride < pCcdRec->cbWrBuffered) /* Only log if we buffered more than one write. */
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
-                                    "Flushed write buffer to proxy\n");
+                                    "Flushed write buffer to proxy");
 
         pCcdRec->ProxyAddr.enmAddrSpace = PSPPROXYADDRSPACE_INVALID;
         pCcdRec->offData                = 0;
-        pCcdRec->enmTriAddrIncrByStride = PSPTRINARY_UNDECIDED;
-        pCcdRec->enmTriMemset           = PSPTRINARY_UNDECIDED;
+        pCcdRec->cbWrStride             = 0;
+        pCcdRec->cbWrBuffered           = 0;
+        pCcdRec->enmTriAddrIncrByStride = PSPTERNARY_UNDECIDED;
+        pCcdRec->enmTriMemset           = PSPTERNARY_UNDECIDED;
     }
     /* else Nothing to flush */
 
@@ -408,14 +439,14 @@ static bool pspEmuProxyCcdWrBufIsAppendPossible(PPSPPROXYCCD pCcdRec, PCPSPPROXY
          * If we are in the middle of a memset operation and the current value doesn't match
          * what is being set we can't buffer anymore.
          */
-        if (   pCcdRec->enmTriMemset == PSPTRINARY_TRUE
-            && !memcmp(&pCcdRec->abWrData[0], pvLocal, cbWrite))
+        if (   pCcdRec->enmTriMemset == PSPTERNARY_TRUE
+            && memcmp(&pCcdRec->abWrData[0], pvLocal, cbWrite))
             return true;
 
         /* We can buffer accesses to always the same address or contiguous accesses */
         bool fAddrEqual = pspEmuProxyAddrIsEqual(&pCcdRec->ProxyAddr, pProxyAddr);
         bool fAddrBigger = pspEmuProxyAddrIsBigger(&pCcdRec->ProxyAddr, pProxyAddr);
-        if (pCcdRec->enmTriAddrIncrByStride == PSPTRINARY_TRUE)
+        if (pCcdRec->enmTriAddrIncrByStride == PSPTERNARY_TRUE)
         {
             /*
              * Written to address needs to be bigger and the offset needs to be adjacent to
@@ -425,7 +456,7 @@ static bool pspEmuProxyCcdWrBufIsAppendPossible(PPSPPROXYCCD pCcdRec, PCPSPPROXY
                 || pspEmuProxyAddrSub(pProxyAddr, &pCcdRec->ProxyAddr) != pCcdRec->cbWrBuffered)
                 return true;
         }
-        else if (pCcdRec->enmTriAddrIncrByStride == PSPTRINARY_FALSE)
+        else if (pCcdRec->enmTriAddrIncrByStride == PSPTERNARY_FALSE)
         {
             if (!fAddrEqual)
                 return true;
@@ -481,18 +512,16 @@ static bool pspEmuProxyCcdWrBufAppend(PPSPPROXYINT pThis, PPSPPROXYCCD pCcdRec, 
         }
         else
         {
-            pCcdRec->cbWrBuffered += pCcdRec->cbWrStride;
-
             /* Second write determines whether this is a memset like operation or a regular write. */
             if (pCcdRec->cbWrBuffered == pCcdRec->cbWrStride)
             {
                 if (!memcmp(&pCcdRec->abWrData[0], pvLocal, pCcdRec->cbWrStride))
-                    pCcdRec->enmTriMemset == PSPTRINARY_TRUE;
+                    pCcdRec->enmTriMemset = PSPTERNARY_TRUE;
                 else
-                    pCcdRec->enmTriMemset == PSPTRINARY_FALSE;
+                    pCcdRec->enmTriMemset = PSPTERNARY_FALSE;
             }
 
-            if (pCcdRec->enmTriMemset == PSPTRINARY_FALSE)
+            if (pCcdRec->enmTriMemset == PSPTERNARY_FALSE)
             {
                 memcpy(&pCcdRec->abWrData[pCcdRec->offData], pvLocal, cbWrite);
                 pCcdRec->offData += cbWrite;
@@ -500,9 +529,11 @@ static bool pspEmuProxyCcdWrBufAppend(PPSPPROXYINT pThis, PPSPPROXYCCD pCcdRec, 
 
             /* Second write determines the write mode. */
             if (!pspEmuProxyAddrIsEqual(&pCcdRec->ProxyAddr, pProxyAddr))
-                pCcdRec->enmTriAddrIncrByStride = PSPTRINARY_TRUE;
+                pCcdRec->enmTriAddrIncrByStride = PSPTERNARY_TRUE;
             else
-                pCcdRec->enmTriAddrIncrByStride = PSPTRINARY_FALSE;
+                pCcdRec->enmTriAddrIncrByStride = PSPTERNARY_FALSE;
+
+            pCcdRec->cbWrBuffered += pCcdRec->cbWrStride;
         }
     }
 
@@ -571,7 +602,7 @@ static void pspEmuProxyCcdPspMmioUnassignedWrite(PSPADDR offMmio, size_t cbWrite
             rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, offMmio, pvVal, cbWrite);
         if (rc)
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
-                                    "pspEmuProxyCcdPspMmioUnassignedWrite() failed with %d\n", rc);
+                                    "pspEmuProxyCcdPspMmioUnassignedWrite() failed with %d", rc);
     }
     else
         PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
@@ -595,7 +626,7 @@ static void pspEmuProxyCcdPspSmnUnassignedRead(SMNADDR offSmn, size_t cbRead, vo
         int rc = PSPProxyCtxPspSmnRead(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbRead, pvVal);
         if (rc)
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
-                                    "pspEmuProxyCcdPspSmnUnassignedRead() failed with %d\n", rc);
+                                    "pspEmuProxyCcdPspSmnUnassignedRead() failed with %d", rc);
     }
     else
         PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
@@ -628,7 +659,7 @@ static void pspEmuProxyCcdPspSmnUnassignedWrite(SMNADDR offSmn, size_t cbWrite, 
             int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbWrite, pvVal);
             if (rc)
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
-                                        "pspEmuProxyCcdPspSmnUnassignedWrite() failed with %d\n", rc);
+                                        "pspEmuProxyCcdPspSmnUnassignedWrite() failed with %d", rc);
         }
     }
     else
@@ -659,7 +690,7 @@ static void pspEmuProxyCcdX86UnassignedRead(X86PADDR offX86Phys, size_t cbRead, 
             rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, offX86Phys, pvVal, cbRead);
         if (rc)
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
-                                    "pspEmuProxyCcdX86UnassignedRead() failed with %d\n", rc);
+                                    "pspEmuProxyCcdX86UnassignedRead() failed with %d", rc);
     }
     else
         PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
@@ -673,23 +704,34 @@ static void pspEmuProxyCcdX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
-    /** @todo Implement buffering for x86 accesses. */
-    pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
-
     bool fAllowed = PSPProxyIsX86AccessAllowed(offX86Phys, cbWrite, true /*fWrite*/,
                                                pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
                                                pThis->pCfg, NULL /*pvReadVal*/);
     if (fAllowed)
     {
-        int rc = 0;
+        bool fAppended = false;
 
-        if (fMmio)
-            rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, offX86Phys, cbWrite, pvVal);
-        else
-            rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, offX86Phys, pvVal, cbWrite);
-        if (rc)
-            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
-                                    "pspEmuProxyCcdX86UnassignedWrite() failed with %d\n", rc);
+        if (pThis->pCfg->fProxyWrBuffer)
+        {
+            PSPPROXYADDR ProxyAddr;
+            ProxyAddr.enmAddrSpace      = fMmio ? PSPPROXYADDRSPACE_X86_MMIO : PSPPROXYADDRSPACE_X86_MEM;
+            ProxyAddr.u.X86.PhysX86Addr = offX86Phys;
+            ProxyAddr.u.X86.fCaching    = fCaching;
+            fAppended = pspEmuProxyCcdWrBufAppend(pThis, pCcdRec, &ProxyAddr, pvVal, cbWrite);
+        }
+
+        if (!fAppended)
+        {
+            int rc = 0;
+
+            if (fMmio)
+                rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, offX86Phys, cbWrite, pvVal);
+            else
+                rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, offX86Phys, pvVal, cbWrite);
+            if (rc)
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspEmuProxyCcdX86UnassignedWrite() failed with %d", rc);
+        }
     }
     else
         PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
@@ -795,8 +837,8 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
                 pCcdRec->hCcd                   = hCcd;
                 pCcdRec->ProxyAddr.enmAddrSpace = PSPPROXYADDRSPACE_INVALID;
                 pCcdRec->offData                = 0;
-                pCcdRec->enmTriAddrIncrByStride = PSPTRINARY_UNDECIDED;
-                pCcdRec->enmTriMemset           = PSPTRINARY_UNDECIDED;
+                pCcdRec->enmTriAddrIncrByStride = PSPTERNARY_UNDECIDED;
+                pCcdRec->enmTriMemset           = PSPTERNARY_UNDECIDED;
                 pCcdRec->pNext                  = pThis->pCcdsHead;
 
                 pThis->pCcdsHead = pCcdRec;
