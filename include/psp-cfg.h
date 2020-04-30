@@ -143,6 +143,8 @@ typedef struct PSPEMUCFG
     bool                    fBootRomSvcPageModify;
     /** Flag whether the i/O manager should log all I/O accesses to all regions. */
     bool                    fIomLogAllAccesses;
+    /** Flag whether the proxy should try to buffer certain writes to speed up data transfers. */
+    bool                    fProxyWrBuffer;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
     /** Maximum number of instructions to execute in one round, used to workaround a unicorn sync sate issue. */
