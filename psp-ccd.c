@@ -24,8 +24,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <libpspproxy.h>
-
 #include <common/types.h>
 #include <common/cdefs.h>
 #include <psp-fw/boot-rom-svc-page.h>
@@ -37,7 +35,6 @@
 #include <psp-cfg.h>
 #include <psp-svc.h>
 #include <psp-trace.h>
-#include <psp-proxy.h>
 #include <psp-cov.h>
 
 
@@ -54,8 +51,6 @@ typedef struct PSPCCDINT
     PSPIOM                      hIoMgr;
     /** Emulated supervisor mode state for app emulation mode. */
     PSPSVC                      hSvc;
-    /** PSP proxy context handle if configured. */
-    PSPPROXYCTX                 hPspProxyCtx;
     /** The trace log handle. */
     PSPTRACE                    hTrace;
     /** The coverage trace handle. */
@@ -171,174 +166,6 @@ static PCPSPDEVREG g_apDevs[] =
     &g_DevRegTest,
 };
 
-
-
-/**
- * Determines the BL stage we are in based on some criteria.
- *
- * @returns BL stage.
- * @param   pThis                   The CCD instance.
- */
-static PSPPROXYBLSTAGE pspEmuCcdDetermineBlStage(PPSPCCDINT pThis)
-{
-    /** @todo Check the PC. */
-    return PSPPROXYBLSTAGE_UNKNOWN;
-}
-
-
-static void pspEmuCcdProxyPspMmioUnassignedRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
-{
-    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-
-    bool fAllowed = PSPProxyIsMmioAccessAllowed(offMmio, cbRead, false /*fWrite*/,
-                                                pspEmuCcdDetermineBlStage(pThis),
-                                                pThis->pCfg, pvVal);
-    if (fAllowed)
-    {
-        int rc = 0;
-        if (cbRead <= sizeof(uint32_t))
-            rc = PSPProxyCtxPspMmioRead(pThis->hPspProxyCtx, offMmio, cbRead, pvVal);
-        else /* Do a simple memory transfer. */
-            rc = PSPProxyCtxPspMemRead(pThis->hPspProxyCtx, offMmio, pvVal, cbRead);
-        if (rc)
-            fprintf(stderr, "pspEmuProxyPspMmioUnassignedRead: Failed with %d\n", rc);
-    }
-    else
-        PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
-                                 "<PROXY/DENIED>", offMmio, pvVal, cbRead);
-}
-
-
-static void pspEmuCcdProxyPspMmioUnassignedWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, void *pvUser)
-{
-    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-
-    bool fAllowed = PSPProxyIsMmioAccessAllowed(offMmio, cbWrite, true /*fWrite*/,
-                                                pspEmuCcdDetermineBlStage(pThis),
-                                                pThis->pCfg, NULL /*pvReadVal*/);
-    if (fAllowed)
-    {
-        int rc = 0;
-        if (cbWrite <= sizeof(uint32_t))
-            rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, offMmio, cbWrite, pvVal);
-        else
-            rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, offMmio, pvVal, cbWrite);
-        if (rc)
-            fprintf(stderr, "pspEmuProxyPspMmioUnassignedWrite: Failed with %d\n", rc);
-    }
-    else
-        PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
-                                  "<PROXY/DENIED>", offMmio, pvVal, cbWrite);
-}
-
-
-static void pspEmuCcdProxyPspSmnUnassignedRead(SMNADDR offSmn, size_t cbRead, void *pvVal, void *pvUser)
-{
-    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-
-    bool fAllowed = PSPProxyIsSmnAccessAllowed(offSmn, cbRead, false /*fWrite*/,
-                                               pspEmuCcdDetermineBlStage(pThis),
-                                               pThis->pCfg, pvVal);
-    if (fAllowed)
-    {
-        int rc = PSPProxyCtxPspSmnRead(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbRead, pvVal);
-        if (rc)
-            fprintf(stderr, "pspEmuProxyPspSmnUnassignedRead: Failed with %d\n", rc);
-    }
-    else
-        PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
-                                 "<PROXY/DENIED>", offSmn, pvVal, cbRead);
-}
-
-
-static void pspEmuCcdProxyPspSmnUnassignedWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
-{
-    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-
-    bool fAllowed = PSPProxyIsSmnAccessAllowed(offSmn, cbWrite, true /*fWrite*/,
-                                               pspEmuCcdDetermineBlStage(pThis),
-                                               pThis->pCfg, NULL /*pvReadVal*/);
-    if (fAllowed)
-    {
-        int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbWrite, pvVal);
-        if (rc)
-            fprintf(stderr, "pspEmuProxyPspSmnUnassignedWrite: Failed with %d\n", rc);
-    }
-    else
-        PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
-                                  "<PROXY/DENIED>", offSmn, pvVal, cbWrite);
-}
-
-
-static void pspEmuCcdProxyX86UnassignedRead(X86PADDR offX86Phys, size_t cbRead, void *pvVal, bool fMmio,
-                                            uint32_t fCaching, void *pvUser)
-{
-    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-
-    bool fAllowed = PSPProxyIsX86AccessAllowed(offX86Phys, cbRead, false /*fWrite*/,
-                                               pspEmuCcdDetermineBlStage(pThis),
-                                               pThis->pCfg, pvVal);
-    if (fAllowed)
-    {
-        int rc = 0;
-
-        if (fMmio)
-            rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, offX86Phys, cbRead, pvVal);
-        else
-            rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, offX86Phys, pvVal, cbRead);
-        if (rc)
-            fprintf(stderr, "pspEmuProxyPspX86UnassignedRead: Failed with %d\n", rc);
-    }
-    else
-        PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
-                                 "<PROXY/DENIED>", offX86Phys, pvVal, cbRead);
-}
-
-
-static void pspEmuCcdProxyX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite, const void *pvVal, bool fMmio,
-                                             uint32_t fCaching, void *pvUser)
-{
-    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-
-    bool fAllowed = PSPProxyIsX86AccessAllowed(offX86Phys, cbWrite, true /*fWrite*/,
-                                               pspEmuCcdDetermineBlStage(pThis),
-                                               pThis->pCfg, NULL /*pvReadVal*/);
-    if (fAllowed)
-    {
-        int rc = 0;
-
-        if (fMmio)
-            rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, offX86Phys, cbWrite, pvVal);
-        else
-            rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, offX86Phys, pvVal, cbWrite);
-        if (rc)
-            fprintf(stderr, "pspEmuProxyPspX86UnassignedWrite: Failed with %d\n", rc);
-    }
-    else
-        PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
-                                  "<PROXY/DENIED>", offX86Phys, pvVal, cbWrite);
-}
-
-
-static void pspEmuCcdProxyLogMsg(PSPPROXYCTX hCtx, void *pvUser, const char *pszMsg)
-{
-    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
-                            "%s", pszMsg);
-}
-
-
-static const PSPPROXYIOIF g_PspProxyIoIf =
-{
-    /** pfnLogMsg */
-    pspEmuCcdProxyLogMsg,
-    /** pfnOutBufWrite */
-    NULL,
-    /** pfnInBufPeek */
-    NULL,
-    /** pfnInBufRead */
-    NULL
-};
 
 /**
  * CCD ID register read callback.
@@ -636,43 +463,6 @@ static int pspEmuCcdMmioSmnInit(PPSPCCDINT pThis)
 
 
 /**
- * Initializes the PSP proxy for the CCD if configured.
- *
- * @returns Status code.
- * @param   pThis                   The CCD instance.
- * @param   pCfg                    The global config.
- */
-static int pspEmuCcdProxyInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
-{
-    int rc = 0;
-
-    if (pCfg->pszPspProxyAddr)
-    {
-        printf("PSP proxy: Connecting to %s\n", pCfg->pszPspProxyAddr);
-        rc = PSPProxyCtxCreate(&pThis->hPspProxyCtx, pCfg->pszPspProxyAddr, &g_PspProxyIoIf, pThis);
-        if (!rc)
-        {
-            printf("PSP proxy: Connected to %s\n", pCfg->pszPspProxyAddr);
-
-            /* Register the unassigned handlers for the various regions. */
-            rc = PSPEmuIoMgrMmioUnassignedSet(pThis->hIoMgr, pspEmuCcdProxyPspMmioUnassignedRead, pspEmuCcdProxyPspMmioUnassignedWrite,
-                                              "<PROXY>", pThis);
-            if (!rc)
-                rc = PSPEmuIoMgrSmnUnassignedSet(pThis->hIoMgr, pspEmuCcdProxyPspSmnUnassignedRead, pspEmuCcdProxyPspSmnUnassignedWrite,
-                                                 "<PROXY>", pThis);
-            if (!rc)
-                rc = PSPEmuIoMgrX86UnassignedSet(pThis->hIoMgr, pspEmuCcdProxyX86UnassignedRead, pspEmuCcdProxyX86UnassignedWrite,
-                                                 "<PROXY>", pThis);
-        }
-        else
-            fprintf(stderr, "Connecting to the PSP proxy failed with %d\n", rc);
-    }
-
-    return rc;
-}
-
-
-/**
  * Initializes the execution environment for the CCD.
  *
  * @returns Status code.
@@ -693,7 +483,7 @@ static int pspEmuCcdExecEnvInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         case PSPEMUMODE_APP:
         {
             PspAddrStartExec = 0x15100;
-            rc = PSPEmuSvcStateCreate(&pThis->hSvc, pThis->hPspCore, pThis->hIoMgr, pThis->hPspProxyCtx);
+            //rc = PSPEmuSvcStateCreate(&pThis->hSvc, pThis->hPspCore, pThis->hIoMgr, pThis->hProxy);
             break;
         }
         case PSPEMUMODE_SYSTEM:
@@ -828,8 +618,6 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                             && pThis->fRegSmnHandlers)
                             rc = pspEmuCcdMmioSmnInit(pThis);
                         if (!rc)
-                            rc = pspEmuCcdProxyInit(pThis, pCfg);
-                        if (!rc)
                             rc = pspEmuCcdExecEnvInit(pThis, pCfg);
                         if (!rc)
                             rc = pspEmuCcdTraceInit(pThis, pCfg);
@@ -885,12 +673,6 @@ void PSPEmuCcdDestroy(PSPCCD hCcd)
     {
         PSPEmuSvcStateDestroy(pThis->hSvc);
         pThis->hSvc = NULL;
-    }
-
-    if (pThis->hPspProxyCtx)
-    {
-        PSPProxyCtxDestroy(pThis->hPspProxyCtx);
-        pThis->hPspProxyCtx = NULL;
     }
 
     pspEmuCcdDevicesDestroy(pThis);

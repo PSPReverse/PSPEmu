@@ -33,6 +33,7 @@
 #include <psp-ccd.h>
 #include <psp-dbg.h>
 #include <psp-flash.h>
+#include <psp-proxy.h>
 
 
 static uint32_t g_idSocketSingle = UINT32_MAX;
@@ -593,10 +594,27 @@ int main(int argc, char *argv[])
 
         if (!rc)
         {
-            if (Cfg.uDbgPort)
-                rc = pspEmuDbgRun(hCcd, &Cfg);
-            else
-                rc = PSPEmuCcdRun(hCcd);
+            PSPPROXY hProxy = NULL;
+
+            /* Setup the proxy if configured. */
+            if (Cfg.pszPspProxyAddr)
+            {
+                rc = PSPProxyCreate(&hProxy, &Cfg);
+                if (!rc)
+                    rc = PSPProxyCcdRegister(hProxy, hCcd);
+            }
+
+            if (!rc)
+            {
+                if (Cfg.uDbgPort)
+                    rc = pspEmuDbgRun(hCcd, &Cfg);
+                else
+                    rc = PSPEmuCcdRun(hCcd);
+            }
+
+            if (hProxy)
+                PSPProxyCcdDeregister(hProxy, hCcd);
+
             PSPEmuCcdDestroy(hCcd);
         }
 

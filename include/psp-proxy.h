@@ -25,6 +25,13 @@
 #include <common/types.h>
 
 #include <psp-cfg.h>
+#include <psp-ccd.h>
+
+
+/** Opaque PSP proxy handle. */
+typedef struct PSPPROXYINT *PSPPROXY;
+/** Pointer to a PSP proxy handle. */
+typedef PSPPROXY *PPSPPROXY;
 
 
 /**
@@ -44,6 +51,44 @@ typedef enum PSPPROXYBLSTAGE
     /** 32bit hack. */
     PSPPROXYBLSTAGE_32BIT_HACK = 0x7fffffff
 } PSPPROXYBLSTAGE;
+
+
+/**
+ * Creates a new proxy instance.
+ *
+ * @returns Status code.
+ * @param   phProxy                 Where to store the handle to the proxy instance on success.
+ * @param   pCfg                    Pointer to the global emulator config.
+ */
+int PSPProxyCreate(PPSPPROXY phProxy, PCPSPEMUCFG pCfg);
+
+
+/**
+ * Destroys the given proxy handle.
+ *
+ * @returns nothing.
+ * @param   hProxy                  The proxy handle to destroy.
+ */
+void PSPProxyDestroy(PSPPROXY hProxy);
+
+
+/**
+ * Registers the given CCD handle for hardware access proxying.
+ *
+ * @returns Status code.
+ * @param   hProxy                  The proxy handle.
+ */
+int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd);
+
+
+/**
+ * Deregisters the given CCD handle with the given proxy.
+ *
+ * @returns Status code.
+ * @param   hProxy                  The proxy handle.
+ * @param   hCcd                    The CCD handle to deregister.
+ */
+int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd);
 
 
 /**
