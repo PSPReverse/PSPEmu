@@ -720,36 +720,6 @@ static int pspDevCcpXferCtxWrite(PCCPXFERCTX pCtx, const void *pvSrc, size_t cbW
 
 
 /**
- * Queries the key pointer from the LSB indicated in the given request.
- *
- * @returns Status code.
- * @param   pThis               The CCP device instance data.
- * @param   pReq                The request to get the LSB from.
- * @param   cbKey               Size of the key in bytes (used for bounds checking).
- * @param   ppbKey              Where to store the pointer to the key on success.
- */
-static int pspDevCcpKeyQueryPointerFromReq(PPSPDEVCCP pThis, PCCCP5REQ pReq, size_t cbKey, const uint8_t **ppbKey)
-{
-    int rc = 0;
-
-    if (CCP_V5_MEM_TYPE_GET(pReq->u16KeyMemType) == CCP_V5_MEM_TYPE_SB)
-    {
-        CCPADDR CcpAddrKey = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow);
-
-        if (   CcpAddrKey < sizeof(pThis->Lsb)
-            && CcpAddrKey + cbKey <= sizeof(pThis->Lsb))
-            *ppbKey = &pThis->Lsb.u.abLsb[CcpAddrKey];
-        else
-            rc = -1;
-    }
-    else
-        rc = -1;
-
-    return rc;
-}
-
-
-/**
  * Copies the key material pointed to by the request into a supplied buffer.
  *
  * @returns Status code.
@@ -765,11 +735,13 @@ static int pspDevCcpKeyCopyFromReq(PPSPDEVCCP pThis, PCCCP5REQ pReq, size_t cbKe
     if (CCP_V5_MEM_TYPE_GET(pReq->u16KeyMemType) == CCP_V5_MEM_TYPE_LOCAL)
     {
         CCPADDR CcpAddrKey = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow);
-
         rc = pspDevCcpXferMemLocalRead(pThis, CcpAddrKey, pvKey, cbKey);
     }
-    else
-        rc = -1;
+    else if (CCP_V5_MEM_TYPE_GET(pReq->u16KeyMemType) == CCP_V5_MEM_TYPE_SB)
+    {
+        CCPADDR CcpAddrKey = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow);
+        rc = pspDevCcpXferMemLocalRead(pThis, CcpAddrKey, pvKey, cbKey);
+    }
 
     return rc;
 }
@@ -1282,8 +1254,8 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                                       false /*fWriteRev*/);
         if (!rc)
         {
-            const uint8_t *pbKey = NULL;
-            rc = pspDevCcpKeyQueryPointerFromReq(pThis, pReq, cbKey, &pbKey);
+            uint8_t abKey[256 / 8];
+            rc = pspDevCcpKeyCopyFromReq(pThis, pReq, cbKey, &abKey[0]);
             if (!rc)
             {
                 pThis->pOsslAesCtx = EVP_CIPHER_CTX_new();
@@ -1291,12 +1263,12 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                     rc = -1;
                 else if (fEncrypt)
                 {
-                    if (EVP_EncryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, pbKey, NULL) != 1)
+                    if (EVP_EncryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, &abKey[0], NULL) != 1)
                         rc = -1;
                 }
                 else
                 {
-                    if (EVP_DecryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, pbKey, NULL) != 1)
+                    if (EVP_DecryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, &abKey[0], NULL) != 1)
                         rc = -1;
                 }
 
