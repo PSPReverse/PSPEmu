@@ -265,6 +265,17 @@ static void pspDbgTpDestroy(PPSPDBGTP pTp)
 {
     PPSPDBGINT pThis = pTp->pDbg;
 
+    if (!pTp->fIoTp)
+    {
+        PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
+        PSPEmuCoreTraceDeregister(hPspCore, pTp->u.PspAddrTp, pTp->u.PspAddrTp);
+    }
+    else
+    {
+        /* Deregister the I/O trace point. */
+        PSPEmuIoMgrTpDeregister(pTp->u.hIoTp);
+    }
+
     /* Find the tracepoint to remove. */
     PPSPDBGTP pTpPrev = NULL;
     PPSPDBGTP pTpCur = pThis->pTpsHead;
@@ -1066,15 +1077,7 @@ static int pspDbgGdbStubIfTgtTpClear(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTG
 
     int rcGdbStub = GDBSTUB_INF_SUCCESS;
     if (pTpCur)
-    {
-        PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
-
-        int rc = PSPEmuCoreTraceDeregister(hPspCore, pTpCur->u.PspAddrTp, pTpCur->u.PspAddrTp);
-        if (!rc)
-            pspDbgTpDestroy(pTpCur);
-        else
-            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
-    }
+        pspDbgTpDestroy(pTpCur);
     else
         rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
 
