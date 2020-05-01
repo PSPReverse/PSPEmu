@@ -739,6 +739,31 @@ static void pspEmuProxyCcdX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite
 }
 
 
+static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, bool *pfIrq, bool *pfFirq, void *pvUser)
+{
+    PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
+    PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    uint32_t idCcd = 0; /** @todo Multiple CCD support. */
+    int rc = 0;
+
+    do
+    {
+        rc = PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 10 * 1000);
+        if (!rc)
+            break;
+        else if (rc == -2)
+        {
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
+                                    "pspEmuProxyWfiReached() Waiting for Interrupt for CCD %u...\n", idCcd);
+            rc = 0;
+        }
+    } while (!rc);
+
+    return rc;
+}
+
+
 static void pspEmuCcdProxyLogMsg(PSPPROXYCTX hCtx, void *pvUser, const char *pszMsg)
 {
     PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
@@ -818,7 +843,10 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
     if (pCcdRec)
     {
         PSPIOM hIoMgr;
+        PSPCORE hPspCore;
         rc = PSPEmuCcdQueryIoMgr(hCcd, &hIoMgr);
+        if (!rc)
+            rc = PSPEmuCcdQueryCore(hCcd, &hPspCore);
         if (!rc)
         {
             /* Register the unassigned handlers for the various regions. */
@@ -830,6 +858,8 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
             if (!rc)
                 rc = PSPEmuIoMgrX86UnassignedSet(hIoMgr, pspEmuProxyCcdX86UnassignedRead, pspEmuProxyCcdX86UnassignedWrite,
                                                  "<PROXY>", pCcdRec);
+            if (!rc)
+                rc = PSPEmuCoreWfiSet(hPspCore, pspEmuProxyWfiReached, pCcdRec);
 
             if (!rc)
             {
