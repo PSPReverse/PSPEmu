@@ -32,6 +32,9 @@ typedef struct PSPCOREINT *PSPCORE;
 /** Pointer to a PSP emulation core handle. */
 typedef PSPCORE *PPSPCORE;
 
+/** @todo Move into status code header. */
+/** PSPEmuCoreExecRun() returned because there was a WFI instruction. */
+#define PSPEMU_INF_CORE_INSN_WFI_REACHED (1000)
 
 /** Trace hook handler. */
 typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser);
@@ -47,6 +50,23 @@ typedef FNPSPCOREMMIOREAD *PFNPSPCOREMMIOREAD;
 typedef void (FNPSPCOREMMIOWRITE)(PSPCORE hCore, PSPADDR uPspAddr, size_t cbWrite, const void *pvSrc, void *pvUser);
 /** MMIO write handler pointer. */
 typedef FNPSPCOREMMIOWRITE *PFNPSPCOREMMIOWRITE;
+
+
+/**
+ * WFI instruction reached callback.
+ *
+ * @returns Status code.
+ * @retval  0 if the emulation core should return execution at the appropriate exception handler.
+ * @retval  <n> PSPEmuCoreExecRun() returns with that status code.
+ * @param   hCore                   The PSP core handle encountering the WFI instruction.
+ * @param   PspAddrPc               Instruction address following the WFI.
+ * @param   pfIrq                   Where to store whether a IRQ is pending upon return.
+ * @param   pfFirq                  Where to store whether a FIRQ is pending upon return.
+ * @param   pvUser                  Opaque user data passed during callback registration.
+ */
+typedef int (FNPSPCOREWFI)(PSPCORE hCore, PSPADDR PspAddrPc, bool *pfIrq, bool *pfFirq, void *pvUser);
+/** Pointer to a WFI reached callback. */
+typedef FNPSPCOREWFI *PFNPSPCOREWFI;
 
 
 /**
@@ -363,6 +383,16 @@ int PSPEmuCoreMmioRegister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMm
  * @param   cbMmio                  Size of the MMIO region in bytes.
  */
 int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMmio);
+
+/**
+ * Sets the WFI callback to call whenever a WFI instruction is reached.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   pfnWfiReached           The WFI callback.
+ * @param   pvUser                  Opaque user data to pass to the callback.
+ */
+int PSPEmuCoreWfiSet(PSPCORE hCore, PFNPSPCOREWFI pfnWfiReached, void *pvUser);
 
 /**
  * Dumps the emulation core state to stdout.

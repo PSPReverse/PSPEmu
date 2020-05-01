@@ -123,6 +123,11 @@ typedef struct PSPCOREINT
     /** Head of MMIO regions. */
     PPSPCOREMMIOREGION      pMmioRegionsHead;
 
+    /** The WFI reached callback if set. */
+    PFNPSPCOREWFI           pfnWfiReached;
+    /** Opaque user data to pass to the WFI reached callback. */
+    void                    *pvWfiUser;
+
     /** The SVC injection registartion record set, NULL if no overrides exist. */
     PCPSPCORESVCREG         pSvcReg;
     /** Opaque user data to pass to the SVC handlers. */
@@ -510,6 +515,131 @@ static void pspEmuCoreSvcAfterHook(uc_engine *pUcEngine, uint64_t uAddr, uint32_
 }
 
 
+/**
+ * Checks whether the instruction before the given address is a WFI instruction.
+ *
+ * @returns Flag whether a WFI instruction was detected.
+ * @param   pThis               The PSP emulation core instance.
+ * @param   PspAddrPc           The PC following the potential WFI instruction.
+ * @param   fThumb              Flag whether we are in thumb state.
+ */
+static bool pspEmuCoreInsnIsWfi(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb)
+{
+    if (PspAddrPc <= pThis->cbSram)
+    {
+        if (fThumb)
+        {
+            uint16_t u16Insn = *(uint16_t *)((uint8_t *)pThis->pvSram + PspAddrPc - 2);
+            if (u16Insn == 0xbf30)
+                return true;
+        }
+        else
+        {
+            uint32_t u32Insn = *(uint32_t *)((uint8_t *)pThis->pvSram + PspAddrPc - 4);
+            if ((u32Insn & 0x0fffffff) == 0x0320f003)
+                return true;
+        }
+    }
+
+    return false;
+}
+
+
+/**
+ * Injects a new exception for execution.
+ *
+ * @returns Status code.
+ * @param   pThis               The PSP emulation core instance.
+ * @param   uMode               New processor mode to switch to.
+ * @param   idxExcpVecTbl       Index in the exception vector table to jump to.
+ * @param   PspAddrPcOld        The PC value when the exception was raised.
+ */
+static int pspEmuCoreExcpInject(PPSPCOREINT pThis, uint32_t uMode, uint32_t idxExcpVecTbl, PSPADDR PspAddrPcOld)
+{
+    uint32_t uCpsrOld = 0;
+
+    uc_err rcUc = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
+
+    /* Set new mode. */
+    uint32_t uCpsr = (uCpsrOld & ~0xf) | uMode;
+    if (rcUc == UC_ERR_OK)
+        rcUc = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsr);
+    if (rcUc == UC_ERR_OK)
+        rcUc = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_SPSR, &uCpsrOld); /* Save CPSR into SPSR after switching modes. */
+    if (rcUc == UC_ERR_OK)
+        rcUc = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_LR, &PspAddrPcOld); /* PC is advanced already. */
+
+    uint32_t u32VBar = 0;
+    rcUc = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_VBAR, &u32VBar);
+    PSPADDR PspAddrPc = u32VBar + idxExcpVecTbl * sizeof(uint32_t); /* Switches to ARM mode. */
+
+    if (rcUc == UC_ERR_OK)
+        rcUc = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_PC, &PspAddrPc);
+    if (rcUc == UC_ERR_OK)
+        pThis->PspAddrExecNext = PspAddrPc;
+
+    return pspEmuCoreErrConvertFromUcErr(rcUc);
+}
+
+
+/**
+ * Single steps through the instructions until the pending interrupt source is enabled.
+ *
+ * @returns Status code.
+ * @param   pThis               The PSP emulation core instance.
+ * @param   fFirq               Flag whether an FIRQ is pending.
+ * @param   fIrq                Flag whether an IRQ is pending.
+ *
+ * @note This is a very limited version of our runloop which expects that there is nothing fancy going
+ *       on between exiting the WFI instruction and enabling the interrupts on the core.
+ */
+static int pspEmuCoreExecSingleStepUntilIrqEnabled(PPSPCOREINT pThis, bool fFirq, bool fIrq)
+{
+    int rc = 0;
+
+    while (   !rc
+           && !pThis->fExecStop)
+    {
+        uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff, 0, 1);
+        if (rcUc == UC_ERR_OK)
+        {
+            /* Query CPSR and check whether interrupts are enabled for a pending source. */
+            PSPADDR PspAddrPc = 0;
+            uint32_t uCpsrOld = 0;
+            size_t   ucCpuMode = 0;
+
+            uc_err rcUc = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
+            if (rcUc == UC_ERR_OK)
+                rcUc = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &PspAddrPc);
+            if (rcUc == UC_ERR_OK)
+                rcUc = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+            if (rcUc == UC_ERR_OK)
+            {
+                if (   (   fFirq
+                        && !(uCpsrOld & (1 << 6)))
+                    || (   fIrq
+                        && !(uCpsrOld & (1 << 7))))
+                    break;
+            }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+            /*
+             * Unicorn doesn't use the CPSR Thumb state bit but switches to the instruction set
+             * based on bit 0 of the address (like for a blx instruction for instance).
+             */
+            bool fThumb = ucCpuMode == UC_MODE_THUMB ? true : false;
+            PspAddrPc |= fThumb ? 1 : 0;
+            pThis->PspAddrExecNext = PspAddrPc;
+        }
+        else
+            rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+    }
+
+    return rc;
+}
+
+
 int PSPEmuCoreCreate(PPSPCORE phCore, size_t cbSram)
 {
     int rc = 0;
@@ -816,8 +946,6 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                 if (pThis->fSvcPending)
                 {
                     /* Set new PC, LR, CPSR and SPSR. */
-                    uint32_t uCpsrOld;
-                    uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
 
                     /* Handle any SVC injections before passing control to any supervisor code. */
                     bool fSwitchToSvc = true;
@@ -826,35 +954,7 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                     if (rcUc2 == UC_ERR_OK)
                     {
                         if (fSwitchToSvc) /** @todo Set temporary breakpoint to call SVC injection handlers afterwards. */
-                        {
-                            /* Set supervisor mode. */
-                            uint32_t uCpsr = (uCpsrOld & ~0xf) | 0x3; /** @todo Proper defines! */
-                            if (rcUc2 == UC_ERR_OK)
-                                rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsr);
-                            if (rcUc2 == UC_ERR_OK)
-                                rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_SPSR, &uCpsrOld); /* Save CPSR into SPSR after switching modes. */
-                            if (rcUc2 == UC_ERR_OK)
-                                rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_LR, &uPc); /* PC is advanced already. */
-
-                            /*
-                             * For the after SVC handlers we have to set up a temporary breakpoint at the PC
-                             * returned to afterwards.
-                             */
-                            if (rcUc2 == UC_ERR_OK)
-                                rcUc2 = uc_hook_add(pThis->pUcEngine, &pThis->hUcHookSvcAfter, UC_HOOK_CODE,
-                                                    pspEmuCoreSvcAfterHook, pThis, uPc, uPc);
-
-                            if (rcUc2 == UC_ERR_OK)
-                            {
-                                uint32_t u32VBar = 0;
-                                rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_VBAR, &u32VBar);
-                                uPc = u32VBar + 2 * sizeof(uint32_t); /* Switches to ARM mode. */
-                            }
-                            if (rcUc2 == UC_ERR_OK)
-                                rcUc2 = uc_reg_write(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
-                            if (rcUc2 == UC_ERR_OK)
-                                pThis->PspAddrExecNext = (PSPADDR)uPc;
-                        }
+                            rc = pspEmuCoreExcpInject(pThis, 0x3, 0x2, uPc);
                         else
                         {
                             pspEmuCoreSvcAfter(pThis);
@@ -868,6 +968,71 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                     pThis->fSvcPending = false;
                     if (rcUc2 != UC_ERR_OK)
                         rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+                }
+                else if (pspEmuCoreInsnIsWfi(pThis, uPc, fThumb))
+                {
+                    if (pThis->pfnWfiReached)
+                    {
+                        bool fIrq = false;
+                        bool fFirq = false;
+                        rc = pThis->pfnWfiReached(pThis, uPc, &fIrq, &fFirq, pThis->pvWfiUser);
+                        if (!rc)
+                        {
+                            uint32_t uCpsrOld = 0;
+                            rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
+                            if (rcUc2 == UC_ERR_OK)
+                            {
+                                /*
+                                 * If we have an interrupt and the corresponding source is masked
+                                 * we have to single step through the code to find out when it gets enabled.
+                                 */
+                                if (   (   fFirq
+                                        && (uCpsrOld & (1 << 6)))
+                                    || (   fIrq
+                                        && (uCpsrOld & (1 << 7))))
+                                {
+                                    uPc |= fThumb ? 1 : 0;
+                                    pThis->PspAddrExecNext = (PSPADDR)uPc;
+
+                                    rc = pspEmuCoreExecSingleStepUntilIrqEnabled(pThis, fFirq, fIrq);
+                                    if (!rc)
+                                    {
+                                        /* Query new PC and new mode value. */
+                                        uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
+                                        if (rcUc2 == UC_ERR_OK)
+                                            rcUc2 = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+
+                                        fThumb = ucCpuMode == UC_MODE_THUMB ? true : false;
+                                        if (rcUc2 != UC_ERR_OK)
+                                            rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+                                    }
+                                }
+
+                                if (!rc)
+                                {
+                                    /* Continue with the appropriate exception handler. */
+                                    if (fFirq)
+                                        rc = pspEmuCoreExcpInject(pThis, 0x1, 0x7, uPc);
+                                    else if (fIrq)
+                                        rc = pspEmuCoreExcpInject(pThis, 0x2, 0x6, uPc);
+                                    else
+                                    {
+                                        uPc |= fThumb ? 1 : 0;
+                                        pThis->PspAddrExecNext = (PSPADDR)uPc;
+                                    }
+                                }
+                            }
+                            else
+                                rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+                        }
+                        else /* Break out of execution loop. */
+                            break;
+                    }
+                    else
+                    {
+                        rc = PSPEMU_INF_CORE_INSN_WFI_REACHED;
+                        break;
+                    }
                 }
                 else
                 {
@@ -1062,6 +1227,23 @@ int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cb
         uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, uPspAddrMmioStart, cbMmio);
         /** @todo assert(rcUc == UC_ERR_OK) */
         free(pCur);
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+int PSPEmuCoreWfiSet(PSPCORE hCore, PFNPSPCOREWFI pfnWfiReached, void *pvUser)
+{
+    PPSPCOREINT pThis = hCore;
+    int rc = 0;
+
+    /* Only allow one callback for now. */
+    if (!pThis->pfnWfiReached)
+    {
+        pThis->pfnWfiReached = pfnWfiReached;
+        pThis->pvWfiUser     = pvUser;
     }
     else
         rc = -1;
