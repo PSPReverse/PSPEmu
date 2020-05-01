@@ -740,7 +740,9 @@ static int pspDevCcpKeyCopyFromReq(PPSPDEVCCP pThis, PCCCP5REQ pReq, size_t cbKe
     else if (CCP_V5_MEM_TYPE_GET(pReq->u16KeyMemType) == CCP_V5_MEM_TYPE_SB)
     {
         CCPADDR CcpAddrKey = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow);
-        rc = pspDevCcpXferMemLocalRead(pThis, CcpAddrKey, pvKey, cbKey);
+        if (   CcpAddrKey < sizeof(pThis->Lsb)
+            && CcpAddrKey + cbKey <= sizeof(pThis->Lsb))
+            memcpy(pvKey, &pThis->Lsb.u.abLsb[CcpAddrKey], cbKey);
     }
 
     return rc;
