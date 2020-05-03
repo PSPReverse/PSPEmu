@@ -1305,6 +1305,8 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
             if (rcPsx == -1)
                 rc = -1;
         }
+        else
+            PSPEmuCoreStateDump(hPspCore);
     }
 
     return rc;
@@ -1414,7 +1416,14 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
         if (!pThis->fCoreRunning)
             rc = pspEmuDbgRunloopCoreNotRunning(pThis);
         else
+        {
             rc = pspEmuDbgRunloopCoreRunning(pThis);
+            if (rc)
+            {
+                pThis->fCoreRunning = false;
+                rc = 0;
+            }
+        }
     }
 
     return rc;
