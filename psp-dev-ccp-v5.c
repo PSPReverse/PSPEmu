@@ -720,6 +720,28 @@ static int pspDevCcpXferCtxWrite(PCCPXFERCTX pCtx, const void *pvSrc, size_t cbW
 
 
 /**
+ * Reverses the data in the given buffer.
+ *
+ * @returns nothing.
+ * @param   pbBuf                   The buffer to reverse the data in.
+ * @param   cbBuf                   Size of the buffer to reverse.
+ */
+static void pspDevCcpReverseBuf(uint8_t *pbBuf, size_t cbBuf)
+{
+    uint8_t *pbBufTop = pbBuf + cbBuf - 1;
+
+    while (pbBuf < pbBufTop)
+    {
+        uint8_t bTmp = *pbBuf;
+        *pbBuf = *pbBufTop;
+        *pbBufTop = bTmp;
+        pbBuf++;
+        pbBufTop--;
+    }
+}
+
+
+/**
  * Copies the key material pointed to by the request into a supplied buffer.
  *
  * @returns Status code.
@@ -743,6 +765,8 @@ static int pspDevCcpKeyCopyFromReq(PPSPDEVCCP pThis, PCCCP5REQ pReq, size_t cbKe
         if (   CcpAddrKey < sizeof(pThis->Lsb)
             && CcpAddrKey + cbKey <= sizeof(pThis->Lsb))
             memcpy(pvKey, &pThis->Lsb.u.abLsb[CcpAddrKey], cbKey);
+        else
+            rc = -1;
     }
 
     return rc;
@@ -750,24 +774,25 @@ static int pspDevCcpKeyCopyFromReq(PPSPDEVCCP pThis, PCCCP5REQ pReq, size_t cbKe
 
 
 /**
- * Reverses the data in the given buffer.
+ * Copies data from an LSB into a supplied buffer.
  *
- * @returns nothing.
- * @param   pbBuf                   The buffer to reverse the data in.
- * @param   cbBuf                   Size of the buffer to reverse.
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   CcpAddrLsb          CCP LSB address to copy from.
+ * @param   cb                  Amount of bytes to copy.
+ * @param   pv                  Where to store the data.
  */
-static void pspDevCcpReverseBuf(uint8_t *pbBuf, size_t cbBuf)
+static int pspDevCcpCopyFromLsb(PPSPDEVCCP pThis, CCPADDR CcpAddrLsb, size_t cb, void *pv)
 {
-    uint8_t *pbBufTop = pbBuf + cbBuf - 1;
+    int rc = 0;
 
-    while (pbBuf < pbBufTop)
-    {
-        uint8_t bTmp = *pbBuf;
-        *pbBuf = *pbBufTop;
-        *pbBufTop = bTmp;
-        pbBuf++;
-        pbBufTop--;
-    }
+    if (   CcpAddrLsb < sizeof(pThis->Lsb)
+        && CcpAddrLsb + cb <= sizeof(pThis->Lsb))
+        memcpy(pv, &pThis->Lsb.u.abLsb[CcpAddrLsb], cb);
+    else
+        rc = -1;
+
+    return rc;
 }
 
 
@@ -1214,6 +1239,7 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         const EVP_CIPHER *pOsslEvpAes = NULL;
         size_t cbLeft = pReq->cbSrc;
         size_t cbKey = 0;
+        bool fUseIv = false;
         CCPXFERCTX XferCtx;
 
         if (uAesType == CCP_V5_ENGINE_AES_TYPE_256)
@@ -1223,7 +1249,10 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
             if (uMode == CCP_V5_ENGINE_AES_MODE_ECB)
                 pOsslEvpAes = EVP_aes_256_ecb();
             else if (uMode == CCP_V5_ENGINE_AES_MODE_CBC)
+            {
                 pOsslEvpAes = EVP_aes_256_cbc();
+                fUseIv = true;
+            }
             else
             {
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_CCP, "CCP: Internal AES error");
@@ -1238,7 +1267,10 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
             if (uMode == CCP_V5_ENGINE_AES_MODE_ECB)
                 pOsslEvpAes = EVP_aes_128_ecb();
             else if (uMode == CCP_V5_ENGINE_AES_MODE_CBC)
+            {
                 pOsslEvpAes = EVP_aes_128_cbc();
+                fUseIv = true;
+            }
             else
             {
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_CCP, "CCP: Internal AES error");
@@ -1252,12 +1284,27 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
 
         if (!rc)
-            rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, true /*fSha*/, pReq->cbSrc /**@todo Correct? */,
+            rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/, pReq->cbSrc /**@todo Correct? */,
                                       false /*fWriteRev*/);
         if (!rc)
         {
             uint8_t abKey[256 / 8];
+            uint8_t abIv[128 / 8];
             rc = pspDevCcpKeyCopyFromReq(pThis, pReq, cbKey, &abKey[0]);
+            if (!rc) /* The key is given in reverse order (Linux kernel mentions big endian). */
+                pspDevCcpReverseBuf(&abKey[0], cbKey);
+            if (!rc && fUseIv)
+            {
+                /*
+                 * The IV is always given in the LSB which ID is given in the source memory type.
+                 * And we need to reverse the IV as well.
+                 */
+                uint8_t uLsbCtxId = CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType);
+                CCPADDR CcpAddrIv = uLsbCtxId * sizeof(pThis->Lsb.u.aSlots[0].abData);
+
+                rc = pspDevCcpCopyFromLsb(pThis, CcpAddrIv, sizeof(abIv), &abIv[0]);
+                pspDevCcpReverseBuf(&abIv[0], sizeof(abIv));
+            }
             if (!rc)
             {
                 pThis->pOsslAesCtx = EVP_CIPHER_CTX_new();
@@ -1265,12 +1312,14 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                     rc = -1;
                 else if (fEncrypt)
                 {
-                    if (EVP_EncryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, &abKey[0], NULL) != 1)
+                    if (EVP_EncryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, &abKey[0],
+                                           fUseIv ? &abIv[0] : NULL) != 1)
                         rc = -1;
                 }
                 else
                 {
-                    if (EVP_DecryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, &abKey[0], NULL) != 1)
+                    if (EVP_DecryptInit_ex(pThis->pOsslAesCtx, pOsslEvpAes, NULL, &abKey[0],
+                                           fUseIv ? &abIv[0] : NULL) != 1)
                         rc = -1;
                 }
 
