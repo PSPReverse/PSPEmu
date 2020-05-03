@@ -529,14 +529,18 @@ static bool pspEmuCoreInsnIsWfi(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThum
     {
         if (fThumb)
         {
-            uint16_t u16Insn = *(uint16_t *)((uint8_t *)pThis->pvSram + PspAddrPc - 2);
-            if (u16Insn == 0xbf30)
+            uint16_t u16Insn = 0;
+            uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 2, &u16Insn, sizeof(u16Insn));
+            if (   rcUc = UC_ERR_OK
+                && u16Insn == 0xbf30)
                 return true;
         }
         else
         {
-            uint32_t u32Insn = *(uint32_t *)((uint8_t *)pThis->pvSram + PspAddrPc - 4);
-            if ((u32Insn & 0x0fffffff) == 0x0320f003)
+            uint32_t u32Insn = 0;
+            uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 4, &u32Insn, sizeof(u32Insn));
+            if (   rcUc = UC_ERR_OK
+                && (u32Insn & 0x0fffffff) == 0x0320f003)
                 return true;
         }
     }
