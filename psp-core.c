@@ -19,6 +19,8 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
+#include <string.h>
+
 #include <unicorn/unicorn.h>
 
 #include <common/types.h>
@@ -73,29 +75,47 @@ typedef const PSPCORETRACEHOOK *PCPSPCORETRACEHOOK;
 
 
 /**
- * A single MMIO region registration.
+ * A single memory (RAM/MMIO) region registration.
  */
-typedef struct PSPCOREMMIOREGION
+typedef struct PSPCOREMEMREGION
 {
-    /** Next MMIO region in the list. */
-    struct PSPCOREMMIOREGION *pNext;
+    /** Next region in the list. */
+    struct PSPCOREMEMREGION  *pNext;
     /** Start PSP address. */
     PSPADDR                  PspAddrStart;
-    /** Size of the MMIO region. */
-    size_t                   cbMmio;
+    /** Size of the region. */
+    size_t                   cbRegion;
     /** PSP core the region belongs to. */
     PPSPCOREINT              pPspCore;
-    /** MMIO read handler. */
-    PFNPSPCOREMMIOREAD       pfnRead;
-    /** MMIO write handler. */
-    PFNPSPCOREMMIOWRITE      pfnWrite;
-    /** Opaque user data to pass to the read/write callbacks. */
-    void                     *pvUser;
-} PSPCOREMMIOREGION;
+    /** Flag whether this is a RAM of MMIO region. */
+    bool                     fMmio;
+    /** Region type dependent data. */
+    union
+    {
+        /** MMIO region. */
+        struct
+        {
+            /** MMIO read handler. */
+            PFNPSPCOREMMIOREAD       pfnRead;
+            /** MMIO write handler. */
+            PFNPSPCOREMMIOWRITE      pfnWrite;
+            /** Opaque user data to pass to the read/write callbacks. */
+            void                     *pvUser;
+        } Mmio;
+        /** RAM region. */
+        struct
+        {
+            /** The backing memory. */
+            void                     *pvBacking;
+            /** Protection flags assigned to this region. */
+            uint32_t                 fProt;
+        } Ram;
+    } u;
+} PSPCOREMEMREGION;
 /** Pointer to a trace hook. */
-typedef PSPCOREMMIOREGION *PPSPCOREMMIOREGION;
+typedef PSPCOREMEMREGION *PPSPCOREMEMREGION;
 /** Pointer to a const trace hook. */
-typedef const PSPCOREMMIOREGION *PCPSPCOREMMIOREGION;
+typedef const PSPCOREMEMREGION *PCPSPCOREMEMREGION;
 
 
 /**
@@ -109,10 +129,6 @@ typedef struct PSPCOREINT
     uc_context              *pUcCtxReset;
     /** The svc interrupt hook. */
     uc_hook                 pUcHookSvc;
-    /** The SRAM region. */
-    void                    *pvSram;
-    /** Size of the SRAM region. */
-    size_t                  cbSram;
     /** The next address to execute instructions from. */
     PSPADDR                 PspAddrExecNext;
     /** Flag whether the exeuction should stop. */
@@ -120,8 +136,12 @@ typedef struct PSPCOREINT
 
     /** Head of registered trace hooks. */
     PPSPCORETRACEHOOK       pTraceHooksHead;
-    /** Head of MMIO regions. */
-    PPSPCOREMMIOREGION      pMmioRegionsHead;
+    /** Head of memory regions. */
+    PPSPCOREMEMREGION       pMemRegionsHead;
+    /** Lowest memory address assigned to a region (for faster lookup). */
+    PSPADDR                 PspAddrMemLowest;
+    /** Highest memory address assigned to a region (inclusive). */
+    PSPADDR                 PspAddrMemHighest;
 
     /** The WFI reached callback if set. */
     PFNPSPCOREWFI           pfnWfiReached;
@@ -300,11 +320,11 @@ static void pspEmuCoreUcHookMemWrapper(uc_engine *pUcEngine, uc_mem_type uMemTyp
  */
 static uint64_t pspEmuCoreMmioRead(struct uc_struct* pUcEngine, void *pvUser, uint64_t uAddr, unsigned cb)
 {
-    PCPSPCOREMMIOREGION pRegion = (PCPSPCOREMMIOREGION)pvUser;
+    PCPSPCOREMEMREGION pRegion = (PCPSPCOREMEMREGION)pvUser;
     PSPDATUM ValRead;
     uint64_t uValRet = 0;
 
-    pRegion->pfnRead(pRegion->pPspCore, (PSPADDR)uAddr, cb, &ValRead, pRegion->pvUser);
+    pRegion->u.Mmio.pfnRead(pRegion->pPspCore, (PSPADDR)uAddr, cb, &ValRead, pRegion->u.Mmio.pvUser);
     switch (cb)
     {
         case 1:
@@ -340,7 +360,7 @@ static uint64_t pspEmuCoreMmioRead(struct uc_struct* pUcEngine, void *pvUser, ui
  */
 static void pspEmuCoreMmioWrite(struct uc_struct* pUcEngine, void *pvUser, uint64_t uAddr, uint64_t uVal, unsigned cb)
 {
-    PCPSPCOREMMIOREGION pRegion = (PCPSPCOREMMIOREGION)pvUser;
+    PCPSPCOREMEMREGION pRegion = (PCPSPCOREMEMREGION)pvUser;
     PSPDATUM ValWrite;
 
     switch (cb)
@@ -361,7 +381,7 @@ static void pspEmuCoreMmioWrite(struct uc_struct* pUcEngine, void *pvUser, uint6
             /** @todo assert() */
             uc_emu_stop(pUcEngine);
     }
-    pRegion->pfnWrite(pRegion->pPspCore, (PSPADDR)uAddr, cb, &ValWrite, pRegion->pvUser);
+    pRegion->u.Mmio.pfnWrite(pRegion->pPspCore, (PSPADDR)uAddr, cb, &ValWrite, pRegion->u.Mmio.pvUser);
 }
 
 
@@ -525,24 +545,21 @@ static void pspEmuCoreSvcAfterHook(uc_engine *pUcEngine, uint64_t uAddr, uint32_
  */
 static bool pspEmuCoreInsnIsWfi(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb)
 {
-    if (PspAddrPc <= pThis->cbSram)
+    if (fThumb)
     {
-        if (fThumb)
-        {
-            uint16_t u16Insn = 0;
-            uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 2, &u16Insn, sizeof(u16Insn));
-            if (   rcUc = UC_ERR_OK
-                && u16Insn == 0xbf30)
-                return true;
-        }
-        else
-        {
-            uint32_t u32Insn = 0;
-            uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 4, &u32Insn, sizeof(u32Insn));
-            if (   rcUc = UC_ERR_OK
-                && (u32Insn & 0x0fffffff) == 0x0320f003)
-                return true;
-        }
+        uint16_t u16Insn = 0;
+        uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 2, &u16Insn, sizeof(u16Insn));
+        if (   rcUc = UC_ERR_OK
+            && u16Insn == 0xbf30)
+            return true;
+    }
+    else
+    {
+        uint32_t u32Insn = 0;
+        uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 4, &u32Insn, sizeof(u32Insn));
+        if (   rcUc = UC_ERR_OK
+            && (u32Insn & 0x0fffffff) == 0x0320f003)
+            return true;
     }
 
     return false;
@@ -644,7 +661,118 @@ static int pspEmuCoreExecSingleStepUntilIrqEnabled(PPSPCOREINT pThis, bool fFirq
 }
 
 
-int PSPEmuCoreCreate(PPSPCORE phCore, size_t cbSram)
+/**
+ * Finds the region assigned to the given address or NULL if there is nothing assigned.
+ *
+ * @returns Pointer to the region or NULL if not found.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspAddr                 The physical PSP address to look for.
+ * @param   ppPrevRegion            Where to store the pointer to the previous region, optional.
+ */
+static PPSPCOREMEMREGION pspEmuCoreMemRegionFindByAddr(PPSPCOREINT pThis, PSPADDR PspAddr,
+                                                       PPSPCOREMEMREGION *ppPrevRegion)
+{
+    if (   PspAddr < pThis->PspAddrMemLowest
+        || PspAddr > pThis->PspAddrMemHighest)
+        return NULL;
+
+    /* Slow path. */
+    PPSPCOREMEMREGION pPrev = NULL;
+    PPSPCOREMEMREGION pCur = pThis->pMemRegionsHead;
+    while (pCur)
+    {
+        if (   PspAddr >= pCur->PspAddrStart
+            && PspAddr < pCur->PspAddrStart + pCur->cbRegion)
+        {
+            if (ppPrevRegion)
+                *ppPrevRegion = pPrev;
+            return pCur;
+        }
+
+        pPrev = pCur;
+        pCur = pCur->pNext;
+    }
+
+    return NULL;
+}
+
+
+/**
+ * Inserts the given memory region at the appropriate palce in the linked list.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   pMemRegion              The memory region to add.
+ */
+static int pspEmuCoreMemRegionInsert(PPSPCOREINT pThis, PPSPCOREMEMREGION pMemRegion)
+{
+    int rc = 0;
+    PPSPCOREMEMREGION pPrev = NULL;
+    PPSPCOREMEMREGION pCur = pThis->pMemRegionsHead;
+
+    /* Search where to insert the new device, sorted by starting MMIO address. */
+    while (pCur)
+    {
+        if (pCur->PspAddrStart > pMemRegion->PspAddrStart)
+            break;
+        pPrev = pCur;
+        pCur = pCur->pNext;
+    }
+
+    /* Do some sanity checks, the new range must not overlap with the previous and current range. */
+    if (   (   !pPrev
+            || pPrev->PspAddrStart + pPrev->cbRegion <= pMemRegion->PspAddrStart)
+        && (   !pCur
+            || pMemRegion->PspAddrStart + pMemRegion->cbRegion <= pCur->PspAddrStart))
+    {
+        pMemRegion->pNext = pCur;
+        if (pPrev)
+            pPrev->pNext = pMemRegion;
+        else
+            pThis->pMemRegionsHead = pMemRegion;
+
+        /* Adjust the lowest and highest device range. */
+        if (pMemRegion->PspAddrStart < pThis->PspAddrMemLowest)
+            pThis->PspAddrMemLowest = pMemRegion->PspAddrStart;
+        if (pMemRegion->PspAddrStart + pMemRegion->cbRegion - 1 > pThis->PspAddrMemHighest)
+            pThis->PspAddrMemHighest = pMemRegion->PspAddrStart + pMemRegion->cbRegion - 1;
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
+/**
+ * Finds the region assigned to the given region bounadries, unlinks and returns or returns
+ * NULL if there is nothing assigned.
+ *
+ * @returns Pointer to the unlinked region or NULL if not found.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspAddr                 The physical PSP address to look for.
+ * @param   cbRegion                Size of the region.
+ */
+static PPSPCOREMEMREGION pspEmuCoreMemRegionFindAndUnlinkByAddr(PPSPCOREINT pThis, PSPADDR PspAddr, size_t cbRegion)
+{
+    PPSPCOREMEMREGION pPrev = NULL;
+    PPSPCOREMEMREGION pRegion = pspEmuCoreMemRegionFindByAddr(pThis, PspAddr, &pPrev);
+    if (   pRegion
+        && pRegion->PspAddrStart == PspAddr
+        && pRegion->cbRegion == cbRegion)
+    {
+        if (pPrev)
+            pPrev->pNext = pRegion->pNext;
+        else
+            pThis->pMemRegionsHead = pRegion->pNext;
+        return pRegion;
+    }
+
+    return NULL;
+}
+
+
+int PSPEmuCoreCreate(PPSPCORE phCore)
 {
     int rc = 0;
     PPSPCOREINT pThis = (PPSPCOREINT)calloc(1, sizeof(*pThis));
@@ -654,77 +782,46 @@ int PSPEmuCoreCreate(PPSPCORE phCore, size_t cbSram)
         uc_err err;
 
         pThis->pTraceHooksHead  = NULL;
-        pThis->pMmioRegionsHead = NULL;
-        pThis->cbSram           = cbSram;
-        pThis->pvSram           = calloc(1, pThis->cbSram);
+        pThis->pMemRegionsHead  = NULL;
         pThis->pSvcReg          = NULL;
         pThis->pvSvcUser        = NULL;
         pThis->fSvcPending      = false;
         pThis->fExecStop        = false;
         pThis->hUcHookSvcAfter  = 0;
-        if (pThis->pvSram)
+
+        /* Initialize unicorn engine in ARM mode. */
+        err = uc_open(UC_ARCH_ARM, UC_MODE_ARM, &pThis->pUcEngine);
+        if (!err)
         {
-            /* Initialize unicorn engine in ARM mode. */
-            err = uc_open(UC_ARCH_ARM, UC_MODE_ARM, &pThis->pUcEngine);
-            if (!err)
+            if (!rc)
             {
-                if (!rc)
+                err = uc_hook_add(pThis->pUcEngine, &pThis->pUcHookSvc, UC_HOOK_INTR, (void *)(uintptr_t)pspEmuCoreSvcWrapper, pThis, 1, 0);
+                if (!err)
                 {
-                    uc_mem_map_ptr(pThis->pUcEngine, 0x0, pThis->cbSram, UC_PROT_ALL, pThis->pvSram);
-
-                     /** @todo The stack memory, do this more elegantly. The PSP sets up page tables
-                      * but unicorn somehow ignores them so we have to make the stack available here for now
-                      * with an explicit mapping.
-                      *
-                      * For Zen2 the physical addresses are different so this gross hack gets even worse...
-                      */
-                    if (pThis->cbSram == 320 * _1K)
-                    {
-                        /* Phyiscal address for the SVC stack is 0x4d000 so let it point into the correct memory region. */
-                        uc_mem_map_ptr(pThis->pUcEngine, 0x60000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE, (uint8_t *)pThis->pvSram + 0x4d000);
-                        /* The USR mode stack for Zen2 starts at 0x70000 and covers the last two user mode region pages. */
-                        uc_mem_map_ptr(pThis->pUcEngine, 0x70000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE, (uint8_t *)pThis->pvSram + 0x4b000);
-                    }
-                    else
-                    {
-                        /* The SVC mode stack for Zen1 and Zen+ starts at 0x50000. */
-                        uc_mem_map_ptr(pThis->pUcEngine, 0x50000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE, (uint8_t *)pThis->pvSram + 0x3d000);
-                        /* The USR mode stack for Zen1 and Zen+ starts at 0x60000 and covers the last two user mode region pages. */
-                        uc_mem_map_ptr(pThis->pUcEngine, 0x60000, 2 * _4K, UC_PROT_READ | UC_PROT_WRITE, (uint8_t *)pThis->pvSram + 0x3b000);
-                    }
-
-                    err = uc_hook_add(pThis->pUcEngine, &pThis->pUcHookSvc, UC_HOOK_INTR, (void *)(uintptr_t)pspEmuCoreSvcWrapper, pThis, 1, 0);
+                    /* Create the initial CPU context used for resetting later on. */
+                    err = uc_context_alloc(pThis->pUcEngine, &pThis->pUcCtxReset);
                     if (!err)
                     {
-                        /* Create the initial CPU context used for resetting later on. */
-                        err = uc_context_alloc(pThis->pUcEngine, &pThis->pUcCtxReset);
+                        err = uc_context_save(pThis->pUcEngine, pThis->pUcCtxReset);
                         if (!err)
                         {
-                            err = uc_context_save(pThis->pUcEngine, pThis->pUcCtxReset);
-                            if (!err)
-                            {
-                                *phCore = pThis;
-                                return 0;
-                            }
-
-                            uc_free(pThis->pUcCtxReset);
-                            pThis->pUcCtxReset = NULL;
+                            *phCore = pThis;
+                            return 0;
                         }
+
+                        uc_free(pThis->pUcCtxReset);
+                        pThis->pUcCtxReset = NULL;
                     }
                 }
-
-                uc_close(pThis->pUcEngine);
-            }
-            else
-            {
-                printf("not ok - Failed on uc_open() with error: %s\n", uc_strerror(err));
-                rc = -1;
             }
 
-            free(pThis->pvSram);
+            uc_close(pThis->pUcEngine);
         }
         else
+        {
+            printf("not ok - Failed on uc_open() with error: %s\n", uc_strerror(err));
             rc = -1;
+        }
 
         free(pThis);
     }
@@ -738,14 +835,14 @@ void PSPEmuCoreDestroy(PSPCORE hCore)
 {
     PPSPCOREINT pThis = hCore;
 
-    /* Unmap all MMIO hooks. */
-    PPSPCOREMMIOREGION pMmioCur = pThis->pMmioRegionsHead;
-    while (pMmioCur)
+    /* Unmap all memory regions. */
+    PPSPCOREMEMREGION pMemCur = pThis->pMemRegionsHead;
+    while (pMemCur)
     {
-        PPSPCOREMMIOREGION pFree = pMmioCur;
+        PPSPCOREMEMREGION pFree = pMemCur;
 
-        pMmioCur = pMmioCur->pNext;
-        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pFree->PspAddrStart, pFree->cbMmio);
+        pMemCur = pMemCur->pNext;
+        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pFree->PspAddrStart, pFree->cbRegion);
         /** @todo assert(rcUrc == UC_ERR_OK) */
         free(pFree);
     }
@@ -762,10 +859,9 @@ void PSPEmuCoreDestroy(PSPCORE hCore)
         free(pFree);
     }
 
-    pThis->pMmioRegionsHead = NULL;
+    pThis->pMemRegionsHead = NULL;
     uc_free(pThis->pUcCtxReset);
     uc_close(pThis->pUcEngine);
-    free(pThis->pvSram);
     free(pThis);
 }
 
@@ -774,34 +870,85 @@ int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, const void *pvData, 
     PPSPCOREINT pThis = hCore;
 
     /*
-     * Limit the size to the end of the SRAM so we don't get any unmapped write errors right away
-     * but only when we hit an unmapped region.
-     *
-     * @todo Get rid of uc_mem_write/uc_mem_read and do everything ourselves.
+     * Walk each region and act upon the type there, as soon as an unmapped address is encountered
+     * we stop with an error.
      */
-    if (   AddrPspWrite < pThis->cbSram
-        && AddrPspWrite + cbData > pThis->cbSram)
+    int rc = 0;
+    const uint8_t *pbData = (const uint8_t *)pvData;
+    while (   cbData
+           && !rc)
     {
-        size_t cbThisWrite = pThis->cbSram - AddrPspWrite;
-        uc_err rcUc = uc_mem_write(pThis->pUcEngine, AddrPspWrite, pvData, cbThisWrite);
-        if (rcUc != UC_ERR_OK)
-            return pspEmuCoreErrConvertFromUcErr(rcUc);
+        PPSPCOREMEMREGION pRegion = pspEmuCoreMemRegionFindByAddr(pThis, AddrPspWrite, NULL /*ppPrev*/);
+        if (pRegion)
+        {
+            PSPADDR offStart = AddrPspWrite - pRegion->PspAddrStart;
+            size_t cbThisWrite = MIN(cbData, pRegion->cbRegion - offStart);
 
-        AddrPspWrite += cbThisWrite;
-        cbData       -= cbThisWrite;
-        pvData       = (uint8_t *)pvData + cbThisWrite;
-        /* Continue Below to get the error. */
+            if (!pRegion->fMmio)
+            {
+                /* Just memcpy into the backing memory. */
+                memcpy((uint8_t *)pRegion->u.Ram.pvBacking + offStart, pbData, cbThisWrite);
+            }
+            else
+            {
+                /** @todo Handle ourselves. */
+                uc_err rcUc = uc_mem_write(pThis->pUcEngine, AddrPspWrite, pbData, cbThisWrite);
+                if (rcUc != UC_ERR_OK)
+                    rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+            }
+
+            AddrPspWrite += cbThisWrite;
+            pbData       += cbThisWrite;
+            cbData       -= cbThisWrite;
+        }
+        else
+            rc = -1;
     }
-    uc_err rcUc = uc_mem_write(pThis->pUcEngine, AddrPspWrite, pvData, cbData);
-    return pspEmuCoreErrConvertFromUcErr(rcUc);
+
+    return rc;
 }
 
 int PSPEmuCoreMemRead(PSPCORE hCore, PSPADDR AddrPspRead, void *pvDst, size_t cbDst)
 {
     PPSPCOREINT pThis = hCore;
 
-    uc_err rcUc = uc_mem_read(pThis->pUcEngine, AddrPspRead, pvDst, cbDst);
-    return pspEmuCoreErrConvertFromUcErr(rcUc);
+    /*
+     * Walk each region and act upon the type there, as soon as an unmapped address is encountered
+     * we stop with an error.
+     */
+    int rc = 0;
+    uint8_t *pbDst = (uint8_t *)pvDst;
+    while (   cbDst
+           && !rc)
+    {
+        PPSPCOREMEMREGION pRegion = pspEmuCoreMemRegionFindByAddr(pThis, AddrPspRead, NULL /*ppPrev*/);
+        if (pRegion)
+        {
+            PSPADDR offStart = AddrPspRead - pRegion->PspAddrStart;
+            size_t cbThisRead = MIN(cbDst, pRegion->cbRegion - offStart);
+
+            if (!pRegion->fMmio)
+            {
+                /* Just memcpy into the backing memory. */
+                memcpy(pbDst, (const uint8_t *)pRegion->u.Ram.pvBacking + offStart, cbThisRead);
+            }
+            else
+            {
+                /** @todo Handle ourselves. */
+                uc_err rcUc = uc_mem_read(pThis->pUcEngine, AddrPspRead, pbDst, cbDst);
+                if (rcUc != UC_ERR_OK)
+                    rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+            }
+
+            AddrPspRead += cbThisRead;
+            pbDst       += cbThisRead;
+            cbDst       -= cbThisRead;
+        }
+        else
+            rc = -1;
+    }
+
+    return rc;
 }
 
 int PSPEmuCoreMemRegionAdd(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion, uint32_t fProt,
@@ -811,6 +958,10 @@ int PSPEmuCoreMemRegionAdd(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion, ui
     int fUcProt = 0;
     uc_err rcUc = UC_ERR_OK;
 
+    /* Don't allow without backing. */
+    if (!pvBacking)
+        return -1;
+
     if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_EXEC)
         fUcProt |= UC_PROT_EXEC;
     if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_READ)
@@ -818,20 +969,53 @@ int PSPEmuCoreMemRegionAdd(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion, ui
     if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_WRITE)
         fUcProt |= UC_PROT_WRITE;
 
-    if (pvBacking)
-        rcUc = uc_mem_map_ptr(pThis->pUcEngine, AddrStart, cbRegion, fUcProt, pvBacking);
-    else
-        rcUc = uc_mem_map(pThis->pUcEngine, AddrStart, cbRegion, fUcProt);
+    /* Create a new RAM backed region. */
+    int rc = 0;
+    PPSPCOREMEMREGION pRegion = (PPSPCOREMEMREGION)calloc(1, sizeof(*pRegion));
+    if (pRegion)
+    {
+        pRegion->PspAddrStart    = AddrStart;
+        pRegion->cbRegion        = cbRegion;
+        pRegion->pPspCore        = pThis;
+        pRegion->fMmio           = false;
+        pRegion->u.Ram.pvBacking = pvBacking;
 
-    return pspEmuCoreErrConvertFromUcErr(rcUc);
+        rcUc = uc_mem_map_ptr(pThis->pUcEngine, AddrStart, cbRegion, fUcProt, pvBacking);
+        if (rcUc == UC_ERR_OK)
+        {
+            rc = pspEmuCoreMemRegionInsert(pThis, pRegion);
+            if (!rc)
+                return 0;
+
+            uc_mem_unmap(pThis->pUcEngine, AddrStart, cbRegion);
+        }
+        else
+            rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+        free(pRegion);
+    }
+    else
+        rc = -1;
+
+    return rc;
 }
 
 int PSPEmuCoreMemRegionRemove(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
 {
     PPSPCOREINT pThis = hCore;
 
-    uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, AddrStart, cbRegion);
-    return pspEmuCoreErrConvertFromUcErr(rcUc);
+    int rc = 0;
+    PPSPCOREMEMREGION pRegion = pspEmuCoreMemRegionFindAndUnlinkByAddr(pThis, AddrStart, cbRegion);
+    if (pRegion)
+    {
+        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, AddrStart, cbRegion);
+        /** @todo assert(rcUc == UC_ERR_OK) */
+        free(pRegion);
+    }
+    else
+        rc = -1;
+
+    return rc;
 }
 
 int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVCREG pSvcReg, void *pvUser)
@@ -841,14 +1025,6 @@ int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVCREG pSvcReg, void *pvUser)
     pThis->pSvcReg   = pSvcReg;
     pThis->pvSvcUser = pvUser;
     return 0;
-}
-
-int PSPEmuCoreSetOnChipBl(PSPCORE hCore, void *pvOnChipBl, size_t cbOnChipBl)
-{
-    PPSPCOREINT pThis = hCore;
-
-    uc_err rcUc = uc_mem_map_ptr(pThis->pUcEngine, 0xffff0000, cbOnChipBl, UC_PROT_READ | UC_PROT_EXEC, pvOnChipBl);
-    return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
 int PSPEmuCoreSetReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t uVal)
@@ -1178,26 +1354,31 @@ int PSPEmuCoreMmioRegister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMm
     int rc = 0;
 
     /* Try to register a new hook. */
-    PPSPCOREMMIOREGION pRegion = (PPSPCOREMMIOREGION)calloc(1, sizeof(*pRegion));
+    PPSPCOREMEMREGION pRegion = (PPSPCOREMEMREGION)calloc(1, sizeof(*pRegion));
     if (pRegion)
     {
-        pRegion->PspAddrStart = uPspAddrMmioStart;
-        pRegion->cbMmio       = cbMmio;
-        pRegion->pPspCore     = pThis;
-        pRegion->pfnRead      = pfnRead;
-        pRegion->pfnWrite     = pfnWrite;
-        pRegion->pvUser       = pvUser;
+        pRegion->PspAddrStart    = uPspAddrMmioStart;
+        pRegion->cbRegion        = cbMmio;
+        pRegion->pPspCore        = pThis;
+        pRegion->fMmio           = true;
+        pRegion->u.Mmio.pfnRead  = pfnRead;
+        pRegion->u.Mmio.pfnWrite = pfnWrite;
+        pRegion->u.Mmio.pvUser   = pvUser;
 
         uc_err rcUc = uc_mmio_map(pThis->pUcEngine, uPspAddrMmioStart, cbMmio,
                                   pspEmuCoreMmioRead, pspEmuCoreMmioWrite, pRegion);
-        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
-        if (!rc)
+        if (rcUc == UC_ERR_OK)
         {
-            pRegion->pNext = pThis->pMmioRegionsHead;
-            pThis->pMmioRegionsHead = pRegion;
+            rc = pspEmuCoreMemRegionInsert(pThis, pRegion);
+            if (!rc)
+                return 0;
+
+            uc_mem_unmap(pThis->pUcEngine, uPspAddrMmioStart, cbMmio);
         }
         else
-            free(pRegion);
+            rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+        free(pRegion);
     }
     else
         rc = -1;
@@ -1211,26 +1392,12 @@ int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cb
     int rc = 0;
 
     /* Search for the right hook and deregister. */
-    PPSPCOREMMIOREGION pPrev = NULL;
-    PPSPCOREMMIOREGION pCur = pThis->pMmioRegionsHead;
-    while (   pCur
-           && (   pCur->PspAddrStart != uPspAddrMmioStart
-               || pCur->cbMmio != cbMmio))
+    PPSPCOREMEMREGION pRegion = pspEmuCoreMemRegionFindAndUnlinkByAddr(pThis, uPspAddrMmioStart, cbMmio);
+    if (pRegion)
     {
-        pPrev = pCur;
-        pCur = pCur->pNext;
-    }
-
-    if (pCur)
-    {
-        if (pPrev)
-            pPrev->pNext = pCur->pNext;
-        else
-            pThis->pMmioRegionsHead = pCur->pNext;
-
         uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, uPspAddrMmioStart, cbMmio);
         /** @todo assert(rcUc == UC_ERR_OK) */
-        free(pCur);
+        free(pRegion);
     }
     else
         rc = -1;

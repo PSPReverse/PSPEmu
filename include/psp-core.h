@@ -185,9 +185,8 @@ typedef const PSPCORESVCREG *PCPSPCORESVCREG;
  *
  * @returns Status code.
  * @param   phCore                  Where to store the core handle on success.
- * @param   cbSram                  Size of the SRAM in bytes.
  */
-int PSPEmuCoreCreate(PPSPCORE phCore, size_t cbSram);
+int PSPEmuCoreCreate(PPSPCORE phCore);
 
 /**
  * Destroys a given PSP core.
@@ -254,16 +253,6 @@ int PSPEmuCoreMemRegionRemove(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
  * @param   pvUser                  Opaque user data to pass to the svc handlers.
  */
 int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVCREG pSvcReg, void *pvUser);
-
-/**
- * Initializes the on chip bootloader ROM region with the given data.
- *
- * @returns Status code.
- * @param   hCore                   The PSP core handle.
- * @param   pvOnChipBl              The on chip bootloader memory.
- * @param   cbOnChipBl              Size of the on chip bootloader.
- */
-int PSPEmuCoreSetOnChipBl(PSPCORE hCore, void *pvOnChipBl, size_t cbOnChipBl);
 
 /**
  * Sets a specific register to a given value.

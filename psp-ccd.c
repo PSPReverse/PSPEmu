@@ -65,6 +65,10 @@ typedef struct PSPCCDINT
     uint32_t                    idCcd;
     /** Flag whether to register the SMN handlers. */
     bool                        fRegSmnHandlers;
+    /** SRAM for the PSP CCD. */
+    void                        *pvSram;
+    /** Size of the SRAM in bytes. */
+    size_t                      cbSram;
 } PSPCCDINT;
 /** Pointer to a single CCD instance. */
 typedef PSPCCDINT *PPSPCCDINT;
@@ -377,7 +381,55 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 {
     int rc = 0;
 
-    if (   pCfg->pvBootRomSvcPage
+    pThis->cbSram = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K;
+    pThis->pvSram = calloc(1, pThis->cbSram);
+    if (!pThis->pvSram)
+        return -1;
+
+    /* Set the on chip bootloader if configured. */
+    if (pCfg->enmMode == PSPEMUMODE_SYSTEM_ON_CHIP_BL)
+        rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0xffff0000, pCfg->cbOnChipBl,
+                                    PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ,
+                                    pCfg->pvOnChipBl);
+
+    /* Map the SRAM. */
+    if (!rc)
+        rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x0, pThis->cbSram,
+                                    PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ | PSPEMU_CORE_MEM_REGION_PROT_F_WRITE,
+                                    pThis->pvSram);
+
+    if (!rc)
+    {
+        /**
+         * @todo The stack memory, do this more elegantly. The PSP sets up page tables
+         * but unicorn somehow ignores them so we have to make the stack available here for now
+         * with an explicit mapping.
+         *
+         * For Zen2 the physical addresses are different so this gross hack gets even worse...
+         */
+        uint32_t fProt = PSPEMU_CORE_MEM_REGION_PROT_F_READ | PSPEMU_CORE_MEM_REGION_PROT_F_WRITE;
+        size_t cbStack = 2 * _4K;
+
+        if (pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
+        {
+            /* Phyiscal address for the SVC stack is 0x4d000 so let it point into the correct memory region. */
+            rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x60000, cbStack, fProt, (uint8_t *)pThis->pvSram + 0x4d000);
+            /* The USR mode stack for Zen2 starts at 0x70000 and covers the last two user mode region pages. */
+            if (!rc)
+                PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x70000, cbStack, fProt, (uint8_t *)pThis->pvSram + 0x4b000);
+        }
+        else
+        {
+            /* The SVC mode stack for Zen1 and Zen+ starts at 0x50000. */
+            rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x50000, cbStack, fProt, (uint8_t *)pThis->pvSram + 0x3d000);
+            /* The USR mode stack for Zen1 and Zen+ starts at 0x60000 and covers the last two user mode region pages. */
+            if (!rc)
+                rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x60000, cbStack, fProt, (uint8_t *)pThis->pvSram + 0x3b000);
+        }
+    }
+
+    if (   !rc
+        && pCfg->pvBootRomSvcPage
         && pCfg->cbBootRomSvcPage)
     {
         if (pCfg->cbBootRomSvcPage != _4K)
@@ -602,18 +654,13 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
         pThis->fRegSmnHandlers = false;
         pThis->hCov            = NULL;
 
-        rc = PSPEmuCoreCreate(&pThis->hPspCore, pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K);
+        rc = PSPEmuCoreCreate(&pThis->hPspCore);
         if (!rc)
         {
             rc = PSPEmuIoMgrCreate(&pThis->hIoMgr, pThis->hPspCore);
             if (!rc)
             {
-                /* Set the on chip bootloader if configured. */
-                if (pCfg->enmMode == PSPEMUMODE_SYSTEM_ON_CHIP_BL)
-                    rc = PSPEmuCoreSetOnChipBl(pThis->hPspCore, pCfg->pvOnChipBl, pCfg->cbOnChipBl);
-                if (!rc)
-                    rc = PSPEmuIoMgrTraceAllAccessesSet(pThis->hIoMgr, pCfg->fIomLogAllAccesses);
-
+                rc = PSPEmuIoMgrTraceAllAccessesSet(pThis->hIoMgr, pCfg->fIomLogAllAccesses);
                 if (!rc)
                 {
                     /* Create all the devices. */
@@ -691,6 +738,8 @@ void PSPEmuCcdDestroy(PSPCCD hCcd)
     /* Destroy the I/O manager and then the emulation core and last this structure. */
     PSPEmuIoMgrDestroy(pThis->hIoMgr);
     PSPEmuCoreDestroy(pThis->hPspCore);
+    if (pThis->pvSram)
+        free(pThis->pvSram);
     free(pThis);
 }
 
