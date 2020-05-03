@@ -253,7 +253,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'h':
             case 'H':
                 printf("%s: AMD Platform Secure Processor emulator\n"
-                       "    --emulation-mode [app|sys|on-chip-bl]\n"
+                       "    --emulation-mode [app|sys|on-chip-bl|trusted-os]\n"
                        "    --flash-rom <path/to/flash/rom>\n"
                        "    --boot-rom-svc-page <path/to/boot/rom/svc/page>\n"
                        "    --boot-rom-svc-page-dont-alter Do not alter the boot ROM service page for the emulated CCD (IDs etc.)\n"
@@ -296,9 +296,11 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                     pCfg->enmMode = PSPEMUMODE_SYSTEM;
                 else if (!strcmp(optarg, "on-chip-bl"))
                     pCfg->enmMode = PSPEMUMODE_SYSTEM_ON_CHIP_BL;
+                else if (!strcmp(optarg, "trusted-os"))
+                    pCfg->enmMode = PSPEMUMODE_TRUSTED_OS;
                 else
                 {
-                    fprintf(stderr, "--emulation-mode takes only one of [app|sys|on-chip-bl] as the emulation mode\n");
+                    fprintf(stderr, "--emulation-mode takes only one of [app|sys|on-chip-bl|trusted-os] as the emulation mode\n");
                     return -1;
                 }
                 break;

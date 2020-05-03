@@ -37,7 +37,9 @@ typedef enum PSPEMUMODE
     /** Full system emulation mode with the supervisor code being executed as well. */
     PSPEMUMODE_SYSTEM,
     /** Full system emulation mode with the supervisor and on chip bootloader code being executed as well. */
-    PSPEMUMODE_SYSTEM_ON_CHIP_BL
+    PSPEMUMODE_SYSTEM_ON_CHIP_BL,
+    /** Run only a given trusted OS binary. */
+    PSPEMUMODE_TRUSTED_OS
 } PSPEMUMODE;
 
 

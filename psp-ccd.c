@@ -422,6 +422,7 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         switch (pCfg->enmMode)
         {
             case PSPEMUMODE_SYSTEM:
+            case PSPEMUMODE_TRUSTED_OS:
                 PspAddrWrite = 0x0;
                 break;
             case PSPEMUMODE_APP:
@@ -433,7 +434,8 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
                 return -1;
         }
 
-        if (!pCfg->fBinContainsHdr)
+        if (   !pCfg->fBinContainsHdr
+            && pCfg->enmMode != PSPEMUMODE_TRUSTED_OS)
             PspAddrWrite += 256; /* Skip the header part. */
 
         rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrWrite, pCfg->pvBinLoad, pCfg->cbBinLoad);
@@ -489,6 +491,11 @@ static int pspEmuCcdExecEnvInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         case PSPEMUMODE_SYSTEM:
         {
             PspAddrStartExec = 0x100;
+            break;
+        }
+        case PSPEMUMODE_TRUSTED_OS:
+        {
+            PspAddrStartExec = 0x0;
             break;
         }
         default:
@@ -547,6 +554,10 @@ static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
             case PSPEMUMODE_SYSTEM_ON_CHIP_BL:
                 PspAddrBegin = 0xffff0000;
                 PspAddrEnd   = 0xffffffff;
+                break;
+            case PSPEMUMODE_TRUSTED_OS:
+                PspAddrBegin = 0x0;
+                PspAddrEnd   = 0x3f000;
                 break;
             default:
                 rc = -1; /* Should not happen. */
