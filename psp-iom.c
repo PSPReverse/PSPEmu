@@ -324,7 +324,7 @@ typedef struct PSPIOMINT
     /** The MMIO region handle for the X86 mapping control register interface - third part. */
     PPSPIOMREGIONHANDLEINT      pMmioRegionX86MapCtrl3;
     /** X86 mapping control slots. */
-    PSPIOMX86MAPCTRLSLOT        aX86MapCtrlSlots[15];
+    PSPIOMX86MAPCTRLSLOT        aX86MapCtrlSlots[62];
 
     /** Callback for unassigned MMIO reads. */
     PFNPSPIOMMMIOREAD           pfnMmioUnassignedRead;
@@ -1840,17 +1840,17 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
                     if (!rc)
                     {
                         /* Register our X86 mapping control registers into the MMIO region. */
-                        rc = pspEmuIomMmioRegionRegister(pThis, 0x03230000, 15 * 4 * sizeof(uint32_t),
+                        rc = pspEmuIomMmioRegionRegister(pThis, 0x03230000, ELEMENTS(pThis->aX86MapCtrlSlots) * 4 * sizeof(uint32_t),
                                                          pspEmuIoMgrX86MapCtrlRead, pspEmuIoMgrX86MapCtrlWrite,
                                                          pThis, "x86 mapping control 1",
                                                          &pThis->pMmioRegionX86MapCtrl);
                         if (!rc)
-                            rc = pspEmuIomMmioRegionRegister(pThis, 0x032303e0, 15 * sizeof(uint32_t),
+                            rc = pspEmuIomMmioRegionRegister(pThis, 0x032303e0, ELEMENTS(pThis->aX86MapCtrlSlots) * sizeof(uint32_t),
                                                              pspEmuIoMgrX86MapCtrl2Read, pspEmuIoMgrX86MapCtrl2Write,
                                                              pThis, "x86 mapping control 2",
                                                              &pThis->pMmioRegionX86MapCtrl2);
                         if (!rc)
-                            rc = pspEmuIomMmioRegionRegister(pThis, 0x032304d8, 15 * sizeof(uint32_t),
+                            rc = pspEmuIomMmioRegionRegister(pThis, 0x032304d8, ELEMENTS(pThis->aX86MapCtrlSlots) * sizeof(uint32_t),
                                                              pspEmuIoMgrX86MapCtrl3Read, pspEmuIoMgrX86MapCtrl3Write,
                                                              pThis, "x86 mapping control 3",
                                                              &pThis->pMmioRegionX86MapCtrl3);
