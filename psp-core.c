@@ -29,6 +29,10 @@
 #include <psp-core.h>
 #include <psp-disasm.h>
 
+/** Page size used in the PSP firmware. */
+#define PSP_PAGE_SIZE         _4K
+#define PSP_PAGE_L1_IDX_SHIFT 20
+
 /**
  * A datum read/written.
  */
@@ -119,6 +123,32 @@ typedef const PSPCOREMEMREGION *PCPSPCOREMEMREGION;
 
 
 /**
+ * A MMU mapping.
+ */
+typedef struct PSPCOREMMUMAP
+{
+    /** Pointer to the next MMU mapping structure in the list. */
+    struct PSPCOREMMUMAP            *pNext;
+    /** PSP core the mapping belongs to. */
+    PPSPCOREINT                     pPspCore;
+    /** Virtual start address (aligned to a page). */
+    PSPVADDR                        PspAddrVStart;
+    /** The physical address it maps to. */
+    PSPPADDR                        PspAddrPStart;
+    /** Size of the region. */
+    size_t                          cbRegion;
+    /** Offset into the physical region the mapping starts at. */
+    PSPPADDR                        offPhysMap;
+    /** The physical memory region this mapping maps to. */
+    PCPSPCOREMEMREGION              pMemRegion;
+} PSPCOREMMUMAP;
+/** Pointer to a MMU mapping structure. */
+typedef PSPCOREMMUMAP *PPSPCOREMMUMAP;
+/** Pointer to a const MMU mapping structure. */
+typedef const PSPCOREMMUMAP *PCPSPCOREMMUMAP;
+
+
+/**
  * A single PSP core executing.
  */
 typedef struct PSPCOREINT
@@ -158,6 +188,17 @@ typedef struct PSPCOREINT
     bool                    fSvcPending;
     /** The hook for the after SVC breakpoint. */
     uc_hook                 hUcHookSvcAfter;
+
+    /** CP15 write hook. */
+    uc_hook                 hUcHookCp15;
+    /** Hook for invalid memory accesses. */
+    uc_hook                 hUcInvMemAcc;
+    /** Flag of the current MMU status. */
+    bool                    fMmuEnabled;
+    /** Flag whether the MMU status has changed. */
+    bool                    fMmuChanged;
+    /** Head of MMU mappings sorted by virtual start address. */
+    PPSPCOREMMUMAP          pMmuMappingsHead;
 } PSPCOREINT;
 
 
@@ -404,6 +445,47 @@ static void pspEmuCoreSvcWrapper(uc_engine *pUcEngine, uint32_t uIntNo, void *pv
      */
     pThis->fSvcPending = true;
     uc_emu_stop(pUcEngine);
+}
+
+
+/**
+ * The CP15 write wrapper to keep track of the MMU status.
+ *
+ * @returns nothing.
+ * @param   pUcEngine           Pointer to the unicorn engine instance.
+ * @param   uAddrPc             The PC causing the write.
+ * @param   uCp                 Co-Processor being accessed.
+ * @param   uCrn                cr<n> value.
+ * @param   uCrm                cr<m> value.
+ * @param   uOpc0               Opcode 0.
+ * @param   uOpc1               Opcode 1.
+ * @param   uOpc2               Opcode 2.
+ * @param   u64Val              The value being written.
+ * @param   pvUser              Opaque user data passed when adding the hook.
+ */
+static void pspEmuCoreCp15WriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddrPc, uint32_t uCp, uint32_t uCrn, uint32_t uCrm,
+                                       uint32_t uOpc0, uint32_t uOpc1, uint32_t uOpc2, uint64_t u64Val, void *pvUser)
+{
+    PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
+
+    /*
+     * Check whether the MMU status changed and cause the emulation to stop so we
+     * can adjust the memory layout.
+     */
+    if (   uCp == 15
+        && uCrn == 1
+        && uCrm == 0
+        && uOpc1 == 0
+        && uOpc2 == 0)
+    {
+        bool fMmuEnabled = !!(u64Val & BIT(0));
+        if (pThis->fMmuEnabled != fMmuEnabled)
+        {
+            pThis->fMmuChanged = true;
+            uc_emu_stop(pUcEngine);
+        }
+    }
+    /** @todo TTBR0, TTBR1 and TTBCR writes should cause a stop as well. */
 }
 
 
@@ -772,6 +854,442 @@ static PPSPCOREMEMREGION pspEmuCoreMemRegionFindAndUnlinkByAddr(PPSPCOREINT pThi
 }
 
 
+/**
+ * Unregisters all memory regions from unicorn.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ */
+static int pspEmuCoreMemRegionsUnregisterAll(PPSPCOREINT pThis)
+{
+    PPSPCOREMEMREGION pMemCur = pThis->pMemRegionsHead;
+    while (pMemCur)
+    {
+        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pMemCur->PspAddrStart, pMemCur->cbRegion);
+        /** @todo assert(rcUrc == UC_ERR_OK) */
+        pMemCur = pMemCur->pNext;
+    }
+
+    return 0;
+}
+
+
+/**
+ * Converts our own protection flags to unicorn flags.
+ *
+ * @returns Unicorn protection flag mask.
+ * @param   fProt                   The protection flags to convert.
+ */
+static int32_t pspEmuCoreMemRegionProt2UcProt(uint32_t fProt)
+{
+    int32_t fUcProt = 0;
+
+    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_EXEC)
+        fUcProt |= UC_PROT_EXEC;
+    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_READ)
+        fUcProt |= UC_PROT_READ;
+    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_WRITE)
+        fUcProt |= UC_PROT_WRITE;
+
+    return fUcProt;
+}
+
+
+/**
+ * Unregisters all physical memory regions with unicorn.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ */
+static int pspEmuCoreMemRegionsRegisterAll(PPSPCOREINT pThis)
+{
+    int rc = 0;
+    PPSPCOREMEMREGION pMemCur = pThis->pMemRegionsHead;
+    while (   pMemCur
+           && !rc)
+    {
+        uc_err rcUc;
+
+        if (pMemCur->fMmio)
+            rcUc = uc_mmio_map(pThis->pUcEngine, pMemCur->PspAddrStart, pMemCur->cbRegion,
+                               pspEmuCoreMmioRead, pspEmuCoreMmioWrite, pMemCur);
+        else
+        {
+            int32_t fUcProt = pspEmuCoreMemRegionProt2UcProt(pMemCur->u.Ram.fProt);
+            rcUc = uc_mem_map_ptr(pThis->pUcEngine, pMemCur->PspAddrStart, pMemCur->cbRegion,
+                                  fUcProt, pMemCur->u.Ram.pvBacking);
+        }
+
+        if (rcUc != UC_ERR_OK)
+            rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        pMemCur = pMemCur->pNext;
+    }
+
+    return rc;
+}
+
+
+/**
+ * Inserts the given MMU mapping at the appropriate place in the linked list.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   pMmuMap                 The MMU mapping to add.
+ */
+static int pspEmuCoreMmuMappingInsert(PPSPCOREINT pThis, PPSPCOREMMUMAP pMmuMap)
+{
+    int rc = 0;
+    PPSPCOREMMUMAP pPrev = NULL;
+    PPSPCOREMMUMAP pCur  = pThis->pMmuMappingsHead;
+
+    /* Search where to insert the new device, sorted by starting MMIO address. */
+    while (pCur)
+    {
+        if (pCur->PspAddrVStart > pMmuMap->PspAddrVStart)
+            break;
+        pPrev = pCur;
+        pCur = pCur->pNext;
+    }
+
+    /* Do some sanity checks, the new range must not overlap with the previous and current range. */
+    if (   (   !pPrev
+            || pPrev->PspAddrVStart + pPrev->cbRegion <= pMmuMap->PspAddrVStart)
+        && (   !pCur
+            || pMmuMap->PspAddrVStart + pMmuMap->cbRegion <= pCur->PspAddrVStart))
+    {
+        pMmuMap->pNext = pCur;
+        if (pPrev)
+            pPrev->pNext = pMmuMap;
+        else
+            pThis->pMmuMappingsHead = pMmuMap;
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
+/**
+ * Tries to resolve a given virtual PSP address to a physical one.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspVAddrPg              Page aligned virtual PSP address.
+ * @param   pPspPAddrPg             Where to store the physical address on success.
+ * @param   pcbRegion               Where to store the size of the resolved physical memory region on success.
+ *
+ * @todo Extract access permissions.
+ */
+static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion)
+{
+    int rc = 0;
+
+    /* Query TTBR0 and read the L1 table. */
+    uint32_t u32RegTtbCr = 0;
+    PSPPADDR PhysAddrPgTbl = 0;
+    uc_err rcUc = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_TTBCR, &u32RegTtbCr);
+    if (rcUc == UC_ERR_OK)
+        rcUc = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_TTBR0, &PhysAddrPgTbl);
+    if (rcUc == UC_ERR_OK)
+    {
+        uint32_t uN = u32RegTtbCr & 0x7;
+        uint32_t au32Tbl[4096];
+
+        /* Extract the physical L1 address using the read boundary size. */
+        PhysAddrPgTbl &= ~(uint32_t)(0x3fff >> uN);
+        rc = PSPEmuCoreMemRead(pThis, PhysAddrPgTbl, &au32Tbl[0], sizeof(au32Tbl));
+        if (!rc)
+        {
+            uint32_t idxL1 = PspVAddrPg >> PSP_PAGE_L1_IDX_SHIFT;
+            uint32_t u32L1Desc = au32Tbl[idxL1];
+
+            /* Coarse page table.*/
+            if ((u32L1Desc & 0x3) == 0x1)
+            {
+                uint32_t idxL2 = (PspVAddrPg >> 12) & 0xff;
+                PSPPADDR PhysAddrL2 = u32L1Desc & 0xfffffc00;
+                rc = PSPEmuCoreMemRead(pThis, PhysAddrL2, &au32Tbl[0], _1K);
+                if (!rc)
+                {
+                    uint32_t u32L2Desc = au32Tbl[idxL2];
+                    if ((u32L2Desc & 0x2) == 0x2)
+                    {
+                        *pPspPAddrPg = u32L2Desc & 0xfffff000;
+                        *pcbRegion   = _4K;
+                    }
+                    else if ((u32L2Desc & 0x3) == 0x1)
+                    {
+                        *pPspPAddrPg = u32L2Desc & 0xffff0000;
+                        *pcbRegion   = 64 * _1K;
+                    }
+                    else
+                        rc = -1;
+                }
+            }
+            else if (   (u32L1Desc & 0x2) == 0x2
+                     && (u32L1Desc & BIT(18)) == 0x0)
+            {
+                /* Section. */
+                *pPspPAddrPg = u32L1Desc & 0xfff00000;
+                *pcbRegion   = _1M;
+            }
+            else
+                rc = -1; /** @todo Support supersections. */
+        }
+    }
+    else
+        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+    return rc;
+}
+
+
+/**
+ * Unicorn MMIO read wrapper for the MMU enabled case.
+ *
+ * @returns Data read.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   pvUser                  Opaque user data.
+ * @param   uAddr                   MMIO address read.
+ * @param   cbInsn                  Size of the read (1, 2, 4 or 8 bytes).
+ */
+static uint64_t pspEmuCoreMmuMapMmioRead(struct uc_struct* pUcEngine, void *pvUser, uint64_t uAddr, unsigned cb)
+{
+    PCPSPCOREMMUMAP pMmuMap = (PCPSPCOREMMUMAP)pvUser;
+
+    /* The address is from the start of our MMU mapping. */
+    PSPADDR offPhys = pMmuMap->offPhysMap + (uint32_t)uAddr;
+    return pspEmuCoreMmioRead(pUcEngine, (void *)pMmuMap->pMemRegion, offPhys, cb);
+}
+
+
+/**
+ * Unicorn MMIO write wrapper for the MMU enabled case.
+ *
+ * @returns nothing.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   pvUser                  Opaque user data.
+ * @param   uAddr                   MMIO address written.
+ * @param   uVal                    Value written.
+ * @param   cbInsn                  Size of the write (1, 2, 4 or 8 bytes).
+ */
+static void pspEmuCoreMmuMapMmioWrite(struct uc_struct* pUcEngine, void *pvUser, uint64_t uAddr, uint64_t uVal, unsigned cb)
+{
+    PCPSPCOREMMUMAP pMmuMap = (PCPSPCOREMMUMAP)pvUser;
+
+    /* The address is from the start of our MMU mapping. */
+    PSPADDR offPhys = pMmuMap->offPhysMap + (uint32_t)uAddr;
+    pspEmuCoreMmioWrite(pUcEngine, (void *)pMmuMap->pMemRegion, offPhys, uVal, cb);
+}
+
+
+/**
+ * Creates a new MMU mapping and sets up the unicorn instance.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   pMemRegion              The physical memory region to create an MMU mapping for.
+ * @param   PspVAddrPg              Page aligned virtual start address.
+ * @param   PspPAddrPg              Page aligned physical start address.
+ * @param   offMap                  Offset of the mapping into the physical region.
+ * @param   cbMap                   Size of the mapping.
+ */
+static int pspEmuCoreMmuMappingCreate(PPSPCOREINT pThis, PCPSPCOREMEMREGION pMemRegion,
+                                      PSPVADDR PspVAddrPg, PSPPADDR PspPAddrPg,
+                                      uint32_t offMap, size_t cbMap)
+{
+    /* Create a new MMU mapping and register with unicorn. */
+    int rc = 0;
+    PPSPCOREMMUMAP pMmuMap = (PPSPCOREMMUMAP)calloc(1, sizeof(*pMmuMap));
+    if (pMmuMap)
+    {
+        pMmuMap->pNext         = NULL;
+        pMmuMap->pPspCore      = pThis;
+        pMmuMap->pMemRegion    = pMemRegion;
+        pMmuMap->PspAddrVStart = PspVAddrPg;
+        pMmuMap->PspAddrPStart = PspPAddrPg;
+        pMmuMap->cbRegion      = cbMap;
+        pMmuMap->offPhysMap    = offMap;
+
+        rc = pspEmuCoreMmuMappingInsert(pThis, pMmuMap);
+        if (!rc)
+        {
+            /* Register with unicorn now. */
+            uc_err rcUc = UC_ERR_OK;
+
+            if (!pMemRegion->fMmio)
+            {
+                /* We use the assigned protection of the memory backing instead of what the page tables say. */
+                int32_t fUcProt = pspEmuCoreMemRegionProt2UcProt(pMemRegion->u.Ram.fProt);
+                uint8_t *pbBacking = (uint8_t *)pMemRegion->u.Ram.pvBacking + offMap;
+                rcUc = uc_mem_map_ptr(pThis->pUcEngine, PspVAddrPg, cbMap, fUcProt, pbBacking);
+            }
+            else
+            {
+                /* Register our own wrappers so we can translate addresses. */
+                rcUc = uc_mmio_map(pThis->pUcEngine, PspVAddrPg, cbMap,
+                                   pspEmuCoreMmuMapMmioRead, pspEmuCoreMmuMapMmioWrite, pMmuMap);
+            }
+
+            if (rcUc != UC_ERR_OK)
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        }
+    }
+    else
+        rc = -1;
+
+    return rc;
+}
+
+
+/**
+ * Tries to map the given virtual PSP address to a physical one by traversing the page tables
+ * and cerate a new unicorn mapping for it.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspVAddr                The virtual PSP address to resolve.
+ * @param   pfHandled               Where to store a flag whether the request could be handled successfully.
+ */
+static int pspEmuCoreMmuMap(PPSPCOREINT pThis, PSPVADDR PspVAddr, bool *pfHandled)
+{
+    /* Try to resolve the page from the root. */
+    PSPVADDR PspVAddrPg = PspVAddr & ~(PSP_PAGE_SIZE - 1);
+    PSPPADDR PspPAddrPg;
+    size_t cbRegion;
+    int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, PspVAddrPg, &PspPAddrPg, &cbRegion);
+    if (!rc)
+    {
+        /* Walk the physical memory regions registered and create appropriate mappings. */
+        PCPSPCOREMEMREGION pMemRegion = pspEmuCoreMemRegionFindByAddr(pThis, PspPAddrPg, NULL /*ppPrevRegion*/);
+        while (   cbRegion
+               && pMemRegion
+               && !rc)
+        {
+            uint32_t offRegion = PspPAddrPg - pMemRegion->PspAddrStart;
+            size_t cbThisRegion = MIN(cbRegion, pMemRegion->cbRegion - offRegion);
+
+            /* Create a new MMU mapping for this region and register with unicorn. */
+            rc = pspEmuCoreMmuMappingCreate(pThis, pMemRegion, PspVAddrPg, PspPAddrPg, offRegion, cbThisRegion);
+            if (!rc)
+            {
+                pMemRegion = pMemRegion->pNext;
+                PspPAddrPg += cbThisRegion;
+                PspVAddrPg += cbThisRegion;
+                cbRegion   -= cbThisRegion;
+            }
+        }
+
+        if (!rc)
+            *pfHandled = true;
+    }
+    else
+    {
+        *pfHandled = false;
+        rc = 0;
+    }
+
+    return rc;
+}
+
+
+/**
+ * Clears all virtual memory mappings registered with unicorn by the MMU.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ */
+static int pspEmuCoreMmuMappingsClear(PPSPCOREINT pThis)
+{
+    PPSPCOREMMUMAP pMmuMap = pThis->pMmuMappingsHead;
+    while (pMmuMap)
+    {
+        PPSPCOREMMUMAP pFree = pMmuMap;
+        pMmuMap = pMmuMap->pNext;
+        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pFree->PspAddrVStart, pFree->cbRegion);
+        /** @todo assert(rcUrc == UC_ERR_OK) */
+        free(pFree);
+    }
+
+    pThis->pMmuMappingsHead = NULL;
+    return 0;
+}
+
+
+/**
+ * Sets up or tears down the MMU state based on the current MMU setting.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspAddrPc               PC following the one causing the MMU state change.
+ * @param   fThumb                  Flag whether the CPU is executing in thumb mode.
+ */
+static int pspEmuCoreMmuSetupTeardown(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb)
+{
+    int rc = 0;
+
+    if (pThis->fMmuEnabled)
+    {
+        /* MMU was enabled and got disabled, restore physical addressing. */
+        pThis->fMmuEnabled = false;
+        /* Clear all MMU mappings registered with unicorn. */
+        rc = pspEmuCoreMmuMappingsClear(pThis);
+        if (!rc)
+            rc = pspEmuCoreMemRegionsRegisterAll(pThis);
+    }
+    else
+    {
+        /*
+         * MMU was disabled and got enabled, deregister all physical memory regions from unicorn.
+         * The invalid access callback will map all regions in lazily.
+         */
+        rc = pspEmuCoreMemRegionsUnregisterAll(pThis);
+        if (!rc)
+            pThis->fMmuEnabled = true;
+    }
+
+    if (!rc)
+    {
+        PspAddrPc |= fThumb ? 1 : 0;
+        pThis->PspAddrExecNext = (PSPADDR)PspAddrPc;
+        pThis->fMmuChanged = false;
+    }
+
+    return rc;
+}
+
+
+/**
+ * Callback for invalid memory accesses so the MMU can map in regions lazily.
+ *
+ * @returns Flag whether the invalid memory access was handled successfully, false will stop emulation
+ *          and cause an exception event injection.
+ * @param   pUcEngine               The unicorn engine instance.
+ * @param   enmMemType              Memory access type.
+ * @param   uAddr                   The address causing the invalid access.
+ * @param   cbAcc                   Size of the access.
+ * @param   i64Val                  The value being written, ignored for reads.
+ * @param   pvUser                  Opaque user data passed during callback registration.
+ */
+static bool pspEmuCoreMemMemInvAccess(uc_engine *pUcEngine, uc_mem_type enmMemType, uint64_t uAddr,
+                                      int cbAcc, int64_t i64Val, void *pvUser)
+{
+    PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
+
+    if (pThis->fMmuEnabled)
+    {
+        bool fHandled;
+        int rc = pspEmuCoreMmuMap(pThis, uAddr, &fHandled);
+        if (   !rc
+            && fHandled)
+            return true;
+    }
+
+    return false;
+}
+
+
 int PSPEmuCoreCreate(PPSPCORE phCore)
 {
     int rc = 0;
@@ -788,14 +1306,22 @@ int PSPEmuCoreCreate(PPSPCORE phCore)
         pThis->fSvcPending      = false;
         pThis->fExecStop        = false;
         pThis->hUcHookSvcAfter  = 0;
+        pThis->hUcHookCp15      = 0;
+        pThis->fMmuEnabled      = false;
+        pThis->fMmuChanged      = false;
+        pThis->pMmuMappingsHead = NULL;
 
         /* Initialize unicorn engine in ARM mode. */
-        err = uc_open(UC_ARCH_ARM, UC_MODE_ARM, &pThis->pUcEngine);
+        err = uc_open(UC_ARCH_ARM, UC_MODE_ARM | UC_MODE_ARM_NO_MMU, &pThis->pUcEngine);
         if (!err)
         {
             if (!rc)
             {
                 err = uc_hook_add(pThis->pUcEngine, &pThis->pUcHookSvc, UC_HOOK_INTR, (void *)(uintptr_t)pspEmuCoreSvcWrapper, pThis, 1, 0);
+                if (!err)
+                    err = uc_hook_add(pThis->pUcEngine, &pThis->hUcHookCp15, UC_HOOK_ARM_CP15_WRITE, (void *)(uintptr_t)pspEmuCoreCp15WriteWrapper, pThis, 1, 0);
+                if (!err)
+                    err = uc_hook_add(pThis->pUcEngine, &pThis->hUcInvMemAcc, UC_HOOK_MEM_INVALID, (void *)(uintptr_t)pspEmuCoreMemMemInvAccess, pThis, 1, 0);
                 if (!err)
                 {
                     /* Create the initial CPU context used for resetting later on. */
@@ -955,19 +1481,10 @@ int PSPEmuCoreMemRegionAdd(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion, ui
                            void *pvBacking)
 {
     PPSPCOREINT pThis = hCore;
-    int fUcProt = 0;
-    uc_err rcUc = UC_ERR_OK;
 
     /* Don't allow without backing. */
     if (!pvBacking)
         return -1;
-
-    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_EXEC)
-        fUcProt |= UC_PROT_EXEC;
-    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_READ)
-        fUcProt |= UC_PROT_READ;
-    if (fProt & PSPEMU_CORE_MEM_REGION_PROT_F_WRITE)
-        fUcProt |= UC_PROT_WRITE;
 
     /* Create a new RAM backed region. */
     int rc = 0;
@@ -979,8 +1496,10 @@ int PSPEmuCoreMemRegionAdd(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion, ui
         pRegion->pPspCore        = pThis;
         pRegion->fMmio           = false;
         pRegion->u.Ram.pvBacking = pvBacking;
+        pRegion->u.Ram.fProt     = fProt;
 
-        rcUc = uc_mem_map_ptr(pThis->pUcEngine, AddrStart, cbRegion, fUcProt, pvBacking);
+        int32_t fUcProt = pspEmuCoreMemRegionProt2UcProt(fProt);
+        uc_err rcUc = uc_mem_map_ptr(pThis->pUcEngine, AddrStart, cbRegion, fUcProt, pvBacking);
         if (rcUc == UC_ERR_OK)
         {
             rc = pspEmuCoreMemRegionInsert(pThis, pRegion);
@@ -1004,16 +1523,26 @@ int PSPEmuCoreMemRegionRemove(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
 {
     PPSPCOREINT pThis = hCore;
 
+    /* Clear all mappings if MMU is enabled and start from scratch. */
     int rc = 0;
-    PPSPCOREMEMREGION pRegion = pspEmuCoreMemRegionFindAndUnlinkByAddr(pThis, AddrStart, cbRegion);
-    if (pRegion)
+    if (pThis->fMmuEnabled)
+        rc = pspEmuCoreMmuMappingsClear(pThis);
+
+    if (!rc)
     {
-        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, AddrStart, cbRegion);
-        /** @todo assert(rcUc == UC_ERR_OK) */
-        free(pRegion);
+        PPSPCOREMEMREGION pRegion = pspEmuCoreMemRegionFindAndUnlinkByAddr(pThis, AddrStart, cbRegion);
+        if (pRegion)
+        {
+            if (!pThis->fMmuEnabled)
+            {
+                uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, AddrStart, cbRegion);
+                /** @todo assert(rcUc == UC_ERR_OK) */
+            }
+            free(pRegion);
+        }
+        else
+            rc = -1;
     }
-    else
-        rc = -1;
 
     return rc;
 }
@@ -1149,6 +1678,8 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                     if (rcUc2 != UC_ERR_OK)
                         rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
                 }
+                else if (pThis->fMmuChanged)
+                    rc = pspEmuCoreMmuSetupTeardown(pThis, uPc, fThumb);
                 else if (pspEmuCoreInsnIsWfi(pThis, uPc, fThumb))
                 {
                     if (pThis->pfnWfiReached)
@@ -1224,6 +1755,16 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                     pThis->PspAddrExecNext = (PSPADDR)uPc;
                 }
             }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+        }
+        else if (rcUc == UC_ERR_FETCH_PROT || rcUc == UC_ERR_FETCH_UNMAPPED)
+        {
+            /* Cause an abort exception. */
+            uint32_t uPc = 0;
+            uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
+            if (rcUc2 == UC_ERR_OK)
+                rc = pspEmuCoreExcpInject(pThis, 0x07, 0x03, uPc);
             else
                 rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
         }
@@ -1391,12 +1932,19 @@ int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cb
     PPSPCOREINT pThis = hCore;
     int rc = 0;
 
+    /* Clear all mappings if MMU is enabled and start from scratch. */
+    if (pThis->fMmuEnabled)
+        rc = pspEmuCoreMmuMappingsClear(pThis);
+
     /* Search for the right hook and deregister. */
     PPSPCOREMEMREGION pRegion = pspEmuCoreMemRegionFindAndUnlinkByAddr(pThis, uPspAddrMmioStart, cbMmio);
     if (pRegion)
     {
-        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, uPspAddrMmioStart, cbMmio);
-        /** @todo assert(rcUc == UC_ERR_OK) */
+        if (!pThis->fMmuEnabled)
+        {
+            uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, uPspAddrMmioStart, cbMmio);
+            /** @todo assert(rcUc == UC_ERR_OK) */
+        }
         free(pRegion);
     }
     else
