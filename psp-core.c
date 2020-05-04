@@ -1648,7 +1648,7 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
             if (rcUc2 == UC_ERR_OK)
                 rcUc2 = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
 
-            fThumb = ucCpuMode == UC_MODE_THUMB ? true : false;
+            fThumb = (ucCpuMode & UC_MODE_THUMB) ? true : false;
 
             if (rcUc2 == UC_ERR_OK)
             {
@@ -2000,7 +2000,7 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
             uc_err rcUc = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
             if (rcUc == UC_ERR_OK)
             {
-                rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC], ucCpuMode == UC_MODE_THUMB ? true : false);
+                rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC], (ucCpuMode & UC_MODE_THUMB) ? true : false);
                 if (!rc)
                     printf("Disasm:\n"
                            "%s", &achBuf[0]);
