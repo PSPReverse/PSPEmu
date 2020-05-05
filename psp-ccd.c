@@ -398,36 +398,6 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
                                     PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ | PSPEMU_CORE_MEM_REGION_PROT_F_WRITE,
                                     pThis->pvSram);
 
-    if (!rc)
-    {
-        /**
-         * @todo The stack memory, do this more elegantly. The PSP sets up page tables
-         * but unicorn somehow ignores them so we have to make the stack available here for now
-         * with an explicit mapping.
-         *
-         * For Zen2 the physical addresses are different so this gross hack gets even worse...
-         */
-        uint32_t fProt = PSPEMU_CORE_MEM_REGION_PROT_F_READ | PSPEMU_CORE_MEM_REGION_PROT_F_WRITE;
-        size_t cbStack = 2 * _4K;
-
-        if (pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
-        {
-            /* Phyiscal address for the SVC stack is 0x4d000 so let it point into the correct memory region. */
-            rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x60000, cbStack, fProt, (uint8_t *)pThis->pvSram + 0x4d000);
-            /* The USR mode stack for Zen2 starts at 0x70000 and covers the last two user mode region pages. */
-            if (!rc)
-                PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x70000, cbStack, fProt, (uint8_t *)pThis->pvSram + 0x4b000);
-        }
-        else
-        {
-            /* The SVC mode stack for Zen1 and Zen+ starts at 0x50000. */
-            rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x50000, cbStack, fProt, (uint8_t *)pThis->pvSram + 0x3d000);
-            /* The USR mode stack for Zen1 and Zen+ starts at 0x60000 and covers the last two user mode region pages. */
-            if (!rc)
-                rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x60000, cbStack, fProt, (uint8_t *)pThis->pvSram + 0x3b000);
-        }
-    }
-
     if (   !rc
         && pCfg->pvBootRomSvcPage
         && pCfg->cbBootRomSvcPage)
@@ -608,8 +578,8 @@ static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
                 PspAddrEnd   = 0xffffffff;
                 break;
             case PSPEMUMODE_TRUSTED_OS:
-                PspAddrBegin = 0x0;
-                PspAddrEnd   = 0x3f000;
+                PspAddrBegin = 0x01f00000; /* This is where it executes after enabling the MMU. */
+                PspAddrEnd   = 0x01ffffff;
                 break;
             default:
                 rc = -1; /* Should not happen. */
@@ -627,7 +597,7 @@ static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
  * Destroy all devices for the given CCD instance.
  *
  * @returns nothing.
- * @param                           The CCD instance.
+ * @param   pThis                   The CCD instance.
  */
 static void pspEmuCcdDevicesDestroy(PPSPCCDINT pThis)
 {

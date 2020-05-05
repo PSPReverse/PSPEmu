@@ -93,6 +93,8 @@ typedef struct PSPCOREMEMREGION
     PPSPCOREINT              pPspCore;
     /** Flag whether this is a RAM of MMIO region. */
     bool                     fMmio;
+    /** Flag whether the region is mapped directly in unicorn (for MMU disabled case). */
+    bool                     fMapped;
     /** Region type dependent data. */
     union
     {
@@ -199,6 +201,12 @@ typedef struct PSPCOREINT
     bool                    fMmuChanged;
     /** Head of MMU mappings sorted by virtual start address. */
     PPSPCOREMMUMAP          pMmuMappingsHead;
+    /** The page table start address we are tracking. */
+    PSPPADDR                PhysAddrPgTblStart;
+    /** Virtual address of the page tables. */
+    PSPVADDR                PspAddrVPgTbl;
+    /** Size of the page table region we are tracking. */
+    size_t                  cbPgTbl;
 } PSPCOREINT;
 
 
@@ -865,8 +873,12 @@ static int pspEmuCoreMemRegionsUnregisterAll(PPSPCOREINT pThis)
     PPSPCOREMEMREGION pMemCur = pThis->pMemRegionsHead;
     while (pMemCur)
     {
-        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pMemCur->PspAddrStart, pMemCur->cbRegion);
-        /** @todo assert(rcUrc == UC_ERR_OK) */
+        if (pMemCur->fMapped)
+        {
+            uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pMemCur->PspAddrStart, pMemCur->cbRegion);
+            /** @todo assert(rcUrc == UC_ERR_OK) */
+            pMemCur->fMapped = false;
+        }
         pMemCur = pMemCur->pNext;
     }
 
@@ -896,6 +908,37 @@ static int32_t pspEmuCoreMemRegionProt2UcProt(uint32_t fProt)
 
 
 /**
+ * Maps a given memory region directly into unicorn.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   pMemRegion              The memory region to map.
+ */
+static int pspEmuCoreMemRegionMap(PPSPCOREINT pThis, PPSPCOREMEMREGION pMemRegion)
+{
+    int rc = 0;
+    uc_err rcUc;
+
+    if (pMemRegion->fMmio)
+        rcUc = uc_mmio_map(pThis->pUcEngine, pMemRegion->PspAddrStart, pMemRegion->cbRegion,
+                           pspEmuCoreMmioRead, pspEmuCoreMmioWrite, pMemRegion);
+    else
+    {
+        int32_t fUcProt = pspEmuCoreMemRegionProt2UcProt(pMemRegion->u.Ram.fProt);
+        rcUc = uc_mem_map_ptr(pThis->pUcEngine, pMemRegion->PspAddrStart, pMemRegion->cbRegion,
+                              fUcProt, pMemRegion->u.Ram.pvBacking);
+    }
+
+    if (rcUc == UC_ERR_OK)
+        pMemRegion->fMapped = true;
+    else
+        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+    return rc;
+}
+
+
+/**
  * Unregisters all physical memory regions with unicorn.
  *
  * @returns Status code.
@@ -908,20 +951,7 @@ static int pspEmuCoreMemRegionsRegisterAll(PPSPCOREINT pThis)
     while (   pMemCur
            && !rc)
     {
-        uc_err rcUc;
-
-        if (pMemCur->fMmio)
-            rcUc = uc_mmio_map(pThis->pUcEngine, pMemCur->PspAddrStart, pMemCur->cbRegion,
-                               pspEmuCoreMmioRead, pspEmuCoreMmioWrite, pMemCur);
-        else
-        {
-            int32_t fUcProt = pspEmuCoreMemRegionProt2UcProt(pMemCur->u.Ram.fProt);
-            rcUc = uc_mem_map_ptr(pThis->pUcEngine, pMemCur->PspAddrStart, pMemCur->cbRegion,
-                                  fUcProt, pMemCur->u.Ram.pvBacking);
-        }
-
-        if (rcUc != UC_ERR_OK)
-            rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        rc = pspEmuCoreMemRegionMap(pThis, pMemCur);
         pMemCur = pMemCur->pNext;
     }
 
@@ -971,17 +1001,13 @@ static int pspEmuCoreMmuMappingInsert(PPSPCOREINT pThis, PPSPCOREMMUMAP pMmuMap)
 
 
 /**
- * Tries to resolve a given virtual PSP address to a physical one.
+ * Queries the root of the page tables, i.e. the physical address where the L1 table is located.
  *
  * @returns Status code.
  * @param   pThis                   The PSP core instance.
- * @param   PspVAddrPg              Page aligned virtual PSP address.
- * @param   pPspPAddrPg             Where to store the physical address on success.
- * @param   pcbRegion               Where to store the size of the resolved physical memory region on success.
- *
- * @todo Extract access permissions.
+ * @param   pPspAddrPbTblL1         WHere to store the physical address of the L1 page table start on success.
  */
-static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion)
+static int pspEmuCoreMmuPgTblQueryRoot(PPSPCOREINT pThis, PSPPADDR *pPspPAddrPgTblL1)
 {
     int rc = 0;
 
@@ -994,20 +1020,110 @@ static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr
     if (rcUc == UC_ERR_OK)
     {
         uint32_t uN = u32RegTtbCr & 0x7;
-        uint32_t au32Tbl[4096];
 
         /* Extract the physical L1 address using the read boundary size. */
-        PhysAddrPgTbl &= ~(uint32_t)(0x3fff >> uN);
+        *pPspPAddrPgTblL1 = PhysAddrPgTbl & ~(uint32_t)(0x3fff >> uN);
+    }
+    else
+        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+    return rc;
+}
+
+
+/**
+ * Returns the memory range where page tables are located (this can also cover memory which
+ * doesn't contain page tables).
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   pPspPAddrPgTblStart     Where to store the physical address of the start of the page tables on success.
+ * @param   pcbPgTbl                Size of the memory region containing the page tables on success.
+ */
+static int pspEmuCoreMmuPgTblQueryRange(PPSPCOREINT pThis, PSPPADDR *pPspPAddrPgTblStart, size_t *pcbPgTbl)
+{
+    PSPPADDR PhysAddrPgTbl = 0;
+    int rc = pspEmuCoreMmuPgTblQueryRoot(pThis, &PhysAddrPgTbl);
+    if (!rc)
+    {
+        uint32_t au32Tbl[4096];
+
+        rc = PSPEmuCoreMemRead(pThis, PhysAddrPgTbl, &au32Tbl[0], sizeof(au32Tbl));
+        if (!rc)
+        {
+            PSPPADDR PhysAddrStart = PhysAddrPgTbl;
+            PSPPADDR PhysAddrEnd   = PhysAddrStart + sizeof(au32Tbl);
+
+            for (uint32_t i = 0; i < ELEMENTS(au32Tbl) && !rc; i++)
+            {
+                if ((au32Tbl[i] & 0x3) == 0x1) /* Only page table entries contain a L2 table. */
+                {
+                    PSPPADDR PhysAddrL2 = au32Tbl[i] & 0xfffffc00;
+
+                    if (PhysAddrL2 < PhysAddrStart)
+                        PhysAddrStart = PhysAddrL2;
+                    else if (PhysAddrL2 > PhysAddrEnd)
+                        PhysAddrEnd = PhysAddrL2 + _1K;
+                }
+            }
+
+            *pPspPAddrPgTblStart = PhysAddrStart;
+            *pcbPgTbl = PhysAddrEnd - PhysAddrStart;
+        }
+    }
+
+    return rc;
+}
+
+
+/**
+ * Returns the physical address the given L2 descriptor points to.
+ *
+ * @returns Page aligned physical address.
+ * @param   u32L2Desc               The L2 descriptor.
+ * @param   idxL2                   Index in the L2 table where the descriptor is stored.
+ */
+static inline PSPPADDR pspEmuCoreMmuPgTblL2GetPhysAddrFromDesc(uint32_t u32L2Desc, uint32_t idxL2)
+{
+    if ((u32L2Desc & 0x2) == 0x2)
+        return u32L2Desc & 0xfffff000;
+    else if ((u32L2Desc & 0x3) == 0x1)
+        return (u32L2Desc & 0xffff0000) + (idxL2 % 16) * _4K;
+
+    /* Not present entry. */
+    return 0xffffffff;
+}
+
+
+/**
+ * Tries to resolve a given virtual PSP address to a physical one.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspVAddrPg              Page aligned virtual PSP address.
+ * @param   pPspPAddrPg             Where to store the physical address on success.
+ * @param   pcbRegion               Where to store the size of the resolved physical memory region on success.
+ *
+ * @todo Extract access permissions.
+ */
+static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion)
+{
+    PSPPADDR PhysAddrPgTbl = 0;
+    int rc = pspEmuCoreMmuPgTblQueryRoot(pThis, &PhysAddrPgTbl);
+    if (!rc)
+    {
+        uint32_t au32Tbl[4096];
+
         rc = PSPEmuCoreMemRead(pThis, PhysAddrPgTbl, &au32Tbl[0], sizeof(au32Tbl));
         if (!rc)
         {
             uint32_t idxL1 = PspVAddrPg >> PSP_PAGE_L1_IDX_SHIFT;
+            uint32_t idxL2 = (PspVAddrPg >> 12) & 0xff;
             uint32_t u32L1Desc = au32Tbl[idxL1];
 
             /* Coarse page table.*/
             if ((u32L1Desc & 0x3) == 0x1)
             {
-                uint32_t idxL2 = (PspVAddrPg >> 12) & 0xff;
                 PSPPADDR PhysAddrL2 = u32L1Desc & 0xfffffc00;
                 rc = PSPEmuCoreMemRead(pThis, PhysAddrL2, &au32Tbl[0], _1K);
                 if (!rc)
@@ -1031,15 +1147,106 @@ static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr
                      && (u32L1Desc & BIT(18)) == 0x0)
             {
                 /* Section. */
-                *pPspPAddrPg = u32L1Desc & 0xfff00000;
-                *pcbRegion   = _1M;
+                PSPPADDR PhysAddrSection = u32L1Desc & 0xfff00000;
+                *pPspPAddrPg = PhysAddrSection + idxL2 * _4K;
+                *pcbRegion   = _4K;
             }
             else
                 rc = -1; /** @todo Support supersections. */
         }
     }
-    else
-        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+    return rc;
+}
+
+
+/**
+ * Tries to resolve a given physical PSP address to a virtual one.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspPAddrPg              Page aligned physical PSP address.
+ * @param   cbPhysRegion            The physical region size.
+ * @param   pPspVAddrPg             Where to store the virtual address on success.
+ * @param   pcbRegion               Where to store the size of the resolved contiguous virtual memory region on success.
+ */
+static int pspEmuCoreMmuVAddrQueryFromPAddr(PPSPCOREINT pThis, PSPPADDR PspPAddrPg, size_t cbPhysRegion,
+                                            PSPVADDR *pPspVAddrPg, size_t *pcbRegion)
+{
+    PSPPADDR PhysAddrPgTbl = 0;
+    int rc = pspEmuCoreMmuPgTblQueryRoot(pThis, &PhysAddrPgTbl);
+    if (!rc)
+    {
+        uint32_t au32Tbl[4096];
+
+        rc = PSPEmuCoreMemRead(pThis, PhysAddrPgTbl, &au32Tbl[0], sizeof(au32Tbl));
+        if (!rc)
+        {
+            /* Scan the page tables for the physical address. */
+            for (uint32_t i = 0; i < ELEMENTS(au32Tbl) && !rc; i++)
+            {
+                if ((au32Tbl[i] & 0x3) == 0x1)
+                {
+                    PSPPADDR PhysAddrL2 = au32Tbl[i] & 0xfffffc00;
+                    uint32_t au32TblL2[1024 / sizeof(uint32_t)];
+
+                    rc = PSPEmuCoreMemRead(pThis, PhysAddrL2, &au32TblL2[0], sizeof(au32TblL2));
+                    if (!rc)
+                    {
+                        for (uint32_t idxL2 = 0; idxL2 < ELEMENTS(au32TblL2) && !rc; idxL2++)
+                        {
+                            PSPPADDR PhysStart = pspEmuCoreMmuPgTblL2GetPhysAddrFromDesc(au32TblL2[idxL2], idxL2);
+                            if (PhysStart == 0xffffffff)
+                                continue;
+
+                            if (PspPAddrPg == PhysStart)
+                            {
+                                /* Check for adjacent regions. */
+                                PSPVADDR PspVAddrStart = i * _1M + idxL2 * _4K;
+                                size_t cbVRegion = _4K;
+
+                                idxL2++;
+                                PspPAddrPg += _4K;
+                                while (   idxL2 < ELEMENTS(au32TblL2)
+                                       && cbVRegion < cbPhysRegion)
+                                {
+                                    PhysStart = pspEmuCoreMmuPgTblL2GetPhysAddrFromDesc(au32TblL2[idxL2], idxL2);
+                                    if (PhysStart != PspPAddrPg)
+                                        break;
+                                    cbVRegion  += _4K;
+                                    PspPAddrPg += _4K;
+                                    idxL2++;
+                                }
+
+                                *pPspVAddrPg = PspVAddrStart;
+                                *pcbRegion   = cbVRegion;
+                                return 0;
+                            }
+                        }
+                    }
+                }
+                else if (   (au32Tbl[i] & 0x2) == 0x2
+                         && (au32Tbl[i] & BIT(18)) == 0x0)
+                {
+                    /* Section. */
+                    PSPPADDR PhysStartSection = au32Tbl[i] & 0xfff00000;
+                    size_t cbSection = _1M;
+
+                    if (   PspPAddrPg >= PhysStartSection
+                        && PspPAddrPg < PhysStartSection + cbSection)
+                    {
+                        *pPspVAddrPg = i * _1M + (PspPAddrPg - PhysStartSection);
+                        *pcbRegion   = MIN(cbPhysRegion, cbSection);
+                        /** @todo check next sections. */
+                        return 0;
+                    }
+                }
+            }
+
+            if (!rc)
+                rc = -1; /* If we got here we found nothing :(. */
+        }
+    }
 
     return rc;
 }
@@ -1081,6 +1288,147 @@ static void pspEmuCoreMmuMapMmioWrite(struct uc_struct* pUcEngine, void *pvUser,
     /* The address is from the start of our MMU mapping. */
     PSPADDR offPhys = pMmuMap->offPhysMap + (uint32_t)uAddr;
     pspEmuCoreMmioWrite(pUcEngine, (void *)pMmuMap->pMemRegion, offPhys, uVal, cb);
+}
+
+
+/**
+ * Clears all virtual memory mappings registered with unicorn by the MMU.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ */
+static int pspEmuCoreMmuMappingsClear(PPSPCOREINT pThis)
+{
+    PPSPCOREMMUMAP pMmuMap = pThis->pMmuMappingsHead;
+    while (pMmuMap)
+    {
+        PPSPCOREMMUMAP pFree = pMmuMap;
+        pMmuMap = pMmuMap->pNext;
+        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pFree->PspAddrVStart, pFree->cbRegion);
+        /** @todo assert(rcUrc == UC_ERR_OK) */
+        free(pFree);
+    }
+
+    pThis->pMmuMappingsHead = NULL;
+    return 0;
+}
+
+
+/**
+ * Unicorn MMIO read wrapper for the page table region.
+ *
+ * @returns Data read.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   pvUser                  Opaque user data.
+ * @param   uAddr                   MMIO address read.
+ * @param   cb                      Size of the read (1, 2, 4 or 8 bytes).
+ */
+static uint64_t pspEmuCoreMmuPgTblRead(struct uc_struct* pUcEngine, void *pvUser, uint64_t uAddr, unsigned cb)
+{
+    PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
+    PSPPADDR PhysAddrRead = pThis->PhysAddrPgTblStart +(uint32_t)uAddr;
+    uint64_t uValRet = 0;
+
+    /* Resolve the physical memory region and do the read. */
+    PCPSPCOREMEMREGION pMemRegion = pspEmuCoreMemRegionFindByAddr(pThis, PhysAddrRead, NULL /*ppPrevRegion*/);
+    if (   pMemRegion
+        && !pMemRegion->fMmio)
+    {
+        const void *pv = (const uint8_t *)pMemRegion->u.Ram.pvBacking + PhysAddrRead - pMemRegion->PspAddrStart;
+        switch (cb)
+        {
+            case 1:
+                uValRet = *(const uint8_t *)pv;
+                break;
+            case 2:
+                uValRet = *(const uint16_t *)pv;
+                break;
+            case 4:
+                uValRet = *(const uint32_t *)pv;
+                break;
+            case 8:
+                uValRet = *(const uint64_t *)pv;
+                break;
+            default:
+                /** @todo assert() */
+                uc_emu_stop(pUcEngine);
+        }
+    }
+    else
+        printf("WE ARE SCREWED AGAIN!\n"); /* Should never happen. */
+
+    return uValRet;
+}
+
+
+/**
+ * Unicorn MMIO write wrapper for the page table region.
+ *
+ * @returns nothing.
+ * @param   pUcEngine               The unicorn engine pointer.
+ * @param   pvUser                  Opaque user data.
+ * @param   uAddr                   MMIO address written.
+ * @param   uVal                    Value written.
+ * @param   cb                      Size of the write (1, 2, 4 or 8 bytes).
+ */
+static void pspEmuCoreMmuPgTblWrite(struct uc_struct* pUcEngine, void *pvUser, uint64_t uAddr, uint64_t uVal, unsigned cb)
+{
+    PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
+    PSPPADDR PhysAddrRead = pThis->PhysAddrPgTblStart +(uint32_t)uAddr;
+
+    printf("Page table write at address %#lx with value %#x (cb=%u)\n", uAddr + pThis->PhysAddrPgTblStart, uVal, cb);
+
+    /* Resolve the physical memory region and do the write. */
+    PCPSPCOREMEMREGION pMemRegion = pspEmuCoreMemRegionFindByAddr(pThis, PhysAddrRead, NULL /*ppPrevRegion*/);
+    bool fPgTblChanged = false;
+    if (   pMemRegion
+        && !pMemRegion->fMmio)
+    {
+        void *pv = (uint8_t *)pMemRegion->u.Ram.pvBacking + PhysAddrRead - pMemRegion->PspAddrStart;
+        switch (cb)
+        {
+            case 1:
+                if (*(uint8_t *)pv != uVal)
+                {
+                    *(uint8_t *)pv = uVal;
+                    fPgTblChanged = true;
+                }
+                break;
+            case 2:
+                if (*(uint16_t *)pv != uVal)
+                {
+                    *(uint16_t *)pv = uVal;
+                    fPgTblChanged = true;
+                }
+                break;
+            case 4:
+                if (*(uint32_t *)pv != uVal)
+                {
+                    *(uint32_t *)pv = uVal;
+                    fPgTblChanged = true;
+                }
+                break;
+            case 8:
+                if (*(uint64_t *)pv != uVal)
+                {
+                    *(uint64_t *)pv = uVal;
+                    fPgTblChanged = true;
+                }
+                break;
+            default:
+                /** @todo assert() */
+                uc_emu_stop(pUcEngine);
+        }
+    }
+    else
+        printf("WE ARE SCREWED AGAIN!\n"); /* Should never happen. */
+
+    if (fPgTblChanged)
+    {
+        /* As the page tables have changed we have to clear all mappings and start all over. */
+        printf("Page table changed at address %#lx with value %#x (cb=%u)\n", uAddr + pThis->PhysAddrPgTblStart, uVal, cb);
+        pspEmuCoreMmuMappingsClear(pThis);
+    }
 }
 
 
@@ -1154,6 +1502,8 @@ static int pspEmuCoreMmuMappingCreate(PPSPCOREINT pThis, PCPSPCOREMEMREGION pMem
  */
 static int pspEmuCoreMmuMap(PPSPCOREINT pThis, PSPVADDR PspVAddr, bool *pfHandled)
 {
+    //printf("pspEmuCoreMmuMap: PspVAddr=%#lx\n", PspVAddr);
+
     /* Try to resolve the page from the root. */
     PSPVADDR PspVAddrPg = PspVAddr & ~(PSP_PAGE_SIZE - 1);
     PSPPADDR PspPAddrPg;
@@ -1190,30 +1540,8 @@ static int pspEmuCoreMmuMap(PPSPCOREINT pThis, PSPVADDR PspVAddr, bool *pfHandle
         rc = 0;
     }
 
+    //printf("pspEmuCoreMmuMap: rc=%d fHandled=%u\n", rc, *pfHandled);
     return rc;
-}
-
-
-/**
- * Clears all virtual memory mappings registered with unicorn by the MMU.
- *
- * @returns Status code.
- * @param   pThis                   The PSP core instance.
- */
-static int pspEmuCoreMmuMappingsClear(PPSPCOREINT pThis)
-{
-    PPSPCOREMMUMAP pMmuMap = pThis->pMmuMappingsHead;
-    while (pMmuMap)
-    {
-        PPSPCOREMMUMAP pFree = pMmuMap;
-        pMmuMap = pMmuMap->pNext;
-        uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pFree->PspAddrVStart, pFree->cbRegion);
-        /** @todo assert(rcUrc == UC_ERR_OK) */
-        free(pFree);
-    }
-
-    pThis->pMmuMappingsHead = NULL;
-    return 0;
 }
 
 
@@ -1236,7 +1564,14 @@ static int pspEmuCoreMmuSetupTeardown(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool
         /* Clear all MMU mappings registered with unicorn. */
         rc = pspEmuCoreMmuMappingsClear(pThis);
         if (!rc)
-            rc = pspEmuCoreMemRegionsRegisterAll(pThis);
+        {
+            /* Remove the page table tracking region. */
+            uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pThis->PspAddrVPgTbl, pThis->cbPgTbl);
+            if (rcUc == UC_ERR_OK)
+                rc = pspEmuCoreMemRegionsRegisterAll(pThis);
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        }
     }
     else
     {
@@ -1246,7 +1581,45 @@ static int pspEmuCoreMmuSetupTeardown(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool
          */
         rc = pspEmuCoreMemRegionsUnregisterAll(pThis);
         if (!rc)
-            pThis->fMmuEnabled = true;
+        {
+            PSPPADDR PhysAddrPgTbl = 0;
+            size_t cbPgTbl = 0;
+            rc = pspEmuCoreMmuPgTblQueryRange(pThis, &PhysAddrPgTbl, &cbPgTbl);
+            if (!rc)
+            {
+                /*
+                 * Align to page sizes, we will track writes to the region by
+                 * abusing the MMIO callbacks and register a MMIO region there
+                 * hoping that there are not to many other accesses in that range
+                 * which don't belong to the page tables.
+                 */
+                PhysAddrPgTbl &= ~(PSP_PAGE_SIZE - 1);
+                cbPgTbl = (cbPgTbl + PSP_PAGE_SIZE - 1) & ~(PSP_PAGE_SIZE - 1);
+
+                pThis->PhysAddrPgTblStart = PhysAddrPgTbl;
+                pThis->cbPgTbl            = cbPgTbl;
+
+                /* We need the virtual address covering the page table region. */
+                PSPVADDR PspVAddrPgTbl = 0;
+                size_t cbVPgTbl = 0;
+                rc = pspEmuCoreMmuVAddrQueryFromPAddr(pThis, PhysAddrPgTbl, cbPgTbl,
+                                                      &PspVAddrPgTbl, &cbVPgTbl);
+                if (   !rc
+                    && cbVPgTbl == cbPgTbl)
+                {
+                    printf("Page table range %#x %#x %zu\n", PhysAddrPgTbl, PspVAddrPgTbl, cbVPgTbl);
+                    pThis->PspAddrVPgTbl = PspVAddrPgTbl;
+                    uc_err rcUc = uc_mmio_map(pThis->pUcEngine, PspVAddrPgTbl, cbVPgTbl,
+                                              pspEmuCoreMmuPgTblRead, pspEmuCoreMmuPgTblWrite, pThis);
+                    if (rcUc == UC_ERR_OK)
+                        pThis->fMmuEnabled = true;
+                    else
+                        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+                }
+                else
+                    printf("WE ARE SCREWED!\n");
+            }
+        }
     }
 
     if (!rc)
@@ -1279,11 +1652,70 @@ static bool pspEmuCoreMemMemInvAccess(uc_engine *pUcEngine, uc_mem_type enmMemTy
 
     if (pThis->fMmuEnabled)
     {
+        /*
+         * If there is an instruction fetch happening inside the page table region we
+         * have to shrink the MMIO region tracking writes and hope for the best.
+         *
+         * Normally the L1 needs 4096 entries each 4 bytes to cover the whole address space
+         * requiring 4 full pages. However in the PSP firmware the L1 table is never fully used
+         * because of memory constraints (reserving 16KB for L1 and additional memory for the L2 tables
+         * would occupy a large portion of the 256KB (Zen/Zen+) or 320KB (Zen2) SRAM).
+         * So the L1 table is only partially in SRAM and the virtual addresses not covererd by the L1 table are
+         * never accessed keep the MMUs greedy fingers of the memory used for code and data.
+         */
+        if (   enmMemType == UC_MEM_FETCH_PROT
+            && uAddr >= pThis->PspAddrVPgTbl
+            && uAddr < pThis->PspAddrVPgTbl + pThis->cbPgTbl)
+        {
+            /* Readjust the page table size and remap the tracking handlers. */
+            uint32_t offVAddr = uAddr - pThis->PspAddrVPgTbl;
+            PSPPADDR PhysAddrL1;
+            int rc = pspEmuCoreMmuPgTblQueryRoot(pThis, &PhysAddrL1);
+            if (!rc)
+            {
+                uint32_t offPgTblL1 = PhysAddrL1 - pThis->PhysAddrPgTblStart;
+                /* We only allow shrinking the L1 table for now. */
+                if (offVAddr > offPgTblL1)
+                {
+                    size_t cbPgTblNew = offVAddr;
+                    /* Align to page size. */
+                    cbPgTblNew &= ~(PSP_PAGE_SIZE - 1);
+
+                    uc_err rcUc = uc_mem_unmap(pThis->pUcEngine, pThis->PspAddrVPgTbl, pThis->cbPgTbl);
+                    if (rcUc == UC_ERR_OK)
+                        rcUc = uc_mmio_map(pThis->pUcEngine, pThis->PspAddrVPgTbl, cbPgTblNew,
+                                           pspEmuCoreMmuPgTblRead, pspEmuCoreMmuPgTblWrite, pThis);
+                    if (rcUc != UC_ERR_OK)
+                        return false;
+
+                    pThis->cbPgTbl = cbPgTblNew;
+                    printf("Remapped page table tracking to %#lx %lx\n", pThis->PspAddrVPgTbl, pThis->PspAddrVPgTbl + cbPgTblNew);
+                    /* Continue with mapping the real memory. */
+                }
+                else
+                    return false;
+            }
+            else
+                return false;
+        }
+
         bool fHandled;
         int rc = pspEmuCoreMmuMap(pThis, uAddr, &fHandled);
         if (   !rc
             && fHandled)
             return true;
+    }
+    else
+    {
+        /* Map in a region lazily. */
+        PPSPCOREMEMREGION pMemRegion = pspEmuCoreMemRegionFindByAddr(pThis, uAddr, NULL /*ppPrevRegion*/);
+        if (   pMemRegion
+            && !pMemRegion->fMapped)
+        {
+            int rc = pspEmuCoreMemRegionMap(pThis, pMemRegion);
+            if (!rc)
+                return true;
+        }
     }
 
     return false;
@@ -1495,21 +1927,13 @@ int PSPEmuCoreMemRegionAdd(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion, ui
         pRegion->cbRegion        = cbRegion;
         pRegion->pPspCore        = pThis;
         pRegion->fMmio           = false;
+        pRegion->fMapped         = false;
         pRegion->u.Ram.pvBacking = pvBacking;
         pRegion->u.Ram.fProt     = fProt;
 
-        int32_t fUcProt = pspEmuCoreMemRegionProt2UcProt(fProt);
-        uc_err rcUc = uc_mem_map_ptr(pThis->pUcEngine, AddrStart, cbRegion, fUcProt, pvBacking);
-        if (rcUc == UC_ERR_OK)
-        {
-            rc = pspEmuCoreMemRegionInsert(pThis, pRegion);
-            if (!rc)
-                return 0;
-
-            uc_mem_unmap(pThis->pUcEngine, AddrStart, cbRegion);
-        }
-        else
-            rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        rc = pspEmuCoreMemRegionInsert(pThis, pRegion);
+        if (!rc)
+            return 0;
 
         free(pRegion);
     }
@@ -1902,22 +2326,14 @@ int PSPEmuCoreMmioRegister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cbMm
         pRegion->cbRegion        = cbMmio;
         pRegion->pPspCore        = pThis;
         pRegion->fMmio           = true;
+        pRegion->fMapped         = false;
         pRegion->u.Mmio.pfnRead  = pfnRead;
         pRegion->u.Mmio.pfnWrite = pfnWrite;
         pRegion->u.Mmio.pvUser   = pvUser;
 
-        uc_err rcUc = uc_mmio_map(pThis->pUcEngine, uPspAddrMmioStart, cbMmio,
-                                  pspEmuCoreMmioRead, pspEmuCoreMmioWrite, pRegion);
-        if (rcUc == UC_ERR_OK)
-        {
-            rc = pspEmuCoreMemRegionInsert(pThis, pRegion);
-            if (!rc)
-                return 0;
-
-            uc_mem_unmap(pThis->pUcEngine, uPspAddrMmioStart, cbMmio);
-        }
-        else
-            rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        rc = pspEmuCoreMemRegionInsert(pThis, pRegion);
+        if (!rc)
+            return 0;
 
         free(pRegion);
     }
