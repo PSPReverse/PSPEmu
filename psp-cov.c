@@ -349,14 +349,14 @@ int PSPEmuCovDumpToFile(PSPCOV hCov, const char *pszFilename)
         /* Start with the header. */
         const char szHdr[] = "DRCOV VERSION: 2\n"
                              "DRCOV FLAVOR: PSPEmu\n"
-                             "Module Table: version 2, count 1\n" /* Module count is static for now. */
-                             "Columns: id, base, end, entry, path\n";
+                             "Module Table: version 3, count 1\n" /* Module count is static for now. */
+                             "Columns: id, containing_id, base, end, entry, path\n";
         size_t cWritten = fwrite(&szHdr[0], sizeof(szHdr) - 1, 1, pCov);
         if (cWritten == 1)
         {
             /* Write the single module we offer and afterwards the BB table header. */
-            int cchWritten = fprintf(pCov, "0, %#x, %#x, 0x00000000, N/A\n",
-                                     pThis->PspAddrBegin, pThis->PspAddrEnd - 1);
+            int cchWritten = fprintf(pCov, "0, 0, %#x, %#x, 0x00000000, N/A\n",
+                                     pThis->PspAddrBegin, pThis->PspAddrEnd);
             if (cchWritten)
                 cchWritten = fprintf(pCov, "BB Table: %u bbs\n", pThis->cBbs);
             if (cchWritten)
