@@ -180,7 +180,7 @@ static void pspDevX86UartWrite(X86PADDR offMmio, size_t cbWrite, const void *pvV
 
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_X86_UART,
                                         "Line parameters set to %u %u%s%u",
-                                        115200 / pThis->u16Divisor,
+                                        115200 / (pThis->u16Divisor ? pThis->u16Divisor : 115200),
                                         (pThis->u8RegLcr & 0x3) + 5,
                                         pThis->u8RegLcr & X86_UART_REG_LCR_PEN ? "O" : "N", /** @todo Not correct as even bit is not checked. */
                                         pThis->u8RegLcr & X86_UART_REG_LCR_STB ? 2 : 1);
