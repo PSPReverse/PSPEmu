@@ -175,6 +175,9 @@ typedef struct PSPEMUCFG
     size_t                  cbBootRomSvcPage;
     /** The proxy address if configured. */
     const char              *pszPspProxyAddr;
+    /** PSP code address where the off chip BL jumps to the trusted OS.
+     * If not 0 and in proxy mode the emulator will do the same on the real hardware. */
+    PSPPADDR                PspAddrProxyTrustedOsHandover;
     /** Path to the trace log to write if enabled. */
     const char              *pszTraceLog;
     /** UART remtoe address. */

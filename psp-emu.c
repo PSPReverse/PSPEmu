@@ -77,6 +77,7 @@ static struct option g_aOptions[] =
     {"proxy-buffer-writes",          no_argument      , 0, 'P'},
     {"dbg-step-count",               required_argument, 0, 'G'},
     {"dbg-run-up-to",                required_argument, 0, 'U'},
+    {"proxy-trusted-os-handover",    required_argument, 0, 'T'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -233,6 +234,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pvBootRomSvcPage      = NULL;
     pCfg->cbBootRomSvcPage      = 0;
     pCfg->pszPspProxyAddr       = NULL;
+    pCfg->PspAddrProxyTrustedOsHandover = 0;
     pCfg->pszTraceLog           = NULL;
     pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
     pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
@@ -246,7 +248,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -262,6 +264,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
                        "    --dbg <listening port>\n"
                        "    --psp-proxy-addr <path/to/proxy/device>\n"
+                       "    --proxy-trusted-os-handover <address> If set, this is the address where the off chip BL jumps to the trusted OS and the emulator will do the same\n"
                        "    --load-psp-dir\n"
                        "    --psp-dbg-mode\n"
                        "    --trace-log <path/to/trace/log>\n"
@@ -440,6 +443,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'U':
                 pCfg->PspAddrDbgRunUpTo = strtoul(optarg, NULL, 0);
+                break;
+            case 'T':
+                pCfg->PspAddrProxyTrustedOsHandover = strtoul(optarg, NULL, 0);
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);

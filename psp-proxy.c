@@ -764,6 +764,110 @@ static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, bool *pfIrq, 
 }
 
 
+/**
+ * Trace hook which gets called, when the off chip BL is about to jump to the trusted OS loader living
+ * in secure DRAM.
+ *
+ * @returns nothing.
+ * @param   hCore                   The PSP core where the hook was registered.
+ * @param   uPspAddr                The PC, should match the registration.
+ * @param   cbInsn                  Size of the instruction in bytes.
+ * @param   pvUser                  Opaque user data given during registration.
+ */
+static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
+{
+    PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
+
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
+                            "Jumping to trusted OS loader in secure DRAM...\n");
+
+    /* Query the register state. */
+    PSPCOREREG aenmRegs[13];
+    uint32_t au32Gprs[13];
+    for (uint32_t i = 0; i < ELEMENTS(aenmRegs); i++)
+        aenmRegs[i] = PSPCOREREG_R0 + i;
+
+    int rc = PSPEmuCoreQueryRegBatch(hCore, &aenmRegs[0], ELEMENTS(aenmRegs), &au32Gprs[0]);
+    if (!rc)
+    {
+        /* Sync the BRSP. */
+        uint8_t abData[_4K];
+        rc = PSPEmuCoreMemRead(hCore, 0x3f000, &abData[0], sizeof(abData));
+        if (!rc)
+            rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, 0x3f000, &abData[0], sizeof(abData));
+        if (!rc)
+        {
+            /* Sync the usermode region. */
+            PSPPADDR PspAddrStart = 0x15000;
+            size_t cbUsrModeRegion = 0x28000;
+
+            while (   cbUsrModeRegion
+                   && !rc)
+            {
+                rc = PSPEmuCoreMemRead(hCore, PspAddrStart, &abData[0], sizeof(abData));
+                if (!rc)
+                    rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, PspAddrStart, &abData[0], sizeof(abData));
+                PspAddrStart    += sizeof(abData);
+                cbUsrModeRegion -= sizeof(abData);
+            }
+        }
+
+        if (!rc)
+        {
+            /*
+             * We need to map the secure DRAM in the first x86 mapping slot, do that by issuing a bunch of MMIO writes.
+             * The secure DRAM region is hardcoded here.
+             */
+            uint32_t uVal = 0x003fff7e; /* Secure DRAM base. */
+            rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, 0x3230000, sizeof(uVal), &uVal);
+            if (!rc)
+            {
+                uVal = 0x12; /* Unknown but fixed value. */
+                rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, 0x3230004, sizeof(uVal), &uVal);
+            }
+            if (!rc)
+            {
+                uVal = 0x4; /* DRAM. */
+                rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, 0x3230008, sizeof(uVal), &uVal);
+                if (!rc)
+                    rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, 0x323000c, sizeof(uVal), &uVal);
+            }
+            if (!rc)
+            {
+                uVal = 0xffffffff; /* Unknown but fixed value. */
+                rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, 0x32303e0, sizeof(uVal), &uVal);
+            }
+            if (!rc)
+            {
+                uVal = 0xc0808000; /* Maybe some caching flags. */
+                rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, 0x32304d8, sizeof(uVal), &uVal);
+            }
+
+            if (!rc)
+            {
+                /* The destination is stored in r0. */
+                rc = PSPProxyCtxBranchTo(pThis->hPspProxyCtx, au32Gprs[0], au32Gprs[0] & 0x1 ? true : false /*fThumb*/, &au32Gprs[0]);
+                if (!rc)
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspEmuProxyTrustedOsHandover() handover complete\n", rc);
+                else
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspEmuProxyTrustedOsHandover() handover failed with %d\n", rc);
+            }
+            else
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspEmuProxyTrustedOsHandover() Mapping x86 secure DRAM region failed with %d\n", rc);
+        }
+        else
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                    "pspEmuProxyTrustedOsHandover() syncing the BRSP failed with %d\n", rc);
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspEmuProxyTrustedOsHandover() querying register set failed with %d\n", rc);
+}
+
+
 static void pspEmuCcdProxyLogMsg(PSPPROXYCTX hCtx, void *pvUser, const char *pszMsg)
 {
     PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
@@ -860,6 +964,13 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
                                                  "<PROXY>", pCcdRec);
             if (!rc)
                 rc = PSPEmuCoreWfiSet(hPspCore, pspEmuProxyWfiReached, pCcdRec);
+            if (   !rc
+                && pThis->pCfg->PspAddrProxyTrustedOsHandover)
+                rc = PSPEmuCoreTraceRegister(hPspCore,
+                                             pThis->pCfg->PspAddrProxyTrustedOsHandover,
+                                             pThis->pCfg->PspAddrProxyTrustedOsHandover,
+                                             PSPEMU_CORE_TRACE_F_EXEC,
+                                             pspEmuProxyTrustedOsHandover, pThis);
 
             if (!rc)
             {
