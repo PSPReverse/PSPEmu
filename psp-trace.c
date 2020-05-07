@@ -674,7 +674,7 @@ int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
         pThis->cTraceEvts       = 0;
         pThis->papTraceEvts     = NULL;
 
-        if (fFlags &PSPEMU_TRACE_F_ALL_EVENTS)
+        if (fFlags & PSPEMU_TRACE_F_ALL_EVENTS)
         {
             for (uint32_t i = 0; i < ELEMENTS(pThis->aenmEvtTypesSeverity); i++)
                 pThis->aenmEvtTypesSeverity[i] = PSPTRACEEVTSEVERITY_DEBUG;
@@ -760,17 +760,42 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, P
     if (pThis)
     {
         uint8_t szTmp[_4K]; /** @todo Maybe allocate scratch buffer if this turns to be too small (or fix your damn log strings...). */
-        int rcStr = vsnprintf(&szTmp[0], sizeof(szTmp), pszFmt, hArgs);
 
+        bzero(&szTmp[0], sizeof(szTmp));
+        int rcStr = vsnprintf(&szTmp[0], sizeof(szTmp), pszFmt, hArgs);
         if (rcStr > 0)
         {
-            PPSPTRACEEVT pEvt;
-            size_t cbAlloc = rcStr + 1; /* Include terminator. */
-            rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_STRING, cbAlloc, &pEvt);
-            if (!rc)
+            char *pszStart = &szTmp[0];
+
+            /* Skip any newlines at the end. */
+            while (   (   szTmp[rcStr - 1] == '\n'
+                       || szTmp[rcStr - 1] == '\r')
+                   && rcStr)
             {
-                memcpy(&pEvt->abContent[0], &szTmp[0], cbAlloc);
-                rc = pspEmuTraceFlushMaybe(pThis);
+                szTmp[rcStr - 1] = '\0';
+                rcStr--;
+            }
+
+            /* Skip new lines at the front. */
+            while (   rcStr
+                   && (   *pszStart == '\n'
+                       || *pszStart == '\r'))
+            {
+                pszStart++;
+                rcStr--;
+            }
+
+            if (rcStr)
+            {
+                PPSPTRACEEVT pEvt;
+                size_t cbAlloc = rcStr + 1; /* Include terminator. */
+
+                rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_STRING, cbAlloc, &pEvt);
+                if (!rc)
+                {
+                    memcpy(&pEvt->abContent[0], pszStart, cbAlloc);
+                    rc = pspEmuTraceFlushMaybe(pThis);
+                }
             }
         }
         else
