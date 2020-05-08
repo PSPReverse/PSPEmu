@@ -26,6 +26,7 @@
 
 #include <common/types.h>
 #include <common/cdefs.h>
+#include <psp/ccp.h>
 
 #include <libpspproxy.h>
 
@@ -120,6 +121,22 @@ typedef struct PSPPROXYINT *PPSPPROXYINT;
 
 
 /**
+ * CCP Proxy data.
+ */
+typedef struct PSPPROXYCCP
+{
+    /** The CCP proxy callback table. */
+    CCPPROXY                    CcpProxyIf;
+    /** Pointer to the owning proxy instance. */
+    PPSPPROXYINT                pThis;
+} PSPPROXYCCP;
+/** Pointer to a CCP proxy instance. */
+typedef PSPPROXYCCP *PPSPPROXYCCP;
+/** Pointer to a const CCP proxy instance. */
+typedef const PSPPROXYCCP *PCPSPPROXYCCP;
+
+
+/**
  * CCD registration record.
  */
 typedef struct PSPPROXYCCD
@@ -161,6 +178,8 @@ typedef struct PSPPROXYINT
     PCPSPEMUCFG                 pCfg;
     /** Head of CCDs registered with this proxy instance. */
     PPSPPROXYCCD                pCcdsHead;
+    /** CCP proxy data if enabled. */
+    PSPPROXYCCP                 CcpProxy;
 } PSPPROXYINT;
 
 
@@ -790,6 +809,10 @@ static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPADDR uPspAddr, uint32
     int rc = PSPEmuCoreQueryRegBatch(hCore, &aenmRegs[0], ELEMENTS(aenmRegs), &au32Gprs[0]);
     if (!rc)
     {
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
+                                "    R0: %#08x R1: %#08x R2: %#08x R3: %#08x\n",
+                                au32Gprs[0], au32Gprs[1], au32Gprs[2], au32Gprs[3]);
+
         /* Sync the BRSP. */
         uint8_t abData[_4K];
         rc = PSPEmuCoreMemRead(hCore, 0x3f000, &abData[0], sizeof(abData));
@@ -868,6 +891,235 @@ static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPADDR uPspAddr, uint32
 }
 
 
+/**
+ * Configures a given queue.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP proxy instance.
+ * @param   idxQueue                The queue index.
+ * @param   uCfg                    The config to use.
+ */
+static int pspEmuProxyCcpQueueCfg(PPSPPROXYINT pThis, uint32_t idxQueue, uint8_t uCfg)
+{
+    uint32_t uCcpReg = 0;
+    int rc = PSPProxyCtxPspMmioRead(pThis->hPspProxyCtx, CCP_V5_MMIO_ADDRESS + 4, sizeof(uCcpReg), &uCcpReg);
+    if (!rc)
+    {
+        uCcpReg = (uCcpReg & ~(7 << (idxQueue * 3))) | (uCfg << (idxQueue * 3));
+        rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, CCP_V5_MMIO_ADDRESS + 4, sizeof(uCcpReg), &uCcpReg);
+    }
+
+    return rc;
+}
+
+
+/**
+ * Executes the given request on the proxied CCP.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP proxy instance.
+ * @param   pCcpReq                 The CCP request to execute.
+ * @param   pu32CcpSts              Where to store the CCP status.
+ */
+static int pspEmuProxyCcpReqExec(PPSPPROXYINT pThis, PCCCP5REQ pCcpReq, uint32_t *pu32CcpSts)
+{
+    PSPPADDR PspAddrReq = 0;
+
+    /* Copy the request over. */
+    int rc = PSPProxyCtxScratchSpaceAlloc(pThis->hPspProxyCtx, 2*sizeof(*pCcpReq), &PspAddrReq);
+    if (!rc)
+    {
+        uint32_t idxQueue = 0;
+        /** @todo Sort out the alignment issue, for now we just the descriptor spot used by the real off chip BL in the BRSP. */
+        PSPPADDR PspAddrReqAligned = 0x3f800; //(PspAddrReq + (sizeof(*pCcpReq) - 1)) & ~(sizeof(*pCcpReq) - 1); /* Need to be aligned to the CCP descriptor size. */
+        printf("CCP request address %#x\n", PspAddrReqAligned);
+        rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, PspAddrReqAligned, pCcpReq, sizeof(*pCcpReq));
+        if (!rc)
+        {
+            /* Set up MMIO registers. */
+            rc = pspEmuProxyCcpQueueCfg(pThis, idxQueue, 0x6);
+            if (!rc)
+            {
+                uint32_t uVal = PspAddrReqAligned + sizeof(*pCcpReq);
+                PSPPADDR PspAddrCcpQBase =  CCP_V5_MMIO_ADDRESS + CCP_V5_Q_OFFSET + idxQueue * CCP_V5_Q_SIZE;
+                rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_HEAD, sizeof(uVal), &uVal);
+                if (!rc)
+                    rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_TAIL, sizeof(PspAddrReqAligned), &PspAddrReqAligned);
+                if (!rc)
+                {
+                    uVal = 0xd;
+                    rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_CTRL, sizeof(uVal), &uVal);
+                    if (!rc)
+                    {
+                        /* Wait for the CCP to become idle again. */
+                        uVal = 0;
+                        do
+                        {
+                            rc = PSPProxyCtxPspMmioRead(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_CTRL, sizeof(uVal), &uVal);
+                        } while (   !rc
+                                 && !(uVal & CCP_V5_Q_REG_CTRL_HALT));
+
+                        if (!rc)
+                        {
+                            rc = PSPProxyCtxPspMmioRead(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_STATUS, sizeof(*pu32CcpSts), pu32CcpSts);
+                            if (rc)
+                                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                                        "pspEmuProxyCcpReqExec() Reading CCP request status failed with %d\n", rc);
+                        }
+                        else
+                            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                                    "pspEmuProxyCcpReqExec() Waiting for CCP queue to become idle failed with %d\n", rc);
+                    }
+                    else
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                                "pspEmuProxyCcpReqExec() Starting CCP queue failed with %d\n", rc);
+                }
+                else
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspEmuProxyCcpReqExec() Preparing CCP queue registers failed with %d\n", rc);
+            }
+            else
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspEmuProxyCcpReqExec() Queue configuration failed %d\n", rc);
+        }
+        else
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                    "pspEmuProxyCcpReqExec() Writing CCP request descriptor into scratch space failed with %d\n", rc);
+
+        PSPProxyCtxScratchSpaceFree(pThis->hPspProxyCtx, PspAddrReq, sizeof(*pCcpReq));
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspEmuProxyCcpReqExec() Allocating scratch space for request failed with %d\n", rc);
+
+    return rc;
+}
+
+
+/**
+ * CCP proxy AES operation callback.
+ */
+static int pspEmuProxyCcpAesDo(PCCCPPROXY pCcpProxyIf, uint32_t u32Dw0, size_t cbSrc, const void *pvSrc,
+                               void *pvDst, uint32_t uKeyLsb, const void *pvIv, size_t cbIv, uint32_t *pu32CcpSts)
+{
+    int rc = STS_INF_SUCCESS;
+    PCPSPPROXYCCP pCcpProxy = (PCPSPPROXYCCP)pCcpProxyIf;
+    PPSPPROXYINT pThis = pCcpProxy->pThis;
+
+    if (pvIv && cbIv)
+    {
+#if 0 /** @todo (Not required for unwrapping the IKEK but would be nice to have) */
+        PSPPADDR PspAddrIv;
+
+        /* Copy the IV over and into an LSB first. */
+        int rc = PSPProxyCtxScratchSpaceAlloc(pThis->hPspProxyCtx, cbIv, &PspAddrIv);
+        if (!rc)
+        {
+            rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, PspAddrIv, pvIv, cbIv);
+            if (!rc)
+            {
+                /* Prepare a passthrough request and execute it. */
+                CCP5REQ CcpReq;
+
+                CcpReq.u32Dw0                   = ;
+                CcpReq.cbSrc                    = cbIv;
+                CcpReq.u32AddrSrcLow            = PspAddrIv;
+                CcpReq.u16AddrSrcHigh           = 0;
+                CcpReq.u16SrcMemType            =
+                CcpReq.Op.NonSha.u32AddrDstLow  = 0xa0; /* Fixed LSB for now. */
+                CcpReq.Op.NonSha.u16AddrDstHigh = 0;
+                CcpReq.Op.NonSha.u16DstMemType  = ;
+                CcpReq.u32AddrKeyLow            = 0;
+                CcpReq.u16AddrKeyHigh           = 0;
+                CcpReq.u16KeyMemType            = 0;
+
+                uint32_t u32CcpSts = CCP_V5_STATUS_SUCCESS;
+                rc = pspEmuProxyCcpReqExec(pThis, &CcpReq, &u32CcpSts);
+                if (   rc
+                    || u32CcpSts != CCP_V5_STATUS_SUCCESS)
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspEmuProxyCcpAesDo() Executing request failed with rc=%d u32CcpSts=%u\n", rc, u32CcpSts);
+                if (u32CcpSts != CCP_V5_STATUS_SUCCESS)
+                    rc = STS_ERR_GENERAL_ERROR;
+            }
+            else
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspEmuProxyCcpAesDo() Copying IV over failed with %d\n", rc);
+
+            PSPProxyCtxScratchSpaceFree(pThis->hPspProxyCtx, PspAddrIv, cbIv);
+        }
+        else
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                    "pspEmuProxyCcpAesDo() Allocating scratch space for IV failed with %d\n", rc);
+#else
+        return STS_ERR_GENERAL_ERROR;
+#endif
+    }
+
+    if (!rc)
+    {
+        PSPPADDR PspAddrSrc = 0;
+        PSPPADDR PspAddrDst = 0;
+
+        /* Now do the real AES operation. Start by copying over the source data. */
+        rc = PSPProxyCtxScratchSpaceAlloc(pThis->hPspProxyCtx, cbSrc, &PspAddrDst);
+        if (!rc)
+            rc = PSPProxyCtxScratchSpaceAlloc(pThis->hPspProxyCtx, cbSrc, &PspAddrSrc);
+        if (!rc)
+        {
+            rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, PspAddrSrc, pvSrc, cbSrc);
+            if (!rc)
+            {
+                /* Prepare request and execute it. */
+                CCP5REQ CcpReq;
+
+                CcpReq.u32Dw0                   = u32Dw0;
+                CcpReq.cbSrc                    = cbSrc;
+                CcpReq.u32AddrSrcLow            = PspAddrSrc;
+                CcpReq.u16AddrSrcHigh           = 0;
+                CcpReq.u16SrcMemType            = CCP_V5_MEM_TYPE_LOCAL; /** @todo Give IV LSB ID when implemented. */
+                CcpReq.Op.NonSha.u32AddrDstLow  = PspAddrDst;
+                CcpReq.Op.NonSha.u16AddrDstHigh = 0;
+                CcpReq.Op.NonSha.u16DstMemType  = CCP_V5_MEM_TYPE_LOCAL;
+                CcpReq.u32AddrKeyLow            = uKeyLsb;
+                CcpReq.u16AddrKeyHigh           = 0;
+                CcpReq.u16KeyMemType            = CCP_V5_MEM_TYPE_SB;
+                rc = pspEmuProxyCcpReqExec(pThis, &CcpReq, pu32CcpSts);
+                if (!rc)
+                {
+                    /* Copy the data back. */
+                    rc = PSPProxyCtxPspMemRead(pThis->hPspProxyCtx, PspAddrDst, pvDst, cbSrc);
+                    if (rc)
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                                "pspEmuProxyCcpAesDo() Reading destination data back failed with %d\n", rc);
+                }
+                else
+                {
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspEmuProxyCcpAesDo() Executing AES request failed with rc=%d\n", rc);
+                }
+            }
+            else
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspEmuProxyCcpAesDo() Copying source data over failed with %d\n", rc);
+
+            PSPProxyCtxScratchSpaceFree(pThis->hPspProxyCtx, PspAddrDst, cbSrc);
+            PSPProxyCtxScratchSpaceFree(pThis->hPspProxyCtx, PspAddrSrc, cbSrc);
+        }
+        else
+        {
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                    "pspEmuProxyCcpAesDo() Allocating scratch space for source or destination failed with %d\n", rc);
+
+            if (PspAddrDst)
+                PSPProxyCtxScratchSpaceFree(pThis->hPspProxyCtx, PspAddrDst, cbSrc);
+        }
+    }
+
+    return rc;
+}
+
+
 static void pspEmuCcdProxyLogMsg(PSPPROXYCTX hCtx, void *pvUser, const char *pszMsg)
 {
     PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
@@ -889,7 +1141,7 @@ static const PSPPROXYIOIF g_PspProxyIoIf =
 };
 
 
-int PSPProxyCreate(PPSPPROXY phProxy, PCPSPEMUCFG pCfg)
+int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
 {
     int rc = 0;
 
@@ -904,6 +1156,14 @@ int PSPProxyCreate(PPSPPROXY phProxy, PCPSPEMUCFG pCfg)
         if (!rc)
         {
             printf("PSP proxy: Connected to %s\n", pCfg->pszPspProxyAddr);
+            if (pCfg->fCcpProxy)
+            {
+                /* Set up the CCP proxy instance data. */
+                pThis->CcpProxy.pThis = pThis;
+                pThis->CcpProxy.CcpProxyIf.pfnAesDo = pspEmuProxyCcpAesDo;
+                pCfg->pCcpProxyIf = &pThis->CcpProxy.CcpProxyIf;
+            }
+
             *phProxy = pThis;
             return 0;
         }

@@ -944,6 +944,71 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
 
 /**
+ * CCP AES passthrough operation.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ * @param   fUseIv              Flag whether the request uses an IV.
+ */
+static int pspDevCcpReqAesPassthrough(PPSPDEVCCP pThis, PCCCP5REQ pReq, bool fUseIv)
+{
+    int rc = 0;
+
+    /*
+     * Impose a limit on the amount of data to process for now, this should really be used
+     * only for unwrapping the 128bit IKEK.
+     */
+    if (pReq->cbSrc <= _4K)
+    {
+        CCPXFERCTX XferCtx;
+        uint8_t abSrc[_4K];
+        uint8_t abDst[_4K];
+        uint8_t abIv[128 / 8];
+        uint8_t uLsbCtxId = CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType);
+        CCPADDR CcpAddrIv = uLsbCtxId * sizeof(pThis->Lsb.u.aSlots[0].abData);
+        CCPADDR CcpAddrKey = CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow);
+        uint32_t u32CcpSts;
+
+        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/, pReq->cbSrc,
+                                  false /*fWriteRev*/);
+        if (!rc && fUseIv)
+            rc = pspDevCcpCopyFromLsb(pThis, CcpAddrIv, sizeof(abIv), &abIv[0]);
+        if (!rc)
+            rc = pspDevCcpXferCtxRead(&XferCtx, &abSrc[0], pReq->cbSrc, NULL);
+        if (!rc)
+            rc = pThis->pDev->pCfg->pCcpProxyIf->pfnAesDo(pThis->pDev->pCfg->pCcpProxyIf,
+                                                          pReq->u32Dw0, pReq->cbSrc,
+                                                          &abSrc[0], &abDst[0], (uint32_t)CcpAddrKey,
+                                                          fUseIv ? &abIv[0] : NULL, fUseIv ? sizeof(abIv) : 0,
+                                                          &u32CcpSts);
+        if (!rc)
+        {
+            if ((u32CcpSts & 0x3f) == CCP_V5_STATUS_SUCCESS)
+                rc = pspDevCcpXferCtxWrite(&XferCtx, &abDst[0], pReq->cbSrc, NULL);
+            else
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: CCP returned status %#x!\n", u32CcpSts & 0x3f);
+                rc = -1;
+            }
+        }
+        else
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                    "CCP: AES passthrough operation failed with %d!\n", rc);
+    }
+    else
+    {
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: AES passthrough with too much data %u!\n", pReq->cbSrc);
+        rc = -1;
+    }
+
+    return rc;
+}
+
+
+/**
  * Processes a AES request.
  *
  * @returns Status code.
@@ -961,6 +1026,12 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     uint8_t fEncrypt = CCP_V5_ENGINE_AES_ENCRYPT_GET(uFunc);
     uint8_t uMode    = CCP_V5_ENGINE_AES_MODE_GET(uFunc);
     uint8_t uAesType = CCP_V5_ENGINE_AES_TYPE_GET(uFunc);
+
+    /* If the request uses a protected LSB and CCP passthrough is available we use the real CCP. */
+    if (   CCP_V5_MEM_TYPE_GET(pReq->u16KeyMemType) == CCP_V5_MEM_TYPE_SB
+        && CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow) < 0xa0
+        && pThis->pDev->pCfg->pCcpProxyIf)
+        return pspDevCcpReqAesPassthrough(pThis, pReq, uMode == CCP_V5_ENGINE_AES_MODE_CBC ? true : false /*fUseIv*/);
 
     if (   uSz == 0
         && (   uMode == CCP_V5_ENGINE_AES_MODE_ECB

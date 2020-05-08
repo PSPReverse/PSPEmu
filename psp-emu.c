@@ -78,6 +78,7 @@ static struct option g_aOptions[] =
     {"dbg-step-count",               required_argument, 0, 'G'},
     {"dbg-run-up-to",                required_argument, 0, 'U'},
     {"proxy-trusted-os-handover",    required_argument, 0, 'T'},
+    {"proxy-ccp",                    no_argument,       0, 'X'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -223,6 +224,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fBootRomSvcPageModify = true;
     pCfg->fIomLogAllAccesses    = false;
     pCfg->fProxyWrBuffer        = false;
+    pCfg->fCcpProxy             = false;
     pCfg->pvFlashRom            = NULL;
     pCfg->cbFlashRom            = 0;
     pCfg->pvOnChipBl            = NULL;
@@ -247,6 +249,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cSockets              = 1;
     pCfg->cCcdsPerSocket        = 1;
     pCfg->papszDevs             = NULL;
+    pCfg->pCcpProxyIf           = NULL;
 
     while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:", &g_aOptions[0], &idxOption)) != -1)
     {
@@ -286,6 +289,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n"
                        "    --iom-log-all-accesses I/O manager logs all device accesses not only the ones to unassigned regions\n"
                        "    --proxy-buffer-writes If proxy mode is enabled certain writes will be cached and sent in bursts to speed up certain access patterns\n"
+                       "    --proxy-ccp When proxy mode is enabled this will pass through certain CCP request to a real CCP (AES with keys from the protected LSB so far)\n"
                        "    --dbg-run-up-to <addr> Runs until the given address is hit and drops then into the debugger instead of right at the start\n"
                        "    --dbg-step-count <count> Number of instructions to step through in a single round, use at own RISK\n",
                        argv[0]);
@@ -446,6 +450,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'T':
                 pCfg->PspAddrProxyTrustedOsHandover = strtoul(optarg, NULL, 0);
+                break;
+            case 'X':
+                pCfg->fCcpProxy = true;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);

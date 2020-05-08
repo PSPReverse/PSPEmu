@@ -105,6 +105,37 @@ typedef enum PSPEMUACPISTATE
 } PSPEMUACPISTATE;
 
 
+/** Pointer to a const CCP proxy callback table. */
+typedef const struct CCPPROXY *PCCCPPROXY;
+
+/**
+ * CCP proxy callback table.
+ */
+typedef struct CCPPROXY
+{
+
+    /**
+     * Passthrough an AES operation which uses a key in one of the protected LSBs.
+     *
+     * @returns Status code.
+     * @param   pCcpProxyIf         Pointer to this table.
+     * @param   u32Dw0              The first dword of the CCP AES request.
+     * @param   cbSrc               Number of bytes to process.
+     * @param   pvSrc               The source data.
+     * @param   pvDst               Where to store the processed data.
+     * @param   uKeyLsb             The LSB to use for the key.
+     * @param   pvIv                The initialization vector data.
+     * @param   cbIv                Size of the initialization vector.
+     * @param   pu32CcpSts          WHere to store the status code returned by the CCP on success.
+     */
+    int (*pfnAesDo)(PCCCPPROXY pCcpProxyIf, uint32_t u32Dw0, size_t cbSrc, const void *pvSrc, void *pvDst,
+                    uint32_t uKeyLsb, const void *pvIv, size_t cbIv, uint32_t *pu32CcpSts);
+
+} CCPPROXY;
+/** Pointer to a CCP proxy callback table. */
+typedef CCPPROXY *PCCPPROXY;
+
+
 /**
  * PSP emulator config.
  */
@@ -147,6 +178,8 @@ typedef struct PSPEMUCFG
     bool                    fIomLogAllAccesses;
     /** Flag whether the proxy should try to buffer certain writes to speed up data transfers. */
     bool                    fProxyWrBuffer;
+    /** Flag whether to proxy certain CCP requests - requires the proxy to be enabled of course. */
+    bool                    fCcpProxy;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
     /** Maximum number of instructions to execute in one round, used to workaround a unicorn sync sate issue. */
@@ -195,6 +228,8 @@ typedef struct PSPEMUCFG
     /** Pointer to an array of strings for devices which should be instantiated, temrinated by a NULL entry.
      *NULL means default with everything emulated. */
     const char              **papszDevs;
+    /** Pointer to a CCP proxy callback table if enabled. */
+    PCCCPPROXY              pCcpProxyIf;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;

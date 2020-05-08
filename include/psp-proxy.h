@@ -60,7 +60,7 @@ typedef enum PSPPROXYBLSTAGE
  * @param   phProxy                 Where to store the handle to the proxy instance on success.
  * @param   pCfg                    Pointer to the global emulator config.
  */
-int PSPProxyCreate(PPSPPROXY phProxy, PCPSPEMUCFG pCfg);
+int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg);
 
 
 /**
