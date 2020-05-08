@@ -191,8 +191,10 @@ typedef struct PSPCOREINT
     /** The hook for the after SVC breakpoint. */
     uc_hook                 hUcHookSvcAfter;
 
-    /** CP15 write hook. */
-    uc_hook                 hUcHookCp15;
+    /** CP write hook. */
+    uc_hook                 hUcHookCpWrite;
+    /** CP read hook. */
+    uc_hook                 hUcHookCpRead;
     /** Hook for invalid memory accesses. */
     uc_hook                 hUcInvMemAcc;
     /** Flag of the current MMU status. */
@@ -207,6 +209,15 @@ typedef struct PSPCOREINT
     PSPVADDR                PspAddrVPgTbl;
     /** Size of the page table region we are tracking. */
     size_t                  cbPgTbl;
+
+    /** @name Co-Processor 15 related registers.
+     * @{ */
+    struct
+    {
+        /** PAR register (VA to PA address translation). */
+        uint32_t                u32RegPa;
+    } Cp15;
+    /** @} */
 } PSPCOREINT;
 
 
@@ -293,6 +304,8 @@ static const PSPCOREREG g_aenmRegQueryBatch[] =
     PSPCOREREG_SPSR
 };
 
+
+static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion);
 
 /**
  * Converts the PSP core register enum to the unicorn equivalent.
@@ -457,7 +470,7 @@ static void pspEmuCoreSvcWrapper(uc_engine *pUcEngine, uint32_t uIntNo, void *pv
 
 
 /**
- * The CP15 write wrapper to keep track of the MMU status.
+ * The CP write wrapper to keep track of the MMU status.
  *
  * @returns nothing.
  * @param   pUcEngine           Pointer to the unicorn engine instance.
@@ -471,10 +484,13 @@ static void pspEmuCoreSvcWrapper(uc_engine *pUcEngine, uint32_t uIntNo, void *pv
  * @param   u64Val              The value being written.
  * @param   pvUser              Opaque user data passed when adding the hook.
  */
-static void pspEmuCoreCp15WriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddrPc, uint32_t uCp, uint32_t uCrn, uint32_t uCrm,
-                                       uint32_t uOpc0, uint32_t uOpc1, uint32_t uOpc2, uint64_t u64Val, void *pvUser)
+static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddrPc, uint32_t uCp, uint32_t uCrn, uint32_t uCrm,
+                                     uint32_t uOpc0, uint32_t uOpc1, uint32_t uOpc2, uint64_t u64Val, void *pvUser)
 {
     PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
+
+    printf("pspEmuCoreCpWriteWrapper: uAddr=%#llx uCp=%#x uCrn=%#x uCrm=%#x uOpc0=%#x uOpc1=%#x uOpc2=%#x u64Val=%#llx\n",
+           uAddrPc, uCp, uCrn, uCrm, uOpc0, uOpc1, uOpc2, u64Val);
 
     /*
      * Check whether the MMU status changed and cause the emulation to stop so we
@@ -493,7 +509,73 @@ static void pspEmuCoreCp15WriteWrapper(struct uc_struct *pUcEngine, uint64_t uAd
             uc_emu_stop(pUcEngine);
         }
     }
+    else if (   uCp == 15
+             && uCrn == 7
+             && uCrm == 4
+             && uOpc1 == 0
+             && uOpc2 == 0)
+    {
+        pThis->Cp15.u32RegPa = (uint32_t)u64Val;
+        return true;
+    }
+    else if (   uCp == 15
+             && uCrn == 7
+             && uCrm == 8
+             && uOpc1 == 0
+             && uOpc2 == 0)
+    {
+        /* V2PCWPR, Privileged Read VA to PA translation */
+        PSPPADDR PspPAddrPg = 0;
+        size_t cbRegion = 0;
+        int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, (PSPVADDR)u64Val, &PspPAddrPg, &cbRegion);
+        printf("pspEmuCoreMmuPAddrQueryFromVAddr(): VAddr=%#lx rc=%d PAddr=%#lx\n",
+               (PSPVADDR)u64Val, rc, PspPAddrPg);
+        if (!rc)
+            pThis->Cp15.u32RegPa = PspPAddrPg;
+        else
+            pThis->Cp15.u32RegPa = 0x1;
+        return true;
+    }
     /** @todo TTBR0, TTBR1 and TTBCR writes should cause a stop as well. */
+
+    return false;
+}
+
+
+/**
+ * The CP write wrapper to keep track of the MMU status.
+ *
+ * @returns nothing.
+ * @param   pUcEngine           Pointer to the unicorn engine instance.
+ * @param   uAddrPc             The PC causing the write.
+ * @param   uCp                 Co-Processor being accessed.
+ * @param   uCrn                cr<n> value.
+ * @param   uCrm                cr<m> value.
+ * @param   uOpc0               Opcode 0.
+ * @param   uOpc1               Opcode 1.
+ * @param   uOpc2               Opcode 2.
+ * @param   pu64Val             Where to store the read value on success.
+ * @param   pvUser              Opaque user data passed when adding the hook.
+ */
+static bool pspEmuCoreCpReadWrapper(struct uc_struct *pUcEngine, uint64_t uAddrPc, uint32_t uCp, uint32_t uCrn, uint32_t uCrm,
+                                    uint32_t uOpc0, uint32_t uOpc1, uint32_t uOpc2, uint64_t *pu64Val, void *pvUser)
+{
+    PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
+
+    printf("pspEmuCoreCpReadWrapper: uAddr=%#llx uCp=%#x uCrn=%#x uCrm=%#x uOpc0=%#x uOpc1=%#x uOpc2=%#x\n",
+           uAddrPc, uCp, uCrn, uCrm, uOpc0, uOpc1, uOpc2);
+
+    if (   uCp == 15
+        && uCrn == 7
+        && uCrm == 4
+        && uOpc1 == 0
+        && uOpc2 == 0)
+    {
+        *pu64Val = pThis->Cp15.u32RegPa;
+        return true;
+    }
+
+    return false;
 }
 
 
@@ -1376,7 +1458,7 @@ static void pspEmuCoreMmuPgTblWrite(struct uc_struct* pUcEngine, void *pvUser, u
     PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
     PSPPADDR PhysAddrRead = pThis->PhysAddrPgTblStart +(uint32_t)uAddr;
 
-    printf("Page table write at address %#lx with value %#x (cb=%u)\n", uAddr + pThis->PhysAddrPgTblStart, uVal, cb);
+    //printf("Page table write at address %#lx with value %#x (cb=%u)\n", uAddr + pThis->PhysAddrPgTblStart, uVal, cb);
 
     /* Resolve the physical memory region and do the write. */
     PCPSPCOREMEMREGION pMemRegion = pspEmuCoreMemRegionFindByAddr(pThis, PhysAddrRead, NULL /*ppPrevRegion*/);
@@ -1426,7 +1508,7 @@ static void pspEmuCoreMmuPgTblWrite(struct uc_struct* pUcEngine, void *pvUser, u
     if (fPgTblChanged)
     {
         /* As the page tables have changed we have to clear all mappings and start all over. */
-        printf("Page table changed at address %#lx with value %#x (cb=%u)\n", uAddr + pThis->PhysAddrPgTblStart, uVal, cb);
+        //printf("Page table changed at address %#lx with value %#x (cb=%u)\n", uAddr + pThis->PhysAddrPgTblStart, uVal, cb);
         pspEmuCoreMmuMappingsClear(pThis);
     }
 }
@@ -1738,10 +1820,12 @@ int PSPEmuCoreCreate(PPSPCORE phCore)
         pThis->fSvcPending      = false;
         pThis->fExecStop        = false;
         pThis->hUcHookSvcAfter  = 0;
-        pThis->hUcHookCp15      = 0;
+        pThis->hUcHookCpWrite   = 0;
+        pThis->hUcHookCpRead    = 0;
         pThis->fMmuEnabled      = false;
         pThis->fMmuChanged      = false;
         pThis->pMmuMappingsHead = NULL;
+        pThis->Cp15.u32RegPa    = 0;
 
         /* Initialize unicorn engine in ARM mode. */
         err = uc_open(UC_ARCH_ARM, UC_MODE_ARM | UC_MODE_ARM_NO_MMU, &pThis->pUcEngine);
@@ -1751,7 +1835,9 @@ int PSPEmuCoreCreate(PPSPCORE phCore)
             {
                 err = uc_hook_add(pThis->pUcEngine, &pThis->pUcHookSvc, UC_HOOK_INTR, (void *)(uintptr_t)pspEmuCoreSvcWrapper, pThis, 1, 0);
                 if (!err)
-                    err = uc_hook_add(pThis->pUcEngine, &pThis->hUcHookCp15, UC_HOOK_ARM_CP15_WRITE, (void *)(uintptr_t)pspEmuCoreCp15WriteWrapper, pThis, 1, 0);
+                    err = uc_hook_add(pThis->pUcEngine, &pThis->hUcHookCpWrite, UC_HOOK_ARM_CP_WRITE, (void *)(uintptr_t)pspEmuCoreCpWriteWrapper, pThis, 1, 0);
+                if (!err)
+                    err = uc_hook_add(pThis->pUcEngine, &pThis->hUcHookCpRead, UC_HOOK_ARM_CP_READ, (void *)(uintptr_t)pspEmuCoreCpReadWrapper, pThis, 1, 0);
                 if (!err)
                     err = uc_hook_add(pThis->pUcEngine, &pThis->hUcInvMemAcc, UC_HOOK_MEM_INVALID, (void *)(uintptr_t)pspEmuCoreMemMemInvAccess, pThis, 1, 0);
                 if (!err)
@@ -2188,7 +2274,23 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
             uint32_t uPc = 0;
             uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
             if (rcUc2 == UC_ERR_OK)
-                rc = pspEmuCoreExcpInject(pThis, 0x07, 0x03, uPc);
+            {
+                printf("PREFETCH ABORT on PC %#x (+8 = %#x)\n", uPc, uPc + 8);
+                rc = pspEmuCoreExcpInject(pThis, 0x07, 0x03, uPc + 8);
+            }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
+        }
+        else if (rcUc == UC_ERR_WRITE_UNMAPPED || rcUc == UC_ERR_READ_UNMAPPED)
+        {
+            /* Cause a data abort exception. */
+            uint32_t uPc = 0;
+            uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
+            if (rcUc2 == UC_ERR_OK)
+            {
+                printf("DATA ABORT on PC %#x (+8 = %#x)\n", uPc, uPc + 8);
+                rc = pspEmuCoreExcpInject(pThis, 0x07, 0x04, uPc + 8);
+            }
             else
                 rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
         }
