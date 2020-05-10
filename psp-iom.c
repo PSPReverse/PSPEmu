@@ -26,6 +26,7 @@
 
 #include <common/types.h>
 #include <common/cdefs.h>
+#include <common/status.h>
 
 #include <psp-iom.h>
 #include <psp-trace.h>
@@ -2409,5 +2410,69 @@ int PSPEmuIoMgrPspAddrWrite(PSPIOM hIoMgr, PSPADDR PspAddr, const void *pvSrc, s
     }
 
     return PSPEmuCoreMemWrite(pThis->hPspCore, PspAddr, pvSrc, cbWrite);
+}
+
+
+int PSPEmuIoMgrX86AddrRead(PSPIOM hIoMgr, X86PADDR PhysX86Addr, void *pvDst, size_t cbRead)
+{
+    PPSPIOMINT pThis = hIoMgr;
+    int rc = STS_INF_SUCCESS;
+    uint8_t *pbDst = (uint8_t *)pvDst;
+
+    while (   cbRead
+           && STS_SUCCESS(rc))
+    {
+        PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
+        if (!pRegion)
+        {
+            rc = STS_ERR_NOT_FOUND;
+            break;
+        }
+        X86PADDR offRegion = PhysX86Addr - pRegion->u.X86.PhysX86AddrStart;
+        size_t cbThisRead = MIN(cbThisRead, pRegion->u.X86.cbX86 - offRegion);
+
+        if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
+            pspEmuIoMgrX86MemReadWorker(pThis, pRegion, offRegion, pbDst, cbThisRead);
+        else
+            rc = STS_ERR_INVALID_PARAMETER; /** @todo Support MMIO later. */
+
+        cbRead      -= cbThisRead;
+        pbDst       += cbThisRead;
+        PhysX86Addr += cbThisRead;
+    }
+
+    return rc;
+}
+
+
+int PSPEmuIoMgrX86AddrWrite(PSPIOM hIoMgr, X86PADDR PhysX86Addr, const void *pvSrc, size_t cbWrite)
+{
+    PPSPIOMINT pThis = hIoMgr;
+    int rc = STS_INF_SUCCESS;
+    const uint8_t *pbSrc = (uint8_t *)pvSrc;
+
+    while (   cbWrite
+           && STS_SUCCESS(rc))
+    {
+        PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
+        if (!pRegion)
+        {
+            rc = STS_ERR_NOT_FOUND;
+            break;
+        }
+        X86PADDR offRegion = PhysX86Addr - pRegion->u.X86.PhysX86AddrStart;
+        size_t cbThisWrite = MIN(cbThisWrite, pRegion->u.X86.cbX86 - offRegion);
+
+        if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
+            pspEmuIoMgrX86MemWriteWorker(pThis, pRegion, offRegion, pbSrc, cbThisWrite);
+        else
+            rc = STS_ERR_INVALID_PARAMETER; /** @todo Support MMIO later. */
+
+        cbWrite     -= cbThisWrite;
+        pbSrc       += cbThisWrite;
+        PhysX86Addr += cbThisWrite;
+    }
+
+    return rc;
 }
 
