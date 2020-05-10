@@ -371,6 +371,47 @@ static int pspEmuCcdDevicesReset(PPSPCCDINT pThis)
 
 
 /**
+ * Preload any memory descriptors.
+ *
+ * @returns Status code.
+ * @param   pThis                   The CCD instance to to pre load any memory for.
+ * @param   pCfg                    The global config.
+ */
+static int pspEmuCcdMemPreload(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
+{
+    int rc = STS_INF_SUCCESS;
+
+    for (uint32_t i = 0; i < pCfg->cMemPreload && STS_SUCCESS(rc); i++)
+    {
+        PCPSPEMUCFGMEMPRELOAD pMemPreload = &pCfg->paMemPreload[i];
+
+        void *pvPreload = NULL;
+        size_t cbPreload = 0;
+        rc = PSPEmuFlashLoadFromFile(pMemPreload->pszFilePreload, &pvPreload, &cbPreload);
+        if (STS_SUCCESS(rc))
+        {
+            switch (pMemPreload->enmAddrSpace)
+            {
+                case PSPADDRSPACE_PSP:
+                    rc = PSPEmuIoMgrPspAddrWrite(pThis->hIoMgr, pMemPreload->u.PspAddr, pvPreload, cbPreload);
+                    break;
+                case PSPADDRSPACE_X86:
+                    rc = PSPEmuIoMgrX86AddrWrite(pThis->hIoMgr, pMemPreload->u.PhysX86Addr, pvPreload, cbPreload);
+                    break;
+                case PSPADDRSPACE_SMN:
+                default:
+                    rc = STS_ERR_INVALID_PARAMETER; /** @todo */
+                    break;
+            }
+            PSPEmuFlashFree(pvPreload, cbPreload);
+        }
+    }
+
+    return rc;
+}
+
+
+/**
  * Initializes the SRAM memory content of the given CCD PSP.
  *
  * @returns Status code.
@@ -467,6 +508,9 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         && pCfg->pvAppPreload
         && pCfg->cbAppPreload)
         rc = PSPEmuCoreMemWrite(pThis->hPspCore, 0x15000, pCfg->pvAppPreload, pCfg->cbAppPreload);
+
+    if (!rc)
+        rc = pspEmuCcdMemPreload(pThis, pCfg);
 
     return rc;
 }

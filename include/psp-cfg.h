@@ -137,6 +137,32 @@ typedef CCPPROXY *PCCPPROXY;
 
 
 /**
+ * Preload memory descriptor.
+ */
+typedef struct PSPEMUCFGMEMPRELOAD
+{
+    /** Address space to pre load. */
+    PSPADDRSPACE            enmAddrSpace;
+    /** Address in the address space to preload. */
+    union
+    {
+        /** Physical PSP address to pre load. */
+        PSPPADDR            PspAddr;
+        /** SMN address to pre load. */
+        SMNADDR             SmnAddr;
+        /** Physical x86 address to pre load. */
+        X86PADDR            PhysX86Addr;
+    } u;
+    /** The file to preload. */
+    const char              *pszFilePreload;
+} PSPEMUCFGMEMPRELOAD;
+/** Pointer to a memory preload descriptor. */
+typedef PSPEMUCFGMEMPRELOAD *PPSPEMUCFGMEMPRELOAD;
+/** Pointer to a const memory preload descriptor. */
+typedef const PSPEMUCFGMEMPRELOAD *PCPSPEMUCFGMEMPRELOAD;
+
+
+/**
  * PSP emulator config.
  */
 typedef struct PSPEMUCFG
@@ -225,6 +251,10 @@ typedef struct PSPEMUCFG
     uint32_t                cSockets;
     /** Number of CCDs per socket to emulate. */
     uint32_t                cCcdsPerSocket;
+    /** Array of memory descriptors to pre load with data. */
+    PCPSPEMUCFGMEMPRELOAD   paMemPreload;
+    /** Number of entries in the memory preload descriptor array. */
+    uint32_t                cMemPreload;
     /** Pointer to an array of strings for devices which should be instantiated, temrinated by a NULL entry.
      *NULL means default with everything emulated. */
     const char              **papszDevs;

@@ -24,10 +24,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <errno.h>
 
 #include <libpspproxy.h>
 
 #include <common/cdefs.h>
+#include <common/status.h>
 #include <psp-fw/boot-rom-svc-page.h>
 
 #include <psp-ccd.h>
@@ -79,6 +81,7 @@ static struct option g_aOptions[] =
     {"dbg-run-up-to",                required_argument, 0, 'U'},
     {"proxy-trusted-os-handover",    required_argument, 0, 'T'},
     {"proxy-ccp",                    no_argument,       0, 'X'},
+    {"memory-preload",               required_argument, 0, 'M'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -124,6 +127,9 @@ static void pspEmuCfgFree(PPSPEMUCFG pCfg)
 
         free(pCfg->papszDevs);
     }
+
+    if (pCfg->paMemPreload)
+        free((void *)pCfg->paMemPreload);
 }
 
 
@@ -196,6 +202,104 @@ static const char **pspEmuCfgParseDevices(const char *pszDevString)
 
 
 /**
+ * Parses a signle given preload descriptor string and adds it to the given config.
+ *
+ * @returns Status code.
+ * @param   pCfg                    The config to add the descriptor to upon success.
+ * @param   pszPreload              The preload descriptor string to parse.
+ */
+static int pspEmuCfgMemPreloadParse(PPSPEMUCFG pCfg, const char *pszPreload)
+{
+    int rc = STS_INF_SUCCESS;
+    PSPEMUCFGMEMPRELOAD MemPreload;
+    const char *pszCur = pszPreload;
+
+    char *pszSep = strchr(pszCur, ':');
+    if (pszSep)
+    {
+        if (!strncmp(pszCur, "psp", pszSep - pszCur))
+            MemPreload.enmAddrSpace = PSPADDRSPACE_PSP;
+        else if (!strncmp(pszCur, "smn", pszSep - pszCur))
+            MemPreload.enmAddrSpace = PSPADDRSPACE_SMN;
+        else if (!strncmp(pszCur, "x86", pszSep - pszCur))
+            MemPreload.enmAddrSpace = PSPADDRSPACE_X86;
+        else
+            rc = STS_ERR_INVALID_PARAMETER;
+
+        if (STS_SUCCESS(rc))
+        {
+            pszCur = pszSep + 1;
+            pszSep = strchr(pszCur, ':');
+
+            if (pszSep)
+            {
+                char *pszEndPtr;
+
+                errno = 0;
+                uint64_t uAddr = strtoull(pszCur, &pszEndPtr, 0);
+                if (   !errno
+                    && pszEndPtr == pszSep)
+                {
+                    switch (MemPreload.enmAddrSpace)
+                    {
+                        case PSPADDRSPACE_PSP:
+                        {
+                            if (uAddr == (PSPPADDR)uAddr)
+                                MemPreload.u.PspAddr = (PSPPADDR)uAddr;
+                            else
+                                rc = STS_ERR_BUFFER_OVERFLOW;
+                            break;
+                        }
+                        case PSPADDRSPACE_SMN:
+                        {
+                            if (uAddr == (SMNADDR)uAddr)
+                                MemPreload.u.SmnAddr = (SMNADDR)uAddr;
+                            else
+                                rc = STS_ERR_BUFFER_OVERFLOW;
+                            break;
+                        }
+                        case PSPADDRSPACE_X86:
+                        {
+                            MemPreload.u.PhysX86Addr = uAddr;
+                            break;
+                        }
+                        default:
+                            rc = STS_ERR_INVALID_PARAMETER;
+                    }
+
+                    if (STS_SUCCESS(rc))
+                    {
+                        MemPreload.pszFilePreload = pszSep + 1;
+
+                        /* Add the descriptor the array. */
+                        uint32_t cMemPreloadNew = pCfg->cMemPreload + 1;
+                        PCPSPEMUCFGMEMPRELOAD paMemPreloadNew = (PCPSPEMUCFGMEMPRELOAD)realloc((void *)pCfg->paMemPreload,
+                                                                                               cMemPreloadNew * sizeof(MemPreload));
+                        if (paMemPreloadNew)
+                        {
+                            pCfg->paMemPreload = paMemPreloadNew;
+                            pCfg->cMemPreload  = cMemPreloadNew;
+                            memcpy((void *)&pCfg->paMemPreload[cMemPreloadNew - 1], &MemPreload, sizeof(MemPreload));
+                        }
+                        else
+                            rc = STS_ERR_NO_MEMORY;
+                    }
+                }
+                else
+                    rc = STS_ERR_INVALID_PARAMETER;
+            }
+            else
+                rc = STS_ERR_INVALID_PARAMETER;
+        }
+    }
+    else
+        rc = STS_ERR_INVALID_PARAMETER;
+
+    return rc;
+}
+
+
+/**
  * Parses the command line arguments and creates the emulator config.
  *
  * @returns Status code.
@@ -248,10 +352,12 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszCovTrace           = NULL;
     pCfg->cSockets              = 1;
     pCfg->cCcdsPerSocket        = 1;
+    pCfg->paMemPreload          = NULL;
+    pCfg->cMemPreload           = 0;
     pCfg->papszDevs             = NULL;
     pCfg->pCcpProxyIf           = NULL;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -279,6 +385,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --uart-remote-addr [<port>|<address:port>]\n"
                        "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
                        "    --preload-app <path/to/app/binary/with/hdr>\n"
+                       "    --memory-preload <addrspace>:<address>:<filename> Preloads a given address space address with data from the given file, can be given multiple times on the command line\n"
                        "    --em100-emu-port <port for the EM100 network emulation>\n"
                        "    --spi-flash-trace <path/to/psptrace/compatible/flash/trace>\n"
                        "    --coverage-trace <path/to/coverage/trace/file>\n"
@@ -454,6 +561,13 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'X':
                 pCfg->fCcpProxy = true;
                 break;
+            case 'M':
+            {
+                int rc = pspEmuCfgMemPreloadParse(pCfg, optarg);
+                if (STS_FAILURE(rc))
+                    return rc;
+                break;
+            }
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
