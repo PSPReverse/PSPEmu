@@ -758,14 +758,17 @@ static void pspEmuProxyCcdX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite
 }
 
 
-static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, bool *pfIrq, bool *pfFirq, void *pvUser)
+static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFlags, bool *pfIrq, bool *pfFirq, void *pvUser)
 {
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
     uint32_t idCcd = 0; /** @todo Multiple CCD support. */
-    int rc = 0;
 
+    if (fFlags & PSPEMU_CORE_WFI_CHECK) /* Do a non blocking check. */
+        return PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 0);
+
+    int rc = 0;
     do
     {
         rc = PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 10 * 1000);

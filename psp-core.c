@@ -29,6 +29,7 @@
 
 #include <psp-core.h>
 #include <psp-disasm.h>
+#include <psp-trace.h>
 
 /** Page size used in the PSP firmware. */
 #define PSP_PAGE_SIZE         _4K
@@ -61,6 +62,10 @@ typedef enum PSPCOREEXCP
     PSPCOREEXCP_SWI,
     /** SMC exception pending. */
     PSPCOREEXCP_SMC,
+    /** IRQ exception pending. */
+    PSPCOREEXCP_IRQ,
+    /** FIQ exception pending. */
+    PSPCOREEXCP_FIQ,
     /** 32bit hack. */
     PSPCOREEXCP_32BIT_HACK = 0x7fffffff
 } PSPCOREEXCP;
@@ -774,8 +779,9 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
     PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
     PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
 
-    printf("pspEmuCoreCpWriteWrapper: uAddr=%#llx uCp=%#x uCrn=%#x uCrm=%#x uOpc0=%#x uOpc1=%#x uOpc2=%#x u64Val=%#llx\n",
-           uAddrPc, uCp, uCrn, uCrm, uOpc0, uOpc1, uOpc2, u64Val);
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                            "pspEmuCoreCpWriteWrapper: uAddr=%#llx uCp=%#x uCrn=%#x uCrm=%#x uOpc0=%#x uOpc1=%#x uOpc2=%#x u64Val=%#llx\n",
+                            uAddrPc, uCp, uCrn, uCrm, uOpc0, uOpc1, uOpc2, u64Val);
 
     /*
      * Check whether the MMU status changed and cause the emulation to stop so we
@@ -851,8 +857,9 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
         PSPPADDR PspPAddrPg = 0;
         size_t cbRegion = 0;
         int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, (PSPVADDR)u64Val, &PspPAddrPg, &cbRegion);
-        printf("pspEmuCoreMmuPAddrQueryFromVAddr(): VAddr=%#lx rc=%d PAddr=%#lx\n",
-               (PSPVADDR)u64Val, rc, PspPAddrPg);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                                "pspEmuCoreMmuPAddrQueryFromVAddr(): VAddr=%#lx rc=%d PAddr=%#lx\n",
+                                (PSPVADDR)u64Val, rc, PspPAddrPg);
         if (!rc)
             pCpBank->u32RegPa = PspPAddrPg;
         else
@@ -903,8 +910,9 @@ static bool pspEmuCoreCpReadWrapper(struct uc_struct *pUcEngine, uint64_t uAddrP
     PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
     PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
 
-    printf("pspEmuCoreCpReadWrapper: uAddr=%#llx uCp=%#x uCrn=%#x uCrm=%#x uOpc0=%#x uOpc1=%#x uOpc2=%#x\n",
-           uAddrPc, uCp, uCrn, uCrm, uOpc0, uOpc1, uOpc2);
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                            "pspEmuCoreCpReadWrapper: uAddr=%#llx uCp=%#x uCrn=%#x uCrm=%#x uOpc0=%#x uOpc1=%#x uOpc2=%#x\n",
+                            uAddrPc, uCp, uCrn, uCrm, uOpc0, uOpc1, uOpc2);
 
     if (   uCp == 15
         && uCrn == 1
@@ -987,6 +995,8 @@ static void pspEmuCoreCpsrChangeWrapper(struct uc_struct *pUcEngine, uint64_t uA
 {
     PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
 
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "pspEmuCoreCpsrChangeWrapper: u32Val=%#x\n", u32Val);
+
     PSPCOREMODE enmCoreMode = pspEmuCoreModeFromCpsr(u32Val);
     if (pThis->enmCoreMode != enmCoreMode)
     {
@@ -1001,6 +1011,25 @@ static void pspEmuCoreCpsrChangeWrapper(struct uc_struct *pUcEngine, uint64_t uA
             uc_emu_stop(pUcEngine);
         }
         pThis->enmCoreMode = enmCoreMode;
+    }
+    else if (   pThis->pfnWfiReached
+             && !(u32Val & (BIT(7) | BIT(6))))
+    {
+        bool fIrq = false;
+        bool fFirq = false;
+        int rc = pThis->pfnWfiReached(pThis, (PSPADDR)uAddrPc, PSPEMU_CORE_WFI_CHECK, &fIrq, &fFirq, pThis->pvWfiUser);
+        if (   STS_SUCCESS(rc)
+            && (fIrq || fFirq))
+        {
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "Injecting IRQ!\n");
+            if (pThis->enmExcpPending != PSPCOREEXCP_NONE)
+                printf("OVERWRITING another exception which should not happen!\n");
+            if (fFirq)
+                pThis->enmExcpPending = PSPCOREEXCP_FIQ;
+            else if (fIrq)
+                pThis->enmExcpPending = PSPCOREEXCP_IRQ;
+            uc_emu_stop(pUcEngine);
+        }
     }
 }
 
@@ -1795,7 +1824,7 @@ static void pspEmuCoreMmuPgTblWrite(struct uc_struct* pUcEngine, uc_mem_type enm
     PCPSPCOREPGTBLTRACK pPgTblTrack = (PCPSPCOREPGTBLTRACK)pvUser;
     PPSPCOREINT pThis = pPgTblTrack->pThis;
 
-    //printf("Page table write at address %#llx with value %#llx (cb=%u)\n", uAddr, iVal, cb);
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "Page table write at address %#llx with value %#llx (cb=%u)\n", uAddr, iVal, cb);
 
     /* As the page tables have changed we have to clear all mappings and start all over. */
     pspEmuCoreMmuMappingsClear(pThis);
@@ -2111,7 +2140,10 @@ static bool pspEmuCoreMemMemInvAccess(uc_engine *pUcEngine, uc_mem_type enmMemTy
             && fHandled)
             return true;
 
-        printf("pspEmuCoreMemMemInvAccess: NOT HANDLED rc=%d fHandled=%u!\n", rc, fHandled);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CORE,
+                                "pspEmuCoreMemMemInvAccess: PC=%#x cbAcc=%u i64Val=%#lld rc=%d fHandled=%u",
+                                (PSPADDR)uAddr, cbAcc, i64Val, rc, fHandled);
+        PSPEmuCoreStateDump(pThis);
     }
     else
     {
@@ -2152,7 +2184,7 @@ static int pspEmuCoreExcpInject(PPSPCOREINT pThis, PSPCOREMODE enmCoreMode, uint
     //       pspEmuCoreModeToStr(enmCoreMode));
     pThis->enmCoreMode = enmCoreMode;
     uint32_t uMode = pspEmuCoreModeToCpsr(enmCoreMode);
-    uint32_t uCpsr = (uCpsrOld & ~0x1f) | uMode;
+    uint32_t uCpsr = (uCpsrOld & ~0x1f) | uMode | BIT(7); /* IRQs are always disabled. */
     if (enmCoreMode == PSPCOREMODE_MON)
     {
         int rc = pspEmuCoreMmuSetupTeardown(pThis);
@@ -2213,9 +2245,83 @@ static int pspEmuCoreExcpHandle(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThum
         }
     }
     else if (pThis->enmExcpPending == PSPCOREEXCP_SMC)
+    {
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "SMC exception");
         rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_MON, 0x2, PspAddrPc, true /*fUseMVBar*/);
+    }
+    else if (pThis->enmExcpPending == PSPCOREEXCP_IRQ)
+    {
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "IRQ exception");
+        rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_IRQ, 0x6, PspAddrPc, false /*fUseMVBar*/);
+    }
 
     pThis->enmExcpPending = PSPCOREEXCP_NONE;
+    return rc;
+}
+
+
+/**
+ * Checks for a pending interrupt and injects it if possible.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspAddrPc               PC of the next instruction.
+ * @param   fThumb                  Flag whether the CPU is executing in thumb mode.
+ * @param   fIrq                    Status of the IRQ line.
+ * @param   fFirq                   Status of the FIQ line.
+ */
+static int pspEmuCoreIrqFiqCheck(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb, bool fIrq, bool fFirq)
+{
+    int rc = STS_INF_SUCCESS;
+    uint32_t uCpsrOld = 0;
+    uc_err rcUc = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
+    if (rcUc == UC_ERR_OK)
+    {
+        /*
+         * If we have an interrupt and the corresponding source is masked
+         * we have to single step through the code to find out when it gets enabled.
+         */
+        if (   (   fFirq
+                && (uCpsrOld & (1 << 6)))
+            || (   fIrq
+                && (uCpsrOld & (1 << 7))))
+        {
+            PspAddrPc |= fThumb ? 1 : 0;
+            pThis->PspAddrExecNext = PspAddrPc;
+
+            rc = pspEmuCoreExecSingleStepUntilIrqEnabled(pThis, fFirq, fIrq);
+            if (!rc)
+            {
+                size_t ucCpuMode = 0;
+
+                /* Query new PC and new mode value. */
+                rcUc = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &PspAddrPc);
+                if (rcUc == UC_ERR_OK)
+                    rcUc = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
+
+                fThumb = ucCpuMode == UC_MODE_THUMB ? true : false;
+                if (rcUc != UC_ERR_OK)
+                    rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+            }
+        }
+
+        if (!rc)
+        {
+            /* Continue with the appropriate exception handler. */
+            if (fFirq)
+                rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_FIQ, 0x7, PspAddrPc, false /*fUseMVBar*/);
+            else if (fIrq)
+                rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_IRQ, 0x6, PspAddrPc, false /*fUseMVBar*/);
+            else
+            {
+                PspAddrPc |= fThumb ? 1 : 0;
+                pThis->PspAddrExecNext = PspAddrPc;
+            }
+        }
+    }
+    else
+        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
     return rc;
 }
 
@@ -2602,57 +2708,12 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                     {
                         bool fIrq = false;
                         bool fFirq = false;
-                        rc = pThis->pfnWfiReached(pThis, uPc, &fIrq, &fFirq, pThis->pvWfiUser);
-                        if (!rc)
-                        {
-                            uint32_t uCpsrOld = 0;
-                            rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_CPSR, &uCpsrOld);
-                            if (rcUc2 == UC_ERR_OK)
-                            {
-                                /*
-                                 * If we have an interrupt and the corresponding source is masked
-                                 * we have to single step through the code to find out when it gets enabled.
-                                 */
-                                if (   (   fFirq
-                                        && (uCpsrOld & (1 << 6)))
-                                    || (   fIrq
-                                        && (uCpsrOld & (1 << 7))))
-                                {
-                                    uPc |= fThumb ? 1 : 0;
-                                    pThis->PspAddrExecNext = (PSPADDR)uPc;
-
-                                    rc = pspEmuCoreExecSingleStepUntilIrqEnabled(pThis, fFirq, fIrq);
-                                    if (!rc)
-                                    {
-                                        /* Query new PC and new mode value. */
-                                        uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
-                                        if (rcUc2 == UC_ERR_OK)
-                                            rcUc2 = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
-
-                                        fThumb = ucCpuMode == UC_MODE_THUMB ? true : false;
-                                        if (rcUc2 != UC_ERR_OK)
-                                            rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
-                                    }
-                                }
-
-                                if (!rc)
-                                {
-                                    /* Continue with the appropriate exception handler. */
-                                    if (fFirq)
-                                        rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_FIQ, 0x7, uPc, false /*fUseMVBar*/);
-                                    else if (fIrq)
-                                        rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_IRQ, 0x6, uPc, false /*fUseMVBar*/);
-                                    else
-                                    {
-                                        uPc |= fThumb ? 1 : 0;
-                                        pThis->PspAddrExecNext = (PSPADDR)uPc;
-                                    }
-                                }
-                            }
-                            else
-                                rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
-                        }
-                        else /* Break out of execution loop. */
+                        rc = pThis->pfnWfiReached(pThis, uPc, 0 /*fFlags*/, &fIrq, &fFirq, pThis->pvWfiUser);
+                        if (   STS_SUCCESS(rc)
+                            && (   fIrq
+                                || fFirq))
+                            rc = pspEmuCoreIrqFiqCheck(pThis, uPc, fThumb, fIrq, fFirq);
+                        else if (STS_FAILURE(rc)) /* Break out of execution loop. */
                             break;
                     }
                     else
@@ -2696,6 +2757,8 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
             {
                 printf("DATA ABORT on PC %#x (+8 = %#x)\n", uPc, uPc + 8);
                 rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_ABRT, 0x04, uPc + 8, false /*fUseMVBar*/);
+
+                PSPEmuCoreStateDump(pThis);
             }
             else
                 rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
@@ -2902,7 +2965,8 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
     int rc = PSPEmuCoreQueryRegBatch(hCore, &g_aenmRegQueryBatch[0], ELEMENTS(g_aenmRegQueryBatch), &au32Reg[1]);
     if (!rc)
     {
-        printf( "R0  > 0x%08x | R1  > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                "R0  > 0x%08x | R1  > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
                 "R4  > 0x%08x | R5  > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
                 "R8  > 0x%08x | R9  > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
                 "R12 > 0x%08x | SP  > 0x%08x | LR > 0x%08x | PC > 0x%08x\n"
@@ -2926,7 +2990,8 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
             {
                 rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC], (ucCpuMode & UC_MODE_THUMB) ? true : false);
                 if (!rc)
-                    printf("Disasm:\n"
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                           "Disasm:\n"
                            "%s", &achBuf[0]);
             }
             else
@@ -2938,7 +3003,8 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
         rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_SP], &au32Stack[0], sizeof(au32Stack));
         if (!rc)
         {
-            printf("Stack:\n"
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                   "Stack:\n"
                    "\t0x%08x: 0x%08x <= SP\n"
                    "\t0x%08x: 0x%08x\n"
                    "\t0x%08x: 0x%08x\n"

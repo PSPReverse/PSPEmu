@@ -60,13 +60,17 @@ typedef FNPSPCOREMMIOWRITE *PFNPSPCOREMMIOWRITE;
  * @retval  <n> PSPEmuCoreExecRun() returns with that status code.
  * @param   hCore                   The PSP core handle encountering the WFI instruction.
  * @param   PspAddrPc               Instruction address following the WFI.
+ * @param   fFlags                  Flags controlling the behavior.
  * @param   pfIrq                   Where to store whether a IRQ is pending upon return.
  * @param   pfFirq                  Where to store whether a FIRQ is pending upon return.
  * @param   pvUser                  Opaque user data passed during callback registration.
  */
-typedef int (FNPSPCOREWFI)(PSPCORE hCore, PSPADDR PspAddrPc, bool *pfIrq, bool *pfFirq, void *pvUser);
+typedef int (FNPSPCOREWFI)(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFlags, bool *pfIrq, bool *pfFirq, void *pvUser);
 /** Pointer to a WFI reached callback. */
 typedef FNPSPCOREWFI *PFNPSPCOREWFI;
+
+/** Just check for a pending interrupt but don't block. */
+#define PSPEMU_CORE_WFI_CHECK                   BIT(0)
 
 
 /**
