@@ -71,34 +71,6 @@ typedef enum PSPCOREEXCP
 } PSPCOREEXCP;
 
 
-/**
- * ARM core mode.
- */
-typedef enum PSPCOREMODE
-{
-    /** Invalid mode. */
-    PSPCOREMODE_INVALID = 0,
-    /** User mode. */
-    PSPCOREMODE_USR,
-    /** FIQ mode. */
-    PSPCOREMODE_FIQ,
-    /** IRQ mode. */
-    PSPCOREMODE_IRQ,
-    /** Supervisor mode. */
-    PSPCOREMODE_SVC,
-    /** Abort mode. */
-    PSPCOREMODE_ABRT,
-    /** Undefined instruction mode. */
-    PSPCOREMODE_UNDEF,
-    /** System mode. */
-    PSPCOREMODE_SYS,
-    /** Monitor mode. */
-    PSPCOREMODE_MON,
-    /** 32 bit hack. */
-    PSPCOREMODE_32BIT_HACK = 0x7fffffff
-} PSPCOREMODE;
-
-
 /** Pointer to a PSP core instance. */
 typedef struct PSPCOREINT *PPSPCOREINT;
 /** Pointer to a const PSP core instance. */
@@ -2439,6 +2411,12 @@ static int pspEmuCoreIrqFiqCheck(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThu
 }
 
 
+const char *PSPEmuCoreModeToStr(PSPCOREMODE enmCoreMode)
+{
+    return pspEmuCoreModeToStr(enmCoreMode);
+}
+
+
 int PSPEmuCoreCreate(PPSPCORE phCore)
 {
     int rc = 0;
@@ -3155,7 +3133,7 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
         /* Dump a few instructions. */
         uint8_t abInsn[5 * sizeof(uint32_t)];
         char achBuf[_1K];
-        int rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_PC], &abInsn[0], sizeof(abInsn));
+        int rc = PSPEmuCoreMemReadVirt(hCore, au32Reg[PSPCOREREG_PC], &abInsn[0], sizeof(abInsn));
         if (!rc)
         {
             size_t ucCpuMode = 0;
@@ -3175,7 +3153,7 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
 
         /* Dump last 0x20 bytes of stack memory */
         uint32_t au32Stack[8];
-        rc = PSPEmuCoreMemRead(hCore, au32Reg[PSPCOREREG_SP], &au32Stack[0], sizeof(au32Stack));
+        rc = PSPEmuCoreMemReadVirt(hCore, au32Reg[PSPCOREREG_SP], &au32Stack[0], sizeof(au32Stack));
         if (!rc)
         {
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
@@ -3197,3 +3175,31 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
     else
         printf("Querying the register set failed with %d\n", rc);
 }
+
+int PSPEmuCoreQueryState(PSPCORE hCore, PPSPCORESTATE pState)
+{
+    PPSPCOREINT pThis = hCore;
+
+    pState->enmCoreMode  = pThis->enmCoreMode;
+    pState->fSecureWorld = !(pThis->Cp15.u32RegScr & BIT(0));
+    pState->fMmuEnabled  = pspEmuCoreCpIsSctrlMmuEnabled(pThis);
+
+    int rc = pspEmuCoreMmuPgTblQueryRoot(pThis, &pState->PspPAddrPgTblRoot);
+    if (STS_SUCCESS(rc))
+    {
+        rc = PSPEmuCoreQueryReg(pThis, PSPCOREREG_PC, &pState->PspAddrPc);
+        if (STS_SUCCESS(rc))
+        {
+            uint32_t u32RegCpsr;
+            rc = PSPEmuCoreQueryReg(pThis, PSPCOREREG_CPSR, &u32RegCpsr);
+            if (STS_SUCCESS(rc))
+            {
+                pState->fIrqMasked = !!(u32RegCpsr & BIT(7));
+                pState->fFiqMasked = !!(u32RegCpsr & BIT(6));
+            }
+        }
+    }
+
+    return rc;
+}
+

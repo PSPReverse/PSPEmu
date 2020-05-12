@@ -74,6 +74,34 @@ typedef FNPSPCOREWFI *PFNPSPCOREWFI;
 
 
 /**
+ * ARM core mode.
+ */
+typedef enum PSPCOREMODE
+{
+    /** Invalid mode. */
+    PSPCOREMODE_INVALID = 0,
+    /** User mode. */
+    PSPCOREMODE_USR,
+    /** FIQ mode. */
+    PSPCOREMODE_FIQ,
+    /** IRQ mode. */
+    PSPCOREMODE_IRQ,
+    /** Supervisor mode. */
+    PSPCOREMODE_SVC,
+    /** Abort mode. */
+    PSPCOREMODE_ABRT,
+    /** Undefined instruction mode. */
+    PSPCOREMODE_UNDEF,
+    /** System mode. */
+    PSPCOREMODE_SYS,
+    /** Monitor mode. */
+    PSPCOREMODE_MON,
+    /** 32 bit hack. */
+    PSPCOREMODE_32BIT_HACK = 0x7fffffff
+} PSPCOREMODE;
+
+
+/**
  * PSP core register.
  */
 typedef enum PSPCOREREG
@@ -183,6 +211,37 @@ typedef PSPCORESVCREG *PPSPCORESVCREG;
 /** Pointer to a const syscall injection registration record. */
 typedef const PSPCORESVCREG *PCPSPCORESVCREG;
 
+
+typedef struct PSPCORESTATE
+{
+    /** The current CPU mode we are in. */
+    PSPCOREMODE                 enmCoreMode;
+    /** The current PC value. */
+    PSPVADDR                    PspAddrPc;
+    /** Flag whether we are in secure world. */
+    bool                        fSecureWorld;
+    /** Flag whether the MMU is enabled for the current world. */
+    bool                        fMmuEnabled;
+    /** Flag whether IRQs are masked. */
+    bool                        fIrqMasked;
+    /** Flag whether FIQs are masked. */
+    bool                        fFiqMasked;
+    /** The physical PSP address of the page table root if MMU is enabled. */
+    PSPPADDR                    PspPAddrPgTblRoot;
+} PSPCORESTATE;
+/** Pointer to the PSP core state info struct. */
+typedef PSPCORESTATE *PPSPCORESTATE;
+/** Pointer to a const PSP core state info struct. */
+typedef const PSPCORESTATE *PCPSPCORESTATE;
+
+
+/**
+ * Converts the given core mode to a human readable version.
+ *
+ * @returns Human readable string for the given core mode.
+ * @param   enmCoreMode             The core mode.
+ */
+const char *PSPEmuCoreModeToStr(PSPCOREMODE enmCoreMode);
 
 /**
  * Creates a new emulated PSP core.
@@ -416,5 +475,14 @@ int PSPEmuCoreWfiSet(PSPCORE hCore, PFNPSPCOREWFI pfnWfiReached, void *pvUser);
  * @param   hCore                   The PSP core handle.
  */
 void PSPEmuCoreStateDump(PSPCORE hCore);
+
+/**
+ * Queries a subset of the given PSP core state.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   pState                  The state struct to fill.
+ */
+int PSPEmuCoreQueryState(PSPCORE hCore, PPSPCORESTATE pState);
 
 #endif /* __psp_core_h */
