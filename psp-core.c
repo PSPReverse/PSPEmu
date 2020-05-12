@@ -220,6 +220,14 @@ typedef struct PSPCORECPBANK
     uint32_t                u32RegTtbcr;
     /** SCTRL register. */
     uint32_t                u32RegSctrl;
+    /** DFSR register. */
+    uint32_t                u32RegDfsr;
+    /** IFSR register. */
+    uint32_t                u32RegIfsr;
+    /** DFAR register. */
+    uint32_t                u32RegDfar;
+    /** IFAR register. */
+    uint32_t                u32RegIfar;
 } PSPCORECPBANK;
 /** Pointer to a set of banked Co-Processor registers. */
 typedef PSPCORECPBANK *PPSPCORECPBANK;
@@ -883,6 +891,42 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
         pThis->Cp15.u32RegScr = (uint32_t)u64Val;
         return true;
     }
+    else if (   uCp == 15
+             && uCrn == 5
+             && uCrm == 0
+             && uOpc1 == 0
+             && uOpc2 == 0)
+    {
+        pCpBank->u32RegDfsr = (uint32_t)u64Val;
+        return true;
+    }
+    else if (   uCp == 15
+             && uCrn == 5
+             && uCrm == 0
+             && uOpc1 == 0
+             && uOpc2 == 1)
+    {
+        pCpBank->u32RegIfsr = (uint32_t)u64Val;
+        return true;
+    }
+    else if (   uCp == 15
+             && uCrn == 6
+             && uCrm == 0
+             && uOpc1 == 0
+             && uOpc2 == 0)
+    {
+        pCpBank->u32RegDfar = (uint32_t)u64Val;
+        return true;
+    }
+    else if (   uCp == 15
+             && uCrn == 6
+             && uCrm == 0
+             && uOpc1 == 0
+             && uOpc2 == 0)
+    {
+        pCpBank->u32RegIfar = (uint32_t)u64Val;
+        return true;
+    }
     /** @todo TTBR0, TTBR1 and TTBCR writes should cause a stop as well. */
 
     return false;
@@ -975,6 +1019,44 @@ static bool pspEmuCoreCpReadWrapper(struct uc_struct *pUcEngine, uint64_t uAddrP
              && uOpc2 == 0)
     {
         *pu64Val = pThis->Cp15.u32RegScr;
+        return true;
+    }
+    else if (   uCp == 15
+             && uCrn == 5
+             && uCrm == 0
+             && uOpc1 == 0
+             && uOpc2 == 0)
+    {
+        *pu64Val = pCpBank->u32RegDfsr;
+        return true;
+    }
+    else if (   uCp == 15
+             && uCrn == 5
+             && uCrm == 0
+             && uOpc1 == 0
+             && uOpc2 == 1)
+    {
+        *pu64Val = pCpBank->u32RegIfsr;
+        return true;
+    }
+    else if (   uCp == 15
+             && uCrn == 6
+             && uCrm == 0
+             && uOpc1 == 0
+             && uOpc2 == 0)
+    {
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                                "pspEmuCoreCpReadWrapper: DFAR=%#lx\n", pCpBank->u32RegDfar);
+        *pu64Val = pCpBank->u32RegDfar;
+        return true;
+    }
+    else if (   uCp == 15
+             && uCrn == 6
+             && uCrm == 0
+             && uOpc1 == 0
+             && uOpc2 == 0)
+    {
+        *pu64Val = pCpBank->u32RegIfar;
         return true;
     }
 
@@ -2139,6 +2221,10 @@ static bool pspEmuCoreMemMemInvAccess(uc_engine *pUcEngine, uc_mem_type enmMemTy
         if (   !rc
             && fHandled)
             return true;
+
+        PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
+        pCpBank->u32RegDfsr = 0x5; /* Section translation fault. */
+        pCpBank->u32RegDfar = (PSPADDR)uAddr;
 
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CORE,
                                 "pspEmuCoreMemMemInvAccess: PC=%#x cbAcc=%u i64Val=%#lld rc=%d fHandled=%u",
