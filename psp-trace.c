@@ -123,6 +123,8 @@ typedef struct PSPTRACEEVT
     PSPTRACEEVTORIGIN               enmOrigin;
     /** The content type. */
     PSPTRACEEVTCONTENTTYPE          enmContent;
+    /** PSP core state. */
+    PSPCORESTATE                    CoreState;
     /** The PSP core context when this event happened. */
     uint32_t                        au32CoreRegs[PSPCOREREG_SPSR + 1];
     /** Number of bytes allocated for this event in the array below. */
@@ -329,7 +331,7 @@ static int pspEmuTraceEvtCreateAndLink(PPSPTRACEINT pThis, PSPTRACEEVTSEVERITY e
             /** @todo Need a batch query for the core API. */
         }
         else
-            rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_PC, &pEvt->au32CoreRegs[PSPCOREREG_PC]);
+            rc = PSPEmuCoreQueryState(pThis->hPspCore, &pEvt->CoreState);
 
         if (!rc)
         {
@@ -411,7 +413,14 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
     /* The PC if we don't have a full CPU context. */
     if (!(fFlags & PSPEMU_TRACE_F_FULL_CORE_CTX))
     {
-        rcStr = snprintf(pszCur, cchLeft, "0x%08x ", pEvt->au32CoreRegs[PSPCOREREG_PC]);
+        rcStr = snprintf(pszCur, cchLeft, "0x%08x[%5s,%s,%s,%s,%s,0x%08x] ",
+                         pEvt->CoreState.PspAddrPc,
+                         PSPEmuCoreModeToStr(pEvt->CoreState.enmCoreMode),
+                         pEvt->CoreState.fSecureWorld ? " S" : "NS",
+                         pEvt->CoreState.fMmuEnabled  ? " M" : "NM",
+                         pEvt->CoreState.fIrqMasked   ? "NI" : " I",
+                         pEvt->CoreState.fFiqMasked   ? "NF" : " F",
+                         pEvt->CoreState.PspPAddrPgTblRoot);
         if (   rcStr < 0
             || rcStr >= cchLeft)
             return -1;
