@@ -223,6 +223,28 @@ int PSPEmuCoreMemWrite(PSPCORE hCore, PSPADDR AddrPspWrite, const void *pvData, 
 int PSPEmuCoreMemRead(PSPCORE hCore, PSPADDR AddrPspRead, void *pvDst, size_t cbDst);
 
 /**
+ * Writes data to the given virtual memory address for the given PSP core.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   AddrPspVWrite           The virtual PSP address to write to.
+ * @param   pvData                  The data to write.
+ * @param   cbData                  Amount of bytes to write.
+ */
+int PSPEmuCoreMemWriteVirt(PSPCORE hCore, PSPVADDR AddrPspVWrite, const void *pvData, size_t cbData);
+
+/**
+ * Reads data from the given virtual memory address of the given PSP core.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   AddrPspVWrite           The virtual PSP address to start reading from.
+ * @param   pvDst                   Where to store the read data.
+ * @param   cbDst                   Amount of bytes to read.
+ */
+int PSPEmuCoreMemReadVirt(PSPCORE hCore, PSPVADDR AddrPspVRead, void *pvDst, size_t cbDst);
+
+/**
  * Adds a region of memory not initially backed by memory on the original PSP
  * (will be used for executing the TEE stuff located on a secure DRAM region).
  *

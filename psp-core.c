@@ -428,7 +428,7 @@ static const PSPCOREREG g_aenmRegQueryBatch[] =
 };
 
 
-static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion);
+static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr, size_t *pcbRegion);
 
 /**
  * Converts the PSP core register enum to the unicorn equivalent.
@@ -1670,7 +1670,7 @@ static inline PSPPADDR pspEmuCoreMmuPgTblL2GetPhysAddrFromDesc(uint32_t u32L2Des
 
 
 /**
- * Tries to resolve a given virtual PSP address to a physical one.
+ * Tries to resolve a given virtual PSP address to a physical one - page aligned version.
  *
  * @returns Status code.
  * @param   pThis                   The PSP core instance.
@@ -1680,7 +1680,7 @@ static inline PSPPADDR pspEmuCoreMmuPgTblL2GetPhysAddrFromDesc(uint32_t u32L2Des
  *
  * @todo Extract access permissions.
  */
-static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion)
+static int pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion)
 {
     PSPPADDR PhysAddrPgTbl = 0;
     int rc = pspEmuCoreMmuPgTblQueryRoot(pThis, &PhysAddrPgTbl);
@@ -1728,6 +1728,33 @@ static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr
             else
                 rc = -1; /** @todo Support supersections. */
         }
+    }
+
+    return rc;
+}
+
+
+/**
+ * Tries to resolve a given virtual PSP address to a physical one.
+ *
+ * @returns Status code.
+ * @param   pThis                   The PSP core instance.
+ * @param   PspVAddr                Virtual PSP address to resolve.
+ * @param   pPspPAddr               Where to store the physical address on success.
+ * @param   pcbRegion               Where to store the size of the resolved contiguous physical memory region on success.
+ *
+ * @todo Extract access permissions.
+ */
+static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr, size_t *pcbRegion)
+{
+    PSPVADDR PspVAddrPg = PspVAddr & ~(PSP_PAGE_SIZE - 1);
+    uint32_t offPg = PspVAddr & (PSP_PAGE_SIZE - 1);
+
+    int rc = pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(pThis, PspVAddrPg, pPspPAddr, pcbRegion);
+    if (STS_SUCCESS(rc))
+    {
+        *pPspPAddr |= offPg;
+        *pcbRegion -= offPg;
     }
 
     return rc;
@@ -2604,6 +2631,68 @@ int PSPEmuCoreMemRead(PSPCORE hCore, PSPADDR AddrPspRead, void *pvDst, size_t cb
         }
         else
             rc = -1;
+    }
+
+    return rc;
+}
+
+int PSPEmuCoreMemWriteVirt(PSPCORE hCore, PSPVADDR AddrPspVWrite, const void *pvData, size_t cbData)
+{
+    PPSPCOREINT pThis = hCore;
+    int rc = STS_INF_SUCCESS;
+
+    if (!pspEmuCoreCpIsSctrlMmuEnabled(pThis)) /* No MMU enabled means virtual address equals physical one. */
+        rc = PSPEmuCoreMemWrite(hCore, AddrPspVWrite, pvData, cbData);
+    else
+    {
+        uint8_t *pbSrc = (uint8_t *)pvData;
+        while (   cbData
+               && STS_SUCCESS(rc))
+        {
+            PSPPADDR PspPAddr;
+            size_t cbThisWrite;
+            rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, AddrPspVWrite, &PspPAddr, &cbThisWrite);
+            if (STS_SUCCESS(rc))
+            {
+                cbThisWrite = MIN(cbThisWrite, cbData);
+                rc = PSPEmuCoreMemRead(hCore, PspPAddr, pbSrc, cbThisWrite);
+
+                pbSrc         += cbThisWrite;
+                cbData        -= cbThisWrite;
+                AddrPspVWrite += cbThisWrite;
+            }
+        }
+    }
+
+    return rc;
+}
+
+int PSPEmuCoreMemReadVirt(PSPCORE hCore, PSPVADDR AddrPspVRead, void *pvDst, size_t cbDst)
+{
+    PPSPCOREINT pThis = hCore;
+    int rc = STS_INF_SUCCESS;
+
+    if (!pspEmuCoreCpIsSctrlMmuEnabled(pThis)) /* No MMU enabled means virtual address equals physical one. */
+        rc = PSPEmuCoreMemRead(hCore, AddrPspVRead, pvDst, cbDst);
+    else
+    {
+        uint8_t *pbDst = (uint8_t *)pvDst;
+        while (   cbDst
+               && STS_SUCCESS(rc))
+        {
+            PSPPADDR PspPAddr;
+            size_t cbThisRead;
+            rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, AddrPspVRead, &PspPAddr, &cbThisRead);
+            if (STS_SUCCESS(rc))
+            {
+                cbThisRead = MIN(cbThisRead, cbDst);
+                rc = PSPEmuCoreMemRead(hCore, PspPAddr, pbDst, cbThisRead);
+
+                pbDst        += cbThisRead;
+                cbDst        -= cbThisRead;
+                AddrPspVRead += cbThisRead;
+            }
+        }
     }
 
     return rc;
