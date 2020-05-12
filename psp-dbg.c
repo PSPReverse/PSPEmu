@@ -953,7 +953,7 @@ static int pspDbgGdbStubIfTgtMemRead(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTG
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
     PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
 
-    int rc = PSPEmuCoreMemRead(hPspCore, (PSPADDR)GdbTgtMemAddr, pvDst, cbRead);
+    int rc = PSPEmuCoreMemReadVirt(hPspCore, (PSPVADDR)GdbTgtMemAddr, pvDst, cbRead);
     return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
 
@@ -966,7 +966,7 @@ static int pspDbgGdbStubIfTgtMemWrite(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBT
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
     PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
 
-    int rc = PSPEmuCoreMemWrite(hPspCore, (PSPADDR)GdbTgtMemAddr, pvSrc, cbWrite);
+    int rc = PSPEmuCoreMemWriteVirt(hPspCore, (PSPVADDR)GdbTgtMemAddr, pvSrc, cbWrite);
     return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
 
