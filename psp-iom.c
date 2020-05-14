@@ -1284,13 +1284,14 @@ static void pspEmuIoMgrMmioSmnCtrlWrite(PSPADDR offMmio, size_t cbWrite, const v
 static void pspEmuIoMgrX86MapSlotDump(PPSPIOMX86MAPCTRLSLOT pX86Slot, uint32_t idxSlot)
 {
     PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_X86,
-                            "MMIO/X86: Slot %u\n"
+                            "MMIO/X86: Slot %u (0x%08x)\n"
                             "    u32RegX86BaseAddr: 0x%08x (PhysX86Base=0x%016llx)\n"
                             "    u32RegUnk1:        0x%08x\n"
                             "    u32RegUnk2:        0x%08x\n"
                             "    u32RegUnk3:        0x%08x\n"
                             "    u32RegUnk4:        0x%08x\n"
                             "    u32RegUnk5:        0x%08x\n", idxSlot,
+                            pX86Slot->PspAddrMmioStart,
                             pX86Slot->u32RegX86BaseAddr, pX86Slot->PhysX86Base,
                             pX86Slot->u32RegUnk1, pX86Slot->u32RegUnk2,
                             pX86Slot->u32RegUnk3, pX86Slot->u32RegUnk4, pX86Slot->u32RegUnk5);
@@ -2475,5 +2476,39 @@ int PSPEmuIoMgrX86AddrWrite(PSPIOM hIoMgr, X86PADDR PhysX86Addr, const void *pvS
     }
 
     return rc;
+}
+
+
+int PSPEmuIoMgrX86MapSlotDump(PSPIOM hIoMgr, uint32_t idxSlotStart, uint32_t idxSlotEnd)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    if (   idxSlotStart >= ELEMENTS(pThis->aX86MapCtrlSlots)
+        || idxSlotEnd >= ELEMENTS(pThis->aX86MapCtrlSlots))
+        return STS_ERR_INVALID_PARAMETER;
+
+    for (uint32_t i = idxSlotStart; i <= idxSlotEnd; i++)
+    {
+        PPSPIOMX86MAPCTRLSLOT pX86Slot = &pThis->aX86MapCtrlSlots[i];
+        pspEmuIoMgrX86MapSlotDump(pX86Slot, i);
+    }
+
+    return STS_INF_SUCCESS;
+}
+
+
+int PSPEmuIoMgrSmnMapSlotDump(PSPIOM hIoMgr, uint32_t idxSlotStart, uint32_t idxSlotEnd)
+{
+    PPSPIOMINT pThis = hIoMgr;
+
+    if (   idxSlotStart >= ELEMENTS(pThis->aSmnAddrBaseSlots)
+        || idxSlotEnd >= ELEMENTS(pThis->aSmnAddrBaseSlots))
+        return STS_ERR_INVALID_PARAMETER;
+
+    for (uint32_t i = idxSlotStart; i <= idxSlotEnd; i++)
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
+                                "MMIO/SMN: Slot %u 0x%08x\n", i, pThis->aSmnAddrBaseSlots[i]);
+
+    return STS_INF_SUCCESS;
 }
 
