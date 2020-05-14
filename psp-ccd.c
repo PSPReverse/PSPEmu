@@ -78,12 +78,12 @@ static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, 
 static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
 
 #define PSPEMU_CORE_SVC_INIT_NULL                   { NULL, NULL, 0 }
-#define PSPEMU_CORE_SVC_INIT_DEF(a_Name, a_Handler) { a_Name, a_Handler, PSPEMU_CORE_SVC_F_BEFORE }
+#define PSPEMU_CORE_SVC_INIT_DEF(a_Name, a_Handler) { a_Name, a_Handler, PSPEMU_CORE_SVMC_F_BEFORE }
 
 /**
  * The SVC descriptors table.
  */
-static PSPCORESVCDESC g_aSvcDescs[] =
+static PSPCORESVMCDESC g_aSvcDescs[] =
 {
     PSPEMU_CORE_SVC_INIT_NULL,
     PSPEMU_CORE_SVC_INIT_NULL,
@@ -98,20 +98,20 @@ static PSPCORESVCDESC g_aSvcDescs[] =
 /**
  * SVC injection registration record.
  */
-static const PSPCORESVCREG g_Svc6Reg =
+static const PSPCORESVMCREG g_Svc6Reg =
 {
-    /** GlobalSvc */
+    /** GlobalSvmc */
     {
         /** pszName */
         "Trace",
-        /** pfnSvcHnd */
+        /** pfnSvmcHnd */
         pspEmuSvcTrace,
         /** fFlags */
-        PSPEMU_CORE_SVC_F_BEFORE | PSPEMU_CORE_SVC_F_AFTER
+        PSPEMU_CORE_SVMC_F_BEFORE | PSPEMU_CORE_SVMC_F_AFTER
     },
-    /** cSvcDescs */
+    /** cSvmcDescs */
     ELEMENTS(g_aSvcDescs),
-    /** paSvcDescs */
+    /** paSvmcDescs */
     &g_aSvcDescs[0]
 };
 
@@ -205,7 +205,7 @@ static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, 
 
     if (pCfg->fTraceSvcs)
         PSPEmuTraceEvtAddSvc(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SVC, idxSyscall,
-                               (fFlags & PSPEMU_CORE_SVC_F_BEFORE)
+                               (fFlags & PSPEMU_CORE_SVMC_F_BEFORE)
                              ? true
                              : false /* fEntry*/,
                              NULL /*pszMsg*/);

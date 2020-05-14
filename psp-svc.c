@@ -109,12 +109,12 @@ static bool pspEmuSvcQuerySmmRegion(PSPCORE hCore, uint32_t idxSyscall, uint32_t
 
 
 #define PSPEMU_CORE_SVC_INIT_NULL                   { NULL, NULL, 0 }
-#define PSPEMU_CORE_SVC_INIT_DEF(a_Name, a_Handler) { a_Name, a_Handler, PSPEMU_CORE_SVC_F_BEFORE }
+#define PSPEMU_CORE_SVC_INIT_DEF(a_Name, a_Handler) { a_Name, a_Handler, PSPEMU_CORE_SVMC_F_BEFORE }
 
 /**
  * The SVC descriptors table.
  */
-static PSPCORESVCDESC g_aSvcDescs[] =
+static PSPCORESVMCDESC g_aSvcDescs[] =
 {
     PSPEMU_CORE_SVC_INIT_DEF("SvcAppExit", pspEmuSvcAppExit),                                               /**< 0x00: Application exit. */
     PSPEMU_CORE_SVC_INIT_DEF("SvcAppInit", pspEmuSvcAppInit),                                               /**< 0x01: Initialize application stack. */
@@ -195,20 +195,20 @@ static PSPCORESVCDESC g_aSvcDescs[] =
 /**
  * SVC injection registration record.
  */
-static const PSPCORESVCREG g_SvcReg =
+static const PSPCORESVMCREG g_SvcReg =
 {
-    /** GlobalSvc */
+    /** GlobalSvmc */
     {
         /** pszName */
         "Trace",
-        /** pfnSvcHnd */
+        /** pfnSvmcHnd */
         pspEmuSvcTrace,
         /** fFlags */
-        PSPEMU_CORE_SVC_F_BEFORE | PSPEMU_CORE_SVC_F_AFTER
+        PSPEMU_CORE_SVMC_F_BEFORE | PSPEMU_CORE_SVMC_F_AFTER
     },
-    /** cSvcDescs */
+    /** cSvmcDescs */
     ELEMENTS(g_aSvcDescs),
-    /** paSvcDescs */
+    /** paSvmcDescs */
     &g_aSvcDescs[0]
 };
 
@@ -216,7 +216,7 @@ static const PSPCORESVCREG g_SvcReg =
 static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
     PSPEmuTraceEvtAddSvc(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SVC, idxSyscall,
-                           (fFlags & PSPEMU_CORE_SVC_F_BEFORE)
+                           (fFlags & PSPEMU_CORE_SVMC_F_BEFORE)
                          ? true
                          : false /* fEntry*/,
                          NULL /*pszMsg*/);

@@ -278,7 +278,7 @@ typedef struct PSPCOREINT
     void                    *pvWfiUser;
 
     /** The SVC injection registartion record set, NULL if no overrides exist. */
-    PCPSPCORESVCREG         pSvcReg;
+    PCPSPCORESVMCREG        pSvcReg;
     /** Opaque user data to pass to the SVC handlers. */
     void                    *pvSvcUser;
     /** The currently syscall number being executed. */
@@ -1141,17 +1141,17 @@ static int pspEmuCoreSvcBefore(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb
             pThis->idxSvc = idxSyscall;
 
             /* Any global handlers?. */
-            if (   pThis->pSvcReg->GlobalSvc.pfnSvcHnd
-                && pThis->pSvcReg->GlobalSvc.fFlags & PSPEMU_CORE_SVC_F_BEFORE)
-                fHandled = pThis->pSvcReg->GlobalSvc.pfnSvcHnd(pThis, idxSyscall, PSPEMU_CORE_SVC_F_BEFORE, pThis->pvSvcUser);
+            if (   pThis->pSvcReg->GlobalSvmc.pfnSvmcHnd
+                && pThis->pSvcReg->GlobalSvmc.fFlags & PSPEMU_CORE_SVMC_F_BEFORE)
+                fHandled = pThis->pSvcReg->GlobalSvmc.pfnSvmcHnd(pThis, idxSyscall, PSPEMU_CORE_SVMC_F_BEFORE, pThis->pvSvcUser);
 
             /* Any per SVC handler set?. */
-            if (idxSyscall < pThis->pSvcReg->cSvcDescs)
+            if (idxSyscall < pThis->pSvcReg->cSvmcDescs)
             {
-                PCPSPCORESVCDESC pSvcDesc = &pThis->pSvcReg->paSvcDescs[idxSyscall];
-                if (   pSvcDesc->pfnSvcHnd
-                    && pSvcDesc->fFlags & PSPEMU_CORE_SVC_F_BEFORE)
-                    fHandled = pSvcDesc->pfnSvcHnd(pThis, idxSyscall, PSPEMU_CORE_SVC_F_BEFORE, pThis->pvSvcUser);
+                PCPSPCORESVMCDESC pSvcDesc = &pThis->pSvcReg->paSvmcDescs[idxSyscall];
+                if (   pSvcDesc->pfnSvmcHnd
+                    && pSvcDesc->fFlags & PSPEMU_CORE_SVMC_F_BEFORE)
+                    fHandled = pSvcDesc->pfnSvmcHnd(pThis, idxSyscall, PSPEMU_CORE_SVMC_F_BEFORE, pThis->pvSvcUser);
             }
         }
     }
@@ -1176,17 +1176,17 @@ static int pspEmuCoreSvcAfter(PPSPCOREINT pThis)
     if (pThis->pSvcReg)
     {
         /* Any global handlers?. */
-        if (   pThis->pSvcReg->GlobalSvc.pfnSvcHnd
-            && pThis->pSvcReg->GlobalSvc.fFlags & PSPEMU_CORE_SVC_F_AFTER)
-            pThis->pSvcReg->GlobalSvc.pfnSvcHnd(pThis, pThis->idxSvc, PSPEMU_CORE_SVC_F_AFTER, pThis->pvSvcUser);
+        if (   pThis->pSvcReg->GlobalSvmc.pfnSvmcHnd
+            && pThis->pSvcReg->GlobalSvmc.fFlags & PSPEMU_CORE_SVMC_F_AFTER)
+            pThis->pSvcReg->GlobalSvmc.pfnSvmcHnd(pThis, pThis->idxSvc, PSPEMU_CORE_SVMC_F_AFTER, pThis->pvSvcUser);
 
         /* Any per SVC handler set?. */
-        if (pThis->idxSvc < pThis->pSvcReg->cSvcDescs)
+        if (pThis->idxSvc < pThis->pSvcReg->cSvmcDescs)
         {
-            PCPSPCORESVCDESC pSvcDesc = &pThis->pSvcReg->paSvcDescs[pThis->idxSvc];
-            if (   pSvcDesc->pfnSvcHnd
-                && pSvcDesc->fFlags & PSPEMU_CORE_SVC_F_AFTER)
-                pSvcDesc->pfnSvcHnd(pThis, pThis->idxSvc, PSPEMU_CORE_SVC_F_AFTER, pThis->pvSvcUser);
+            PCPSPCORESVMCDESC pSvcDesc = &pThis->pSvcReg->paSvmcDescs[pThis->idxSvc];
+            if (   pSvcDesc->pfnSvmcHnd
+                && pSvcDesc->fFlags & PSPEMU_CORE_SVMC_F_AFTER)
+                pSvcDesc->pfnSvmcHnd(pThis, pThis->idxSvc, PSPEMU_CORE_SVMC_F_AFTER, pThis->pvSvcUser);
         }
     }
 
@@ -2738,7 +2738,7 @@ int PSPEmuCoreMemRegionRemove(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
     return rc;
 }
 
-int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVCREG pSvcReg, void *pvUser)
+int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVMCREG pSvcReg, void *pvUser)
 {
     PPSPCOREINT pThis = hCore;
 

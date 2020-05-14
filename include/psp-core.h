@@ -153,65 +153,68 @@ typedef enum PSPCOREREG
 
 
 /**
- * Overriden SVC handler.
+ * Overriden SVC/SMC handler.
  *
- * @returns true when the SVC call should be considered handled and execution should return to the caller
- *          or false to forward the call to the supervisor code.
- * @param   hCore                   The PSP core handle causing the SVC call.
- * @param   idxSyscall              The syscall being called.
- * @param   fFlags                  Flags for this call, see PSPEMU_CORE_SVC_F_XXX.
+ * @returns true when the SVC/SMC call should be considered handled and execution should return to the caller
+ *          or false to forward the call to the supervisor/monitor code.
+ * @param   hCore                   The PSP core handle causing the SVC/SMC call.
+ * @param   idxCall                 The immediate encoded in the instruction.
+ * @param   fFlags                  Flags for this call, see PSPEMU_CORE_SVMC_F_XXX.
  * @param   pvUser                  Opaque user data passed when the handler was registered.
  */
-typedef bool (FNPSPCORESVCHANDLER)(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
-/** Syscall handler pointer. */
-typedef FNPSPCORESVCHANDLER *PFNPSPCORESVCHANDLER;
+typedef bool (FNPSPCORESVMCHANDLER)(PSPCORE hCore, uint32_t idxCall, uint32_t fFlags, void *pvUser);
+/** SVC/SMC handler pointer. */
+typedef FNPSPCORESVMCHANDLER *PFNPSPCORESVMCHANDLER;
 
 
 /**
- * Syscall descriptor.
+ * SVC/SMC descriptor.
  */
-typedef struct PSPCORESVCDESC
+typedef struct PSPCORESVMCDESC
 {
     /** Syscall name (used for tracing/logging). */
     const char                  *pszName;
     /** Pointer to the SVC handler. */
-    PFNPSPCORESVCHANDLER        pfnSvcHnd;
-    /** Flags controlling when this handler is called, see PSPEMU_CORE_SVC_F_XXX. */
+    PFNPSPCORESVMCHANDLER       pfnSvmcHnd;
+    /** Flags controlling when this handler is called, see PSPEMU_CORE_SVMC_F_XXX. */
     uint32_t                    fFlags;
-} PSPCORESVCDESC;
+} PSPCORESVMCDESC;
 /** Pointer to a syscall descriptor. */
-typedef PSPCORESVCDESC *PPSPCORESVCDESC;
+typedef PSPCORESVMCDESC *PPSPCORESVMCDESC;
 /** Pointer to a const syscall descriptor. */
-typedef const PSPCORESVCDESC *PCPSPCORESVCDESC;
+typedef const PSPCORESVMCDESC *PCPSPCORESVMCDESC;
 
 
-/** The syscall handler is invoked before control is passed to the supervisor code. */
-#define PSPEMU_CORE_SVC_F_BEFORE                BIT(0)
-/** The syscall handler is invoked after control was passed to the supervisor code and is about to return to the caller.
+/** The SVC/SMC handler is invoked before control is passed to the supervisor/monitor code. */
+#define PSPEMU_CORE_SVMC_F_BEFORE               BIT(0)
+/** The SVC/SMC handler is invoked after control was passed to the supervisor/monitor code and is about to return to the caller.
  * The return value of the handler is of no interest. */
-#define PSPEMU_CORE_SVC_F_AFTER                 BIT(1)
+#define PSPEMU_CORE_SVMC_F_AFTER                BIT(1)
 
 
 /**
- * Syscall injection registration record.
+ * SVC/SMC injection registration record.
  */
-typedef struct PSPCORESVCREG
+typedef struct PSPCORESVMCREG
 {
-    /** Global handler which is called regardless of the syscall being executed. */
-    PSPCORESVCDESC              GlobalSvc;
-    /** Number of per syscall descriptors. */
-    uint32_t                    cSvcDescs;
-    /** Pointer to an array of svc descriptors. The number of entries indicates the maximum
-     * of overriden syscalls. To override only particular syscalls initialize the descriptors
+    /** Global handler which is called regardless of the call being executed. */
+    PSPCORESVMCDESC             GlobalSvmc;
+    /** Number of per SVC/SMC descriptors. */
+    uint32_t                    cSvmcDescs;
+    /** Pointer to an array of SVC/SMC descriptors. The number of entries indicates the maximum
+     * of overriden calls. To override only particular calls initialize the descriptors
      * inbetween with NULL entries. */
-    PCPSPCORESVCDESC            paSvcDescs;
-} PSPCORESVCREG;
-/** Pointer to a syscall injection registration record. */
-typedef PSPCORESVCREG *PPSPCORESVCREG;
-/** Pointer to a const syscall injection registration record. */
-typedef const PSPCORESVCREG *PCPSPCORESVCREG;
+    PCPSPCORESVMCDESC           paSvmcDescs;
+} PSPCORESVMCREG;
+/** Pointer to a SVC/SMC injection registration record. */
+typedef PSPCORESVMCREG *PPSPCORESVMCREG;
+/** Pointer to a const SVC/SMC injection registration record. */
+typedef const PSPCORESVMCREG *PCPSPCORESVMCREG;
 
 
+/**
+ * Core state as returned by PSPEmuCoreQueryState().
+ */
 typedef struct PSPCORESTATE
 {
     /** The current CPU mode we are in. */
@@ -337,7 +340,7 @@ int PSPEmuCoreMemRegionRemove(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
  * @param   pSvcReg                 The SVC injection registration record, use NULL to deregister.
  * @param   pvUser                  Opaque user data to pass to the svc handlers.
  */
-int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVCREG pSvcReg, void *pvUser);
+int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVMCREG pSvcReg, void *pvUser);
 
 /**
  * Sets a specific register to a given value.
