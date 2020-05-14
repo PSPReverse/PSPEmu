@@ -407,7 +407,8 @@ static const PSPCOREREG g_aenmRegQueryBatch[] =
 };
 
 
-static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr, size_t *pcbRegion);
+static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr, size_t *pcbRegion,
+                                            PPSPCOREPGTBLWALKSTS penmPgTblWalk);
 
 /**
  * Converts the PSP core register enum to the unicorn equivalent.
@@ -843,7 +844,7 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
         /* V2PCWPR, Privileged Read VA to PA translation */
         PSPPADDR PspPAddrPg = 0;
         size_t cbRegion = 0;
-        int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, (PSPVADDR)u64Val, &PspPAddrPg, &cbRegion);
+        int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, (PSPVADDR)u64Val, &PspPAddrPg, &cbRegion, NULL /*penmPgTblWalk*/);
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
                                 "pspEmuCoreMmuPAddrQueryFromVAddr(): VAddr=%#lx rc=%d PAddr=%#lx\n",
                                 (PSPVADDR)u64Val, rc, PspPAddrPg);
@@ -1762,10 +1763,12 @@ static inline PSPPADDR pspEmuCoreMmuPgTblL2GetPhysAddrFromDesc(uint32_t u32L2Des
  * @param   PspVAddrPg              Page aligned virtual PSP address.
  * @param   pPspPAddrPg             Where to store the physical address on success.
  * @param   pcbRegion               Where to store the size of the resolved physical memory region on success.
+ * @param   penmPgTblWalk           Where to store information on the page table walk, optional.
  *
  * @todo Extract access permissions.
  */
-static int pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion)
+static int pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(PPSPCOREINT pThis, PSPVADDR PspVAddrPg, PSPPADDR *pPspPAddrPg, size_t *pcbRegion,
+                                                       PPSPCOREPGTBLWALKSTS penmPgTblWalk)
 {
     PSPPADDR PhysAddrPgTbl = 0;
     int rc = pspEmuCoreMmuPgTblQueryRoot(pThis, &PhysAddrPgTbl);
@@ -1779,6 +1782,9 @@ static int pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(PPSPCOREINT pThis, PSPVAD
             uint32_t idxL1 = PspVAddrPg >> PSP_PAGE_L1_IDX_SHIFT;
             uint32_t idxL2 = (PspVAddrPg >> 12) & 0xff;
             uint32_t u32L1Desc = au32Tbl[idxL1];
+
+            if (penmPgTblWalk)
+                *penmPgTblWalk = PSPCOREPGTBLWALKSTS_L1;
 
             /* Coarse page table.*/
             if ((u32L1Desc & 0x3) == 0x1)
@@ -1801,6 +1807,9 @@ static int pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(PPSPCOREINT pThis, PSPVAD
                     else
                         rc = -1;
                 }
+
+                if (penmPgTblWalk)
+                    *penmPgTblWalk = PSPCOREPGTBLWALKSTS_L2;
             }
             else if (   (u32L1Desc & 0x2) == 0x2
                      && (u32L1Desc & BIT(18)) == 0x0)
@@ -1827,15 +1836,17 @@ static int pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(PPSPCOREINT pThis, PSPVAD
  * @param   PspVAddr                Virtual PSP address to resolve.
  * @param   pPspPAddr               Where to store the physical address on success.
  * @param   pcbRegion               Where to store the size of the resolved contiguous physical memory region on success.
+ * @param   penmPgTblWak            Where to store the information about the page table walk, optional.
  *
  * @todo Extract access permissions.
  */
-static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr, size_t *pcbRegion)
+static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr, size_t *pcbRegion,
+                                            PPSPCOREPGTBLWALKSTS penmPgTblWalk)
 {
     PSPVADDR PspVAddrPg = PspVAddr & ~(PSP_PAGE_SIZE - 1);
     uint32_t offPg = PspVAddr & (PSP_PAGE_SIZE - 1);
 
-    int rc = pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(pThis, PspVAddrPg, pPspPAddr, pcbRegion);
+    int rc = pspEmuCoreMmuPAddrQueryFromVAddrPageAligned(pThis, PspVAddrPg, pPspPAddr, pcbRegion, penmPgTblWalk);
     if (STS_SUCCESS(rc))
     {
         *pPspPAddr |= offPg;
@@ -2099,7 +2110,7 @@ static int pspEmuCoreMmuMap(PPSPCOREINT pThis, PSPVADDR PspVAddr, bool *pfHandle
     PSPVADDR PspVAddrPg = PspVAddr & ~(PSP_PAGE_SIZE - 1);
     PSPPADDR PspPAddrPg;
     size_t cbRegion;
-    int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, PspVAddrPg, &PspPAddrPg, &cbRegion);
+    int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, PspVAddrPg, &PspPAddrPg, &cbRegion, NULL /*penmPgTblWalk*/);
     if (!rc)
     {
         //printf("pspEmuCoreMmuMap: PspVAddr=%#lx PspPAddr=%#lx\n", PspVAddr, PspPAddrPg);
@@ -2754,7 +2765,7 @@ int PSPEmuCoreMemWriteVirt(PSPCORE hCore, PSPVADDR AddrPspVWrite, const void *pv
         {
             PSPPADDR PspPAddr;
             size_t cbThisWrite;
-            rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, AddrPspVWrite, &PspPAddr, &cbThisWrite);
+            rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, AddrPspVWrite, &PspPAddr, &cbThisWrite, NULL /*penmPgTblWalk*/);
             if (STS_SUCCESS(rc))
             {
                 cbThisWrite = MIN(cbThisWrite, cbData);
@@ -2785,7 +2796,7 @@ int PSPEmuCoreMemReadVirt(PSPCORE hCore, PSPVADDR AddrPspVRead, void *pvDst, siz
         {
             PSPPADDR PspPAddr;
             size_t cbThisRead;
-            rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, AddrPspVRead, &PspPAddr, &cbThisRead);
+            rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, AddrPspVRead, &PspPAddr, &cbThisRead, NULL /*penmPgTblWalk*/);
             if (STS_SUCCESS(rc))
             {
                 cbThisRead = MIN(cbThisRead, cbDst);
@@ -3332,6 +3343,27 @@ int PSPEmuCoreQueryState(PSPCORE hCore, PPSPCORESTATE pState)
                 pState->fFiqMasked = !!(u32RegCpsr & BIT(6));
             }
         }
+    }
+
+    return rc;
+}
+
+int PSPEmuCoreQueryPAddrFromVAddr(PSPCORE hCore, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr,
+                                  PPSPCOREPGTBLWALKSTS penmPgTblWalk)
+{
+    PPSPCOREINT pThis = hCore;
+    int rc = STS_INF_SUCCESS;
+
+    if (!pspEmuCoreCpIsSctrlMmuEnabled(pThis))
+    {
+        *pPspPAddr = PspVAddr;
+        if (penmPgTblWalk)
+            *penmPgTblWalk = PSPCOREPGTBLWALKSTS_NO_MMU;
+    }
+    else
+    {
+        size_t cbRegion = 0;
+        rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, PspVAddr, pPspPAddr, &cbRegion, penmPgTblWalk);
     }
 
     return rc;

@@ -130,6 +130,26 @@ typedef enum PSPCOREREG
 } PSPCOREREG;
 
 
+/**
+ * Page table walking status.
+ */
+typedef enum PSPCOREPGTBLWALKSTS
+{
+    /** Invalid status, do not use. */
+    PSPCOREPGTBLWALKSTS_INVALID = 0,
+    /** MMU is disabled virtual address equals physical one. */
+    PSPCOREPGTBLWALKSTS_NO_MMU,
+    /** Only the L1 table was examined to determine the final address. */
+    PSPCOREPGTBLWALKSTS_L1,
+    /** A L2 table walk was required. */
+    PSPCOREPGTBLWALKSTS_L2,
+    /** 32bit hack. */
+    PSPCOREPGTBLWALKSTS_32BIT_HACK = 0x7fffffff
+} PSPCOREPGTBLWALKSTS;
+/** Pointer to a page tabel walking status. */
+typedef PSPCOREPGTBLWALKSTS *PPSPCOREPGTBLWALKSTS;
+
+
 /** Callback is triggered when an instruction is executed from the specified range. */
 #define PSPEMU_CORE_TRACE_F_EXEC                BIT(0)
 /** Callback is triggered when data is read from the specified range. */
@@ -497,5 +517,17 @@ void PSPEmuCoreStateDump(PSPCORE hCore);
  * @param   pState                  The state struct to fill.
  */
 int PSPEmuCoreQueryState(PSPCORE hCore, PPSPCORESTATE pState);
+
+/**
+ * Queries the physical address from the given virtual address.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   PspVAddr                The virtual address to resolve.
+ * @param   pPspPAddr               Where to store the physical address on success.
+ * @param   penmPgTblWak            Where to store the information about the page table walk, optional.
+ */
+int PSPEmuCoreQueryPAddrFromVAddr(PSPCORE hCore, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr,
+                                  PPSPCOREPGTBLWALKSTS penmPgTblWalk);
 
 #endif /* __psp_core_h */
