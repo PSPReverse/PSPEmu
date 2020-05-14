@@ -23,6 +23,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <common/status.h>
+
 #include <psp-trace.h>
 
 
@@ -41,6 +43,8 @@ typedef enum PSPTRACEEVTCONTENTTYPE
     PSPTRACEEVTCONTENTTYPE_DEV_XFER,
     /** Content is a SVC descriptor. */
     PSPTRACEEVTCONTENTTYPE_SVC,
+    /** Content is a SMC descriptor. */
+    PSPTRACEEVTCONTENTTYPE_SMC,
     /** 32bit hack. */
     PSPTRACEEVTCONTENTTYPE_32BIT_HACK = 0x7fffffff
 } PSPTRACEEVTCONTENTTYPE;
@@ -89,23 +93,23 @@ typedef const PSPTRACEEVTDEVXFER *PCPSPTRACEEVTDEVXFER;
 
 
 /**
- * SVC event.
+ * SVC/SMC event.
  */
-typedef struct PSPTRACEEVTSVC
+typedef struct PSPTRACEEVTSVMC
 {
     /** Flag whether this an entry or exit event. */
     bool                            fEntry;
-    /** The SVC number. */
-    uint32_t                        idxSvc;
+    /** The SVC/SMC number. */
+    uint32_t                        idxSvmc;
     /** Arguments for entry, return value for exit event. */
     uint32_t                        au32ArgsRet[4];
     /** Message logged - vairable in size. */
     char                            szMsg[1];
-} PSPTRACEEVTSVC;
+} PSPTRACEEVTSVMC;
 /** Pointer to a SVC event descriptor. */
-typedef PSPTRACEEVTSVC *PPSPTRACEEVTSVC;
+typedef PSPTRACEEVTSVMC *PPSPTRACEEVTSVMC;
 /** Pointer to a const SVC event descriptor. */
-typedef const PSPTRACEEVTSVC *PCPSPTRACEEVTSVC;
+typedef const PSPTRACEEVTSVMC *PCPSPTRACEEVTSVMC;
 
 
 /**
@@ -226,6 +230,7 @@ static const char *pspEmuTraceGetEvtOriginStr(PSPTRACEEVTORIGIN enmOrigin)
         case PSPTRACEEVTORIGIN_X86_MMIO:    return "X86_MMIO";
         case PSPTRACEEVTORIGIN_X86_MEM:     return "X86_MEM";
         case PSPTRACEEVTORIGIN_SVC:         return "SVC";
+        case PSPTRACEEVTORIGIN_SMC:         return "SMC";
         case PSPTRACEEVTORIGIN_CCP:         return "CCP";
         case PSPTRACEEVTORIGIN_STS:         return "STS";
         case PSPTRACEEVTORIGIN_GPIO:        return "GPIO";
@@ -506,12 +511,14 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
             break;
         }
         case PSPTRACEEVTCONTENTTYPE_SVC:
+        case PSPTRACEEVTCONTENTTYPE_SMC:
         {
-            PPSPTRACEEVTSVC pSvc = (PPSPTRACEEVTSVC)&pEvt->abContent[0];
+            PPSPTRACEEVTSVMC pSvmc = (PPSPTRACEEVTSVMC)&pEvt->abContent[0];
 
-            rcStr = snprintf(pszCur, cchLeft, "SVC %s %#x ",
-                             pSvc->fEntry ? "ENTRY" : "EXIT ",
-                             pSvc->idxSvc);
+            rcStr = snprintf(pszCur, cchLeft, "%s %s %#x ",
+                             pEvt->enmContent == PSPTRACEEVTCONTENTTYPE_SVC ? "SVC" : "SMC",
+                             pSvmc->fEntry ? "ENTRY" : "EXIT ",
+                             pSvmc->idxSvmc);
             if (   rcStr < 0
                 || rcStr >= cchLeft)
                 return -1;
@@ -519,15 +526,15 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
             pszCur  += rcStr;
             cchLeft -= rcStr;
 
-            if (pSvc->fEntry)
+            if (pSvmc->fEntry)
                 rcStr = snprintf(pszCur, cchLeft, "%#.8x %#.8x %#.8x %#.8x",
-                                 pSvc->au32ArgsRet[0],
-                                 pSvc->au32ArgsRet[1],
-                                 pSvc->au32ArgsRet[2],
-                                 pSvc->au32ArgsRet[3]);
+                                 pSvmc->au32ArgsRet[0],
+                                 pSvmc->au32ArgsRet[1],
+                                 pSvmc->au32ArgsRet[2],
+                                 pSvmc->au32ArgsRet[3]);
             else
                 rcStr = snprintf(pszCur, cchLeft, "%#.8x",
-                                 pSvc->au32ArgsRet[0]);
+                                 pSvmc->au32ArgsRet[0]);
 
             if (   rcStr < 0
                 || rcStr >= cchLeft)
@@ -536,10 +543,10 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
             pszCur  += rcStr;
             cchLeft -= rcStr;
 
-            if (pSvc->szMsg[0] != '\0')
+            if (pSvmc->szMsg[0] != '\0')
             {
                 rcStr = snprintf(pszCur, cchLeft, " %s",
-                                 &pSvc->szMsg[0]);
+                                 &pSvmc->szMsg[0]);
 
                 if (   rcStr < 0
                     || rcStr >= cchLeft)
@@ -664,6 +671,57 @@ static int pspEmuTraceFileFlush(PSPTRACE hTrace, void *pvBuf, size_t cbBuf, void
     return 0;
 }
 
+
+/**
+ * Creates a SVC/SMC event.
+ *
+ * @returns Status code.
+ * @param   hTrace                  The trace handle, NULL means default.
+ * @param   enmContentType          The content type of desdcriptor.
+ * @param   enmSeverity             The severity of the event.
+ * @param   enmOrigin               The origin of the event.
+ * @param   idxSmc                  The SMC number being executed.
+ * @param   fEntry                  Flag whether this SVC entry or return.
+ * @param   pszMsg                  Additional message to log.
+ */
+static int pspEmuTraceEvtAddSvmc(PSPTRACE hTrace, PSPTRACEEVTCONTENTTYPE enmContentType,
+                                 PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                                 uint32_t idxSvmc, bool fEntry, const char *pszMsg)
+{
+    int rc = STS_INF_SUCCESS;
+    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmEvtOrigin);
+    if (pThis)
+    {
+        PPSPTRACEEVT pEvt;
+        size_t cchMsg = pszMsg ? strlen(pszMsg) + 1 : 0;
+        size_t cbAlloc = sizeof(PSPTRACEEVTSVMC) + cchMsg;
+        rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, enmContentType, cbAlloc, &pEvt);
+        if (!rc)
+        {
+            PPSPTRACEEVTSVMC pSvmc = (PPSPTRACEEVTSVMC)&pEvt->abContent[0];
+            pSvmc->fEntry  = fEntry;
+            pSvmc->idxSvmc = idxSvmc;
+
+            /* Query the arguments from the core. */
+            static const PSPCOREREG s_aSvmcRegQuery[] =
+            {
+                PSPCOREREG_R0,
+                PSPCOREREG_R1,
+                PSPCOREREG_R2,
+                PSPCOREREG_R3
+            };
+
+            PSPEmuCoreQueryRegBatch(pThis->hPspCore, &s_aSvmcRegQuery[0], ELEMENTS(s_aSvmcRegQuery), &pSvmc->au32ArgsRet[0]);
+            if (pszMsg)
+                memcpy(&pSvmc->szMsg[0], pszMsg, cchMsg);
+            else
+                pSvmc->szMsg[0] = '\0'; /* Make sure it is terminated. */
+            rc = pspEmuTraceFlushMaybe(pThis);
+        }
+    }
+
+    return rc;
+}
 
 int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
                       uint32_t cEvtsBuffer, PFNPSPTRACEFLUSH pfnFlush, void *pvUser)
@@ -869,37 +927,12 @@ int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, 
 int PSPEmuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
                          uint32_t idxSvc, bool fEntry, const char *pszMsg)
 {
-    int rc = 0;
-    PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmEvtOrigin);
-    if (pThis)
-    {
-        PPSPTRACEEVT pEvt;
-        size_t cchMsg = pszMsg ? strlen(pszMsg) + 1 : 0;
-        size_t cbAlloc = sizeof(PSPTRACEEVTSVC) + cchMsg;
-        rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_SVC, cbAlloc, &pEvt);
-        if (!rc)
-        {
-            PPSPTRACEEVTSVC pSvc = (PPSPTRACEEVTSVC)&pEvt->abContent[0];
-            pSvc->fEntry = fEntry;
-            pSvc->idxSvc = idxSvc;
-
-            /* Query the arguments from the core. */
-            static const PSPCOREREG s_aSvcRegQuery[] =
-            {
-                PSPCOREREG_R0,
-                PSPCOREREG_R1,
-                PSPCOREREG_R2,
-                PSPCOREREG_R3
-            };
-
-            PSPEmuCoreQueryRegBatch(pThis->hPspCore, &s_aSvcRegQuery[0], ELEMENTS(s_aSvcRegQuery), &pSvc->au32ArgsRet[0]);
-            if (pszMsg)
-                memcpy(&pSvc->szMsg[0], pszMsg, cchMsg);
-            else
-                pSvc->szMsg[0] = '\0'; /* Make sure it is terminated. */
-            rc = pspEmuTraceFlushMaybe(pThis);
-        }
-    }
-
-    return rc;
+    return pspEmuTraceEvtAddSvmc(hTrace, PSPTRACEEVTCONTENTTYPE_SVC, enmSeverity, enmEvtOrigin, idxSvc, fEntry, pszMsg);
 }
+
+int PSPEmuTraceEvtAddSmc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                         uint32_t idxSmc, bool fEntry, const char *pszMsg)
+{
+    return pspEmuTraceEvtAddSvmc(hTrace, PSPTRACEEVTCONTENTTYPE_SMC, enmSeverity, enmEvtOrigin, idxSmc, fEntry, pszMsg);
+}
+

@@ -77,6 +77,8 @@ typedef enum PSPTRACEEVTORIGIN
     PSPTRACEEVTORIGIN_X86_MEM,
     /** Syscall emulation related. */
     PSPTRACEEVTORIGIN_SVC,
+    /** SMC emulation related. */
+    PSPTRACEEVTORIGIN_SMC,
     /** Cryptographic Co-processor related. */
     PSPTRACEEVTORIGIN_CCP,
     /** Status device related. */
@@ -259,5 +261,19 @@ int PSPEmuTraceEvtAddDevWrite(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, 
  */
 int PSPEmuTraceEvtAddSvc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
                          uint32_t idxSvc, bool fEntry, const char *pszMsg);
+
+/**
+ * Adds smc event.
+ *
+ * @returns Status code.
+ * @param   hTrace                  The trace handle, NULL means default.
+ * @param   enmSeverity             The severity of the event.
+ * @param   enmOrigin               The origin of the event.
+ * @param   idxSmc                  The SMC number being executed.
+ * @param   fEntry                  Flag whether this SVC entry or return.
+ * @param   pszMsg                  Additional message to log.
+ */
+int PSPEmuTraceEvtAddSmc(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPTRACEEVTORIGIN enmEvtOrigin,
+                         uint32_t idxSmc, bool fEntry, const char *pszMsg);
 
 #endif /* __psp_trace_h */
