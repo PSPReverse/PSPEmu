@@ -41,6 +41,7 @@
 
 #include <psp-dbg.h>
 #include <psp-cov.h>
+#include <psp-trace.h>
 
 
 /** Pointer to the debugger instance data. */
@@ -868,6 +869,21 @@ static int gdbStubCmdQueryPAddrFromVAddr(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP
 /**
  * @copydoc{GDBSTUBCMD,pfnCmd}
  */
+static int gdbStubCmdTraceMarker(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    int rc = PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_DBG,
+                                     "%s", pszArgs);
+    if (STS_FAILURE(rc))
+        pHlp->pfnPrintf(pHlp, "ADding trace marker failed with %d\n", rc);
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
 static int gdbStubCmdInsnStepCnt(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
@@ -908,6 +924,7 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "covtracedump", "Dumps a coverage trace to the given file, arguments: <id> <filename>",                            gdbStubCmdCovTraceDump         },
     { "covtracedel",  "Delete a coverage tracer, arguments: <id>",                                                       gdbStubCmdCovTraceDel          },
     { "va2pa",        "Resolves the given virtual address to a physical one",                                            gdbStubCmdQueryPAddrFromVAddr  },
+    { "tracemarker",  "Dumps the marker given as a string to the trace log",                                             gdbStubCmdTraceMarker          },
     { "insnstepcnt",  "Sets the instruction step count for one debug runloop round, US AT OWN RISK!",                    gdbStubCmdInsnStepCnt          },
     { NULL,           NULL,                                                                                              NULL                           }
 };
