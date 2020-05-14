@@ -39,6 +39,22 @@
 
 
 /**
+ * Memory region descriptor added on demand.
+ */
+typedef struct PSPCCDMEMREGION
+{
+    /** Pointer to the next memory region. */
+    struct PSPCCDMEMREGION      *pNext;
+    /** Address space. */
+    PSPADDRSPACE                enmAddrSpace;
+    /** The I/O manager handle. */
+    PSPIOMREGIONHANDLE          hIoMgrRegion;
+} PSPCCDMEMREGION;
+/** Pointer to a memory region descriptor. */
+typedef PSPCCDMEMREGION *PPSPCCDMEMREGION;
+
+
+/**
  * A single CCD instance.
  */
 typedef struct PSPCCDINT
@@ -59,6 +75,8 @@ typedef struct PSPCCDINT
     PSPIOMREGIONHANDLE          hSmnRegId;
     /** Head of the instantiated devices. */
     PPSPDEV                     pDevsHead;
+    /** Head of on demand created memory regions. */
+    PPSPCCDMEMREGION            pMemRegionsTmpHead;
     /** The socket ID. */
     uint32_t                    idSocket;
     /** The CCD ID. */
@@ -411,6 +429,53 @@ static int pspEmuCcdDevicesReset(PPSPCCDINT pThis)
 
 
 /**
+ * Create temporary memory regions given on the command line.
+ *
+ * @returns Status code.
+ * @param   pThis                   The CCD instance to create memory for.
+ * @param   pCfg                    The global config.
+ */
+static int pspEmuCcdMemRegionsTmpCreate(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
+{
+    int rc = STS_INF_SUCCESS;
+
+    for (uint32_t i = 0; i < pCfg->cMemCreate && STS_SUCCESS(rc); i++)
+    {
+        PCPSPEMUCFGMEMREGIONCREATE pMemRegion = &pCfg->paMemCreate[i];
+        PPSPCCDMEMREGION pMem = (PPSPCCDMEMREGION)calloc(1, sizeof(*pMem));
+
+        if (pMem)
+        {
+            switch (pMemRegion->enmAddrSpace)
+            {
+                case PSPADDRSPACE_X86:
+                    rc = PSPEmuIoMgrX86MemRegister(pThis->hIoMgr, pMemRegion->u.PhysX86Addr, pMemRegion->cbRegion, true /*fCanExec*/,
+                                                   NULL /*pfnFetch*/, NULL, "TmpMemory", &pMem->hIoMgrRegion);
+                    break;
+                case PSPADDRSPACE_SMN:
+                case PSPADDRSPACE_PSP:
+                default:
+                    rc = STS_ERR_INVALID_PARAMETER; /** @todo */
+                    break;
+            }
+
+            if (STS_SUCCESS(rc))
+            {
+                pMem->pNext = pThis->pMemRegionsTmpHead;
+                pThis->pMemRegionsTmpHead = pMem;
+            }
+            else
+                free(pMem);
+        }
+        else
+            rc = STS_ERR_NO_MEMORY;
+    }
+
+    return rc;
+}
+
+
+/**
  * Preload any memory descriptors.
  *
  * @returns Status code.
@@ -549,6 +614,8 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         && pCfg->cbAppPreload)
         rc = PSPEmuCoreMemWrite(pThis->hPspCore, 0x15000, pCfg->pvAppPreload, pCfg->cbAppPreload);
 
+    if (!rc)
+        rc = pspEmuCcdMemRegionsTmpCreate(pThis, pCfg);
     if (!rc)
         rc = pspEmuCcdMemPreload(pThis, pCfg);
 
@@ -706,11 +773,12 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
     PPSPCCDINT pThis = (PPSPCCDINT)calloc(1, sizeof(*pThis));
     if (pThis)
     {
-        pThis->pCfg            = pCfg;
-        pThis->idSocket        = idSocket;
-        pThis->idCcd           = idCcd;
-        pThis->fRegSmnHandlers = false;
-        pThis->hCov            = NULL;
+        pThis->pCfg               = pCfg;
+        pThis->idSocket           = idSocket;
+        pThis->idCcd              = idCcd;
+        pThis->fRegSmnHandlers    = false;
+        pThis->hCov               = NULL;
+        pThis->pMemRegionsTmpHead = NULL;
 
         rc = PSPEmuCoreCreate(&pThis->hPspCore);
         if (!rc)

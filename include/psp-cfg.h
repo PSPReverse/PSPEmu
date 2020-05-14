@@ -137,6 +137,32 @@ typedef CCPPROXY *PCCPPROXY;
 
 
 /**
+ * Create memory region descriptor.
+ */
+typedef struct PSPEMUCFGMEMREGIONCREATE
+{
+    /** Address space to create the region in. */
+    PSPADDRSPACE            enmAddrSpace;
+    /** Size of the region to create. */
+    size_t                  cbRegion;
+    /** Address in the address space to preload. */
+    union
+    {
+        /** Physical PSP address of the region. */
+        PSPPADDR            PspAddr;
+        /** SMN address of the region. */
+        SMNADDR             SmnAddr;
+        /** Physical x86 address of the region. */
+        X86PADDR            PhysX86Addr;
+    } u;
+} PSPEMUCFGMEMREGIONCREATE;
+/** Pointer to a create memory region descriptor. */
+typedef PSPEMUCFGMEMREGIONCREATE *PPSPEMUCFGMEMREGIONCREATE;
+/** Pointer to a const create memory region descriptor. */
+typedef const PSPEMUCFGMEMREGIONCREATE *PCPSPEMUCFGMEMREGIONCREATE;
+
+
+/**
  * Preload memory descriptor.
  */
 typedef struct PSPEMUCFGMEMPRELOAD
@@ -251,6 +277,10 @@ typedef struct PSPEMUCFG
     uint32_t                cSockets;
     /** Number of CCDs per socket to emulate. */
     uint32_t                cCcdsPerSocket;
+    /** Array of memory region descriptors to create on demand. */
+    PCPSPEMUCFGMEMREGIONCREATE paMemCreate;
+    /** Number of entries in the create memory region descriptor array. */
+    uint32_t                cMemCreate;
     /** Array of memory descriptors to pre load with data. */
     PCPSPEMUCFGMEMPRELOAD   paMemPreload;
     /** Number of entries in the memory preload descriptor array. */
