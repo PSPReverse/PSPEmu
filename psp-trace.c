@@ -51,6 +51,22 @@ typedef enum PSPTRACEEVTCONTENTTYPE
 
 
 /**
+ * String descriptor.
+ */
+typedef struct PSPTRACEEVTSTR
+{
+    /** Number of lines encoded in the following.string array. */
+    uint32_t                        cLines;
+    /** String content. */
+    char                            achStr[1];
+} PSPTRACEEVTSTR;
+/** Pointer to a string descriptor. */
+typedef PSPTRACEEVTSTR *PPSPTRACEEVTSTR;
+/** Pointer to a const string descriptor. */
+typedef const PSPTRACEEVTSTR *PCPSPTRACEEVTSTR;
+
+
+/**
  * Data transfer descriptor.
  */
 typedef struct PSPTRACEEVTXFER
@@ -358,20 +374,20 @@ static int pspEmuTraceEvtCreateAndLink(PPSPTRACEINT pThis, PSPTRACEEVTSEVERITY e
 
 
 /**
- * Dumps the given trace event to the given file.
+ * Creates the common prefix for a single given event.
  *
- * @returns Status code.
+ * @returns Pointer to the start of the prefix on success or NULL if buffer is too small.
  * @param   pThis                   The trace log instance data.
+ * @param   pszBuf                  The buffer to store the prefix in.
+ * @param   cbBuf                   Size of the buffer in bytes.
  * @param   fFlags                  The flags controlling what gets dumped.
  * @param   pEvt                    The trace event to dump.
  */
-static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT pEvt)
+static const char *pspEmuTraceEvtDumpPrefixCreate(PPSPTRACEINT pThis, char *pszBuf, size_t cbBuf,
+                                                  uint32_t fFlags, PCPSPTRACEEVT pEvt)
 {
-    char achBuf[_4K];
-    char *pszCur = &achBuf[0];
-    size_t cchLeft = sizeof(achBuf);
-    void *pvData = NULL;
-    size_t cbData = 0;
+    char *pszCur = pszBuf;
+    size_t cchLeft = cbBuf;
     const char *pszEvtSeverity = pspEmuTraceGetEvtSeverityStr(pEvt->enmSeverity);
     const char *pszEvtOrigin = pspEmuTraceGetEvtOriginStr(pEvt->enmOrigin);
 
@@ -380,7 +396,7 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
     int rcStr = snprintf(pszCur, cchLeft, "%08u ", pEvt->idTraceEvt);
     if (   rcStr < 0
         || rcStr >= cchLeft)
-        return -1;
+        return NULL;
 
     pszCur  += rcStr;
     cchLeft -= rcStr;
@@ -391,7 +407,7 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
         rcStr = snprintf(pszCur, cchLeft, "%16u ", pEvt->tsTraceEvtNs);
         if (   rcStr < 0
             || rcStr >= cchLeft)
-            return -1;
+            return NULL;
 
         pszCur  += rcStr;
         cchLeft -= rcStr;
@@ -401,7 +417,7 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
     rcStr = snprintf(pszCur, cchLeft, "%16s ", pszEvtSeverity);
     if (   rcStr < 0
         || rcStr >= cchLeft)
-        return -1;
+        return NULL;
 
     pszCur  += rcStr;
     cchLeft -= rcStr;
@@ -410,7 +426,7 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
     rcStr = snprintf(pszCur, cchLeft, "%16s ", pszEvtOrigin);
     if (   rcStr < 0
         || rcStr >= cchLeft)
-        return -1;
+        return NULL;
 
     pszCur  += rcStr;
     cchLeft -= rcStr;
@@ -428,24 +444,60 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
                          pEvt->CoreState.PspPAddrPgTblRoot);
         if (   rcStr < 0
             || rcStr >= cchLeft)
-            return -1;
+            return NULL;
 
         pszCur  += rcStr;
         cchLeft -= rcStr;
     }
+
+    return pszBuf;
+}
+
+
+/**
+ * Dumps the given trace event to the given file.
+ *
+ * @returns Status code.
+ * @param   pThis                   The trace log instance data.
+ * @param   fFlags                  The flags controlling what gets dumped.
+ * @param   pEvt                    The trace event to dump.
+ */
+static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT pEvt)
+{
+    char achPrefix[512];
+    char achBuf[_4K];
+    char *pszCur = &achBuf[0];
+    size_t cchLeft = sizeof(achBuf);
+    void *pvData = NULL;
+    size_t cbData = 0;
+    int rcStr = 0;
+
+    const char *pszPrefix = pspEmuTraceEvtDumpPrefixCreate(pThis, &achPrefix[0], sizeof(achPrefix),
+                                                           fFlags, pEvt);
+    if (!pszPrefix)
+        return -1;
 
     /* Now the content specific data. */
     switch (pEvt->enmContent)
     {
         case PSPTRACEEVTCONTENTTYPE_STRING:
         {
-            rcStr = snprintf(pszCur, cchLeft, "STRING \"%s\"", (const char *)&pEvt->abContent[0]);
-            if (   rcStr < 0
-                || rcStr >= cchLeft)
-                return -1;
+            PPSPTRACEEVTSTR pStr = (PPSPTRACEEVTSTR)&pEvt->abContent[0];
+            const char *pszStr = &pStr->achStr[0];
 
-            pszCur  += rcStr;
-            cchLeft -= rcStr;
+            for (uint32_t i = 0; i < pStr->cLines; i++)
+            {
+                rcStr = snprintf(pszCur, cchLeft, "%sSTRING \"%s\"%s",
+                                 pszPrefix, pszStr, i == pStr->cLines - 1 ? "" : "\n");
+                if (   rcStr < 0
+                    || rcStr >= cchLeft)
+                    return -1;
+
+                pszStr   = strchr(pszStr, '\0') + 1;
+                pszCur  += rcStr;
+                cchLeft -= rcStr;
+            }
+
             break;
         }
         case PSPTRACEEVTCONTENTTYPE_XFER:
@@ -457,7 +509,8 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
         {
             PPSPTRACEEVTDEVXFER pDevXfer = (PPSPTRACEEVTDEVXFER)&pEvt->abContent[0];
 
-            rcStr = snprintf(pszCur, cchLeft, "DEV %s %-32s %#16lx %u",
+            rcStr = snprintf(pszCur, cchLeft, "%sDEV %s %-32s %#16lx %u",
+                             pszPrefix,
                              pDevXfer->fRead ? "READ " : "WRITE",
                              pDevXfer->pszDevId,
                              pDevXfer->uAddrDev,
@@ -515,7 +568,8 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
         {
             PPSPTRACEEVTSVMC pSvmc = (PPSPTRACEEVTSVMC)&pEvt->abContent[0];
 
-            rcStr = snprintf(pszCur, cchLeft, "%s %s %#x ",
+            rcStr = snprintf(pszCur, cchLeft, "%s%s %s %#x ",
+                             pszPrefix,
                              pEvt->enmContent == PSPTRACEEVTCONTENTTYPE_SVC ? "SVC" : "SMC",
                              pSvmc->fEntry ? "ENTRY" : "EXIT ",
                              pSvmc->idxSvmc);
@@ -856,12 +910,27 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, P
             if (rcStr)
             {
                 PPSPTRACEEVT pEvt;
-                size_t cbAlloc = rcStr + 1; /* Include terminator. */
+                size_t cbStr = rcStr + 1; /* Include terminator. */
+                size_t cbAlloc = cbStr + sizeof(PSPTRACEEVTSTR);
 
                 rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_STRING, cbAlloc, &pEvt);
                 if (!rc)
                 {
-                    memcpy(&pEvt->abContent[0], pszStart, cbAlloc);
+                    PPSPTRACEEVTSTR pStr = (PPSPTRACEEVTSTR)&pEvt->abContent[0];
+
+                    /* Count number of lines. */
+                    uint32_t cLines = 0;
+                    char *pszCur = pszStart;
+                    do
+                    {
+                        cLines++;
+                        pszCur = strchr(pszCur, '\n');
+                        if (pszCur)
+                            *pszCur++ = '\0';
+                    } while (pszCur);
+
+                    pStr->cLines = cLines;
+                    memcpy(&pStr->achStr[0], pszStart, cbStr);
                     rc = pspEmuTraceFlushMaybe(pThis);
                 }
             }
