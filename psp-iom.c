@@ -1283,16 +1283,17 @@ static void pspEmuIoMgrMmioSmnCtrlWrite(PSPADDR offMmio, size_t cbWrite, const v
 
 static void pspEmuIoMgrX86MapSlotDump(PPSPIOMX86MAPCTRLSLOT pX86Slot, uint32_t idxSlot)
 {
-    printf("MMIO/X86: Slot %u\n"
-           "    u32RegX86BaseAddr: 0x%08x (PhysX86Base=0x%016llx)\n"
-           "    u32RegUnk1:        0x%08x\n"
-           "    u32RegUnk2:        0x%08x\n"
-           "    u32RegUnk3:        0x%08x\n"
-           "    u32RegUnk4:        0x%08x\n"
-           "    u32RegUnk5:        0x%08x\n", idxSlot,
-           pX86Slot->u32RegX86BaseAddr, pX86Slot->PhysX86Base,
-           pX86Slot->u32RegUnk1, pX86Slot->u32RegUnk2,
-           pX86Slot->u32RegUnk3, pX86Slot->u32RegUnk4, pX86Slot->u32RegUnk5);
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_X86,
+                            "MMIO/X86: Slot %u\n"
+                            "    u32RegX86BaseAddr: 0x%08x (PhysX86Base=0x%016llx)\n"
+                            "    u32RegUnk1:        0x%08x\n"
+                            "    u32RegUnk2:        0x%08x\n"
+                            "    u32RegUnk3:        0x%08x\n"
+                            "    u32RegUnk4:        0x%08x\n"
+                            "    u32RegUnk5:        0x%08x\n", idxSlot,
+                            pX86Slot->u32RegX86BaseAddr, pX86Slot->PhysX86Base,
+                            pX86Slot->u32RegUnk1, pX86Slot->u32RegUnk2,
+                            pX86Slot->u32RegUnk3, pX86Slot->u32RegUnk4, pX86Slot->u32RegUnk5);
 }
 
 
