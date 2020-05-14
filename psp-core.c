@@ -200,6 +200,14 @@ typedef struct PSPCORECPBANK
     uint32_t                u32RegDfar;
     /** IFAR register. */
     uint32_t                u32RegIfar;
+    /** CONTEXTIDR register. */
+    uint32_t                u32RegContextId;
+    /** TPIDRURW register. */
+    uint32_t                u32RegTpIdURw;
+    /** TPIDRURO register. */
+    uint32_t                u32RegTpIdURo;
+    /** TPIDRPRW register. */
+    uint32_t                u32RegTpIdPRw;
 } PSPCORECPBANK;
 /** Pointer to a set of banked Co-Processor registers. */
 typedef PSPCORECPBANK *PPSPCORECPBANK;
@@ -767,14 +775,11 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
     PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
     PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
 
-    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
-                            "pspEmuCoreCpWriteWrapper: uAddr=%#llx uCp=%#x uCrn=%#x uCrm=%#x uOpc0=%#x uOpc1=%#x uOpc2=%#x u64Val=%#llx\n",
-                            uAddrPc, uCp, uCrn, uCrm, uOpc0, uOpc1, uOpc2, u64Val);
-
     /*
      * Check whether the MMU status changed and cause the emulation to stop so we
      * can adjust the memory layout.
      */
+    bool fHandled = true;
     if (   uCp == 15
         && uCrn == 1
         && uCrm == 0
@@ -789,52 +794,38 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
 
         /* Store a copy of the SCTRL register. */
         pCpBank->u32RegSctrl = (uint32_t)u64Val;
+        fHandled = false; /* To sync unicorns own copy. */
     }
     else if (   uCp == 15
              && uCrn == 2
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         pCpBank->u32RegTtbr0 = (uint32_t)u64Val;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 2
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 2)
-    {
         pCpBank->u32RegTtbcr = (uint32_t)u64Val;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 12
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         pCpBank->u32RegVBar = (uint32_t)u64Val;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 12
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 1)
-    {
         pCpBank->u32RegMVBar = (uint32_t)u64Val;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 7
              && uCrm == 4
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         pCpBank->u32RegPa = (uint32_t)u64Val;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 7
              && uCrm == 8
@@ -852,7 +843,6 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
             pCpBank->u32RegPa = PspPAddrPg;
         else
             pCpBank->u32RegPa = 0x1;
-        return true;
     }
     else if (   uCp == 15
              && uCrn == 1
@@ -869,47 +859,63 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
         }
 
         pThis->Cp15.u32RegScr = (uint32_t)u64Val;
-        return true;
     }
     else if (   uCp == 15
              && uCrn == 5
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         pCpBank->u32RegDfsr = (uint32_t)u64Val;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 5
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 1)
-    {
         pCpBank->u32RegIfsr = (uint32_t)u64Val;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 6
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         pCpBank->u32RegDfar = (uint32_t)u64Val;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 6
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         pCpBank->u32RegIfar = (uint32_t)u64Val;
-        return true;
+    else if (   uCp == 15
+             && uCrn == 13
+             && uCrm == 0
+             && uOpc1 == 0)
+    {
+        switch (uOpc2)
+        {
+            case 1:
+                pCpBank->u32RegContextId = (uint32_t)u64Val;
+                break;
+            case 2:
+                pCpBank->u32RegTpIdURw = (uint32_t)u64Val;
+                break;
+            case 3:
+                pCpBank->u32RegTpIdURo = (uint32_t)u64Val;
+                break;
+            case 4:
+                pCpBank->u32RegTpIdPRw = (uint32_t)u64Val;
+                break;
+            default:
+                fHandled = false;
+                break;
+        }
     }
+    else
+        fHandled = false;
     /** @todo TTBR0, TTBR1 and TTBCR writes should cause a stop as well. */
 
-    return false;
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                            "CO-PROC WRITE: uCp=%u uCrn=%u uCrm=%u uOpc1=%u uOpc2=%u u64Val=%#llx fHandled=%u\n",
+                            uCp, uCrn, uCrm, uOpc1, uOpc2, u64Val, fHandled);
+    return fHandled;
 }
 
 
@@ -934,113 +940,105 @@ static bool pspEmuCoreCpReadWrapper(struct uc_struct *pUcEngine, uint64_t uAddrP
     PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
     PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
 
-    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
-                            "pspEmuCoreCpReadWrapper: uAddr=%#llx uCp=%#x uCrn=%#x uCrm=%#x uOpc0=%#x uOpc1=%#x uOpc2=%#x\n",
-                            uAddrPc, uCp, uCrn, uCrm, uOpc0, uOpc1, uOpc2);
-
+    *pu64Val = 0;
+    bool fHandled = true;
     if (   uCp == 15
         && uCrn == 1
         && uCrm == 0
         && uOpc1 == 0
         && uOpc2 == 0)
-    {
         *pu64Val = pCpBank->u32RegSctrl;
-        return true;
-    }
     else if (   uCp == 15
         && uCrn == 7
         && uCrm == 4
         && uOpc1 == 0
         && uOpc2 == 0)
-    {
         *pu64Val = pCpBank->u32RegPa;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 2
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         *pu64Val = pCpBank->u32RegTtbr0;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 2
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 2)
-    {
         *pu64Val = pCpBank->u32RegTtbcr;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 12
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         *pu64Val = pCpBank->u32RegVBar;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 12
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 1)
-    {
         *pu64Val = pCpBank->u32RegVBar;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 1
              && uCrm == 1
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         *pu64Val = pThis->Cp15.u32RegScr;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 5
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         *pu64Val = pCpBank->u32RegDfsr;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 5
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 1)
-    {
         *pu64Val = pCpBank->u32RegIfsr;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 6
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
-                                "pspEmuCoreCpReadWrapper: DFAR=%#lx\n", pCpBank->u32RegDfar);
         *pu64Val = pCpBank->u32RegDfar;
-        return true;
-    }
     else if (   uCp == 15
              && uCrn == 6
              && uCrm == 0
              && uOpc1 == 0
              && uOpc2 == 0)
-    {
         *pu64Val = pCpBank->u32RegIfar;
-        return true;
+    else if (   uCp == 15
+             && uCrn == 13
+             && uCrm == 0
+             && uOpc1 == 0)
+    {
+        switch (uOpc2)
+        {
+            case 1:
+                *pu64Val = pCpBank->u32RegContextId;
+                break;
+            case 2:
+                *pu64Val = pCpBank->u32RegTpIdURw;
+                break;
+            case 3:
+                *pu64Val = pCpBank->u32RegTpIdURo;
+                break;
+            case 4:
+                *pu64Val = pCpBank->u32RegTpIdPRw;
+                break;
+            default:
+                fHandled = false;
+                break;
+        }
     }
+    else
+        fHandled = false;
 
-    return false;
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                            "CO-PROC READ: uCp=%u uCrn=%u uCrm=%u uOpc1=%u uOpc2=%u u64Val=%#llx fHandled=%u\n",
+                            uCp, uCrn, uCrm, uOpc1, uOpc2, *pu64Val, fHandled);
+    return fHandled;
 }
 
 
