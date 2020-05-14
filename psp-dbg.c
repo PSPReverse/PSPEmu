@@ -902,6 +902,92 @@ static int gdbStubCmdDumpCoreState(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp,
 /**
  * @copydoc{GDBSTUBCMD,pfnCmd}
  */
+static int gdbStubCmdDumpX86MapSlotState(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD  hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+    PSPIOM hIoMgr = NULL;
+
+    int rc = PSPEmuCcdQueryIoMgr(hCcd, &hIoMgr);
+    if (rc)
+        return pspEmuDbgErrConvertToGdbStubErr(rc);
+
+    /* Parse all arguments. */
+    const char *pszIdxBegin = pszArgs;
+    const char *pszIdxEnd   = pszIdxBegin ? strchr(pszIdxBegin + 1, ' ') : NULL;
+    if (   pszIdxBegin
+        && pszIdxEnd)
+    {
+        pszIdxEnd++; /* Get past the space. */
+
+        char *pszTmp = NULL;
+        uint32_t idxBegin = strtoul(pszIdxBegin, &pszTmp, 0 /*base*/);
+        if (   pszTmp != pszIdxBegin
+            && *pszTmp == ' ')
+        {
+            uint32_t idxEnd = strtoul(pszIdxEnd, &pszTmp, 0 /*base*/);
+            if (   pszTmp != pszIdxEnd
+                && *pszTmp == '\0')
+                PSPEmuIoMgrX86MapSlotDump(hIoMgr, idxBegin, idxEnd);
+            else
+                pHlp->pfnPrintf(pHlp, "Invalid characters in end index detected: \"%s\"\n", pszArgs);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Invalid characters in start index detected: \"%s\"\n", pszArgs);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly two arguments: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdDumpSmnMapSlotState(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD  hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+    PSPIOM hIoMgr = NULL;
+
+    int rc = PSPEmuCcdQueryIoMgr(hCcd, &hIoMgr);
+    if (rc)
+        return pspEmuDbgErrConvertToGdbStubErr(rc);
+
+    /* Parse all arguments. */
+    const char *pszIdxBegin = pszArgs;
+    const char *pszIdxEnd   = pszIdxBegin ? strchr(pszIdxBegin + 1, ' ') : NULL;
+    if (   pszIdxBegin
+        && pszIdxEnd)
+    {
+        pszIdxEnd++; /* Get past the space. */
+
+        char *pszTmp = NULL;
+        uint32_t idxBegin = strtoul(pszIdxBegin, &pszTmp, 0 /*base*/);
+        if (   pszTmp != pszIdxBegin
+            && *pszTmp == ' ')
+        {
+            uint32_t idxEnd = strtoul(pszIdxEnd, &pszTmp, 0 /*base*/);
+            if (   pszTmp != pszIdxEnd
+                && *pszTmp == '\0')
+                PSPEmuIoMgrSmnMapSlotDump(hIoMgr, idxBegin, idxEnd);
+            else
+                pHlp->pfnPrintf(pHlp, "Invalid characters in end index detected: \"%s\"\n", pszArgs);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Invalid characters in start index detected: \"%s\"\n", pszArgs);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly two arguments: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
 static int gdbStubCmdInsnStepCnt(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
@@ -944,6 +1030,8 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "va2pa",        "Resolves the given virtual address to a physical one",                                            gdbStubCmdQueryPAddrFromVAddr  },
     { "tracemarker",  "Dumps the marker given as a string to the trace log",                                             gdbStubCmdTraceMarker          },
     { "corestate",    "Dumps the core state to the trace log",                                                           gdbStubCmdDumpCoreState        },
+    { "x86mapslot",   "Dumps the x86 mapslot info to the trace log, arguments: <idx start> <idx end>",                   gdbStubCmdDumpX86MapSlotState  },
+    { "smnmapslot",   "Dumps the SMN mapslot info to the trace log, arguments: <idx start> <idx end>",                   gdbStubCmdDumpSmnMapSlotState  },
     { "insnstepcnt",  "Sets the instruction step count for one debug runloop round, US AT OWN RISK!",                    gdbStubCmdInsnStepCnt          },
     { NULL,           NULL,                                                                                              NULL                           }
 };
