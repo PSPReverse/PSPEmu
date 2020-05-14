@@ -564,11 +564,14 @@ static const char *pspDevCcpReqEngineToStr(uint32_t uEngine)
  * Extracts and dumps information about the given AES function.
  *
  * @returns nothing.
+ * @param   pszBuf              The buffer to dump into.
+ * @param   cbBuf               Size of the buffer in bytes.
  * @param   uFunc               The function part of dword 0.
  * @param   u32Dw0Raw           The raw dw0 value used for dumping.
  * @param   pszEngine           The used engine string.
  */
-static void pspDevCcpReqDumpAesFunction(uint32_t uFunc, uint32_t u32Dw0Raw, const char *pszEngine)
+static void pspDevCcpReqDumpAesFunction(char *pszBuf, size_t cbBuf, uint32_t uFunc,
+                                        uint32_t u32Dw0Raw, const char *pszEngine)
 {
     uint8_t uSz      = CCP_V5_ENGINE_AES_SZ_GET(uFunc);
     uint8_t fEncrypt = CCP_V5_ENGINE_AES_ENCRYPT_GET(uFunc);
@@ -625,8 +628,8 @@ static void pspDevCcpReqDumpAesFunction(uint32_t uFunc, uint32_t u32Dw0Raw, cons
             break;
     }
 
-    printf("    u32Dw0:             0x%08x (Engine: %s, AES Type: %s, Mode: %s, Encrypt: %u, Size: %u)\n",
-                                    u32Dw0Raw, pszEngine, pszAesType, pszMode, fEncrypt, uSz);
+    snprintf(pszBuf, cbBuf, "u32Dw0:             0x%08x (Engine: %s, AES Type: %s, Mode: %s, Encrypt: %u, Size: %u)",
+                                                 u32Dw0Raw, pszEngine, pszAesType, pszMode, fEncrypt, uSz);
 }
 
 
@@ -634,11 +637,14 @@ static void pspDevCcpReqDumpAesFunction(uint32_t uFunc, uint32_t u32Dw0Raw, cons
  * Extracts and dumps information about the given SHA function.
  *
  * @returns nothing.
+ * @param   pszBuf              The buffer to dump into.
+ * @param   cbBuf               Size of the buffer in bytes.
  * @param   uFunc               The function part of dword 0.
  * @param   u32Dw0Raw           The raw dw0 value used for dumping.
  * @param   pszEngine           The used engine string.
  */
-static void pspDevCcpReqDumpShaFunction(uint32_t uFunc, uint32_t u32Dw0Raw, const char *pszEngine)
+static void pspDevCcpReqDumpShaFunction(char *pszBuf, size_t cbBuf, uint32_t uFunc,
+                                        uint32_t u32Dw0Raw, const char *pszEngine)
 {
     uint32_t uShaType = CCP_V5_ENGINE_SHA_TYPE_GET(uFunc);
     const char *pszShaType = "<INVALID>";
@@ -662,7 +668,8 @@ static void pspDevCcpReqDumpShaFunction(uint32_t uFunc, uint32_t u32Dw0Raw, cons
             break;
     }
 
-    printf("    u32Dw0:             0x%08x (Engine: %s, SHA type: %s)\n", u32Dw0Raw, pszEngine, pszShaType);
+    snprintf(pszBuf, cbBuf, "u32Dw0:             0x%08x (Engine: %s, SHA type: %s)",
+                                                 u32Dw0Raw, pszEngine, pszShaType);
 }
 
 
@@ -670,11 +677,14 @@ static void pspDevCcpReqDumpShaFunction(uint32_t uFunc, uint32_t u32Dw0Raw, cons
  * Extracts and dumps information about the given PASSTHRU function.
  *
  * @returns nothing.
+ * @param   pszBuf              The buffer to dump into.
+ * @param   cbBuf               Size of the buffer in bytes.
  * @param   uFunc               The function part of dword 0.
  * @param   u32Dw0Raw           The raw dw0 value used for dumping.
  * @param   pszEngine           The used engine string.
  */
-static void pspDevCcpReqDumpPassthruFunction(uint32_t uFunc, uint32_t u32Dw0Raw, const char *pszEngine)
+static void pspDevCcpReqDumpPassthruFunction(char *pszBuf, size_t cbBuf, uint32_t uFunc,
+                                             uint32_t u32Dw0Raw, const char *pszEngine)
 {
     uint8_t uByteSwap = CCP_V5_ENGINE_PASSTHRU_BYTESWAP_GET(uFunc);
     uint8_t uBitwise  = CCP_V5_ENGINE_PASSTHRU_BITWISE_GET(uFunc);
@@ -715,8 +725,8 @@ static void pspDevCcpReqDumpPassthruFunction(uint32_t uFunc, uint32_t u32Dw0Raw,
             break;
     }
 
-    printf("    u32Dw0:             0x%08x (Engine: %s, ByteSwap: %s, Bitwise: %s, Reflect: %#x)\n",
-                                    u32Dw0Raw, pszEngine, pszByteSwap, pszBitwise, uReflect);
+    snprintf(pszBuf, cbBuf, "u32Dw0:             0x%08x (Engine: %s, ByteSwap: %s, Bitwise: %s, Reflect: %#x)",
+                                                 u32Dw0Raw, pszEngine, pszByteSwap, pszBitwise, uReflect);
 }
 
 
@@ -724,17 +734,20 @@ static void pspDevCcpReqDumpPassthruFunction(uint32_t uFunc, uint32_t u32Dw0Raw,
  * Extracts and dumps information about the given RSA function.
  *
  * @returns nothing.
+ * @param   pszBuf              The buffer to dump into.
+ * @param   cbBuf               Size of the buffer in bytes.
  * @param   uFunc               The function part of dword 0.
  * @param   u32Dw0Raw           The raw dw0 value used for dumping.
  * @param   pszEngine           The used engine string.
  */
-static void pspDevCcpReqDumpRsaFunction(uint32_t uFunc, uint32_t u32Dw0Raw, const char *pszEngine)
+static void pspDevCcpReqDumpRsaFunction(char *pszBuf, size_t cbBuf, uint32_t uFunc,
+                                        uint32_t u32Dw0Raw, const char *pszEngine)
 {
     uint16_t uSz   = CCP_V5_ENGINE_RSA_SZ_GET(uFunc);
     uint8_t  uMode = CCP_V5_ENGINE_RSA_MODE_GET(uFunc);
 
-    printf("    u32Dw0:             0x%08x (Engine: %s, Mode: %u, Size: %u)\n",
-                                    u32Dw0Raw, pszEngine, uMode, uSz);
+    snprintf(pszBuf, cbBuf, "u32Dw0:             0x%08x (Engine: %s, Mode: %u, Size: %u)",
+                                                 u32Dw0Raw, pszEngine, uMode, uSz);
 }
 
 
@@ -749,42 +762,59 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
     uint32_t uEngine   = CCP_V5_ENGINE_GET(pReq->u32Dw0);
     uint32_t uFunction = CCP_V5_ENGINE_FUNC_GET(pReq->u32Dw0);
     const char *pszEngine   = pspDevCcpReqEngineToStr(uEngine);
-
-    printf("CCP Request 0x%08x:\n", PspAddrReq);
+    char szDw0[512];
 
     if (uEngine == CCP_V5_ENGINE_AES)
-        pspDevCcpReqDumpAesFunction(uFunction, pReq->u32Dw0, pszEngine);
+        pspDevCcpReqDumpAesFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else if (uEngine == CCP_V5_ENGINE_SHA)
-        pspDevCcpReqDumpShaFunction(uFunction, pReq->u32Dw0, pszEngine);
+        pspDevCcpReqDumpShaFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else if (uEngine == CCP_V5_ENGINE_PASSTHRU)
-        pspDevCcpReqDumpPassthruFunction(uFunction, pReq->u32Dw0, pszEngine);
+        pspDevCcpReqDumpPassthruFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else if (uEngine == CCP_V5_ENGINE_RSA)
-        pspDevCcpReqDumpRsaFunction(uFunction, pReq->u32Dw0, pszEngine);
+        pspDevCcpReqDumpRsaFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else
-        printf("    u32Dw0:             0x%08x (Engine: %s)\n", pReq->u32Dw0, pszEngine);
+        snprintf(&szDw0[0], sizeof(szDw0), "u32Dw0:             0x%08x (Engine: %s)",
+                                                                pReq->u32Dw0, pszEngine);
 
-    printf("    cbSrc:              %u\n",     pReq->cbSrc);
-    printf("    u32AddrSrcLow:      0x%08x\n", pReq->u32AddrSrcLow);
-    printf("    u16AddrSrcHigh:     0x%08x\n", pReq->u16AddrSrcHigh);
-    printf("    u16SrcMemType:      0x%08x (MemType: %u, LsbCtxId: %u, Fixed: %u)\n",
-           pReq->u16SrcMemType, CCP_V5_MEM_TYPE_GET(pReq->u16SrcMemType),
-           CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType), CCP_V5_MEM_LSB_FIXED_GET(pReq->u16SrcMemType));
     if (uEngine != CCP_V5_ENGINE_SHA)
-    {
-        printf("    u32AddrDstLow:      0x%08x\n", pReq->Op.NonSha.u32AddrDstLow);
-        printf("    u16AddrDstHigh:     0x%08x\n", pReq->Op.NonSha.u16AddrDstHigh);
-        printf("    u16DstMemType:      0x%08x (MemType: %u, Fixed: %u)\n",
-               pReq->Op.NonSha.u16DstMemType, CCP_V5_MEM_TYPE_GET(pReq->Op.NonSha.u16DstMemType),
-               CCP_V5_MEM_LSB_FIXED_GET(pReq->Op.NonSha.u16DstMemType));
-    }
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                                "CCP Request 0x%08x:\n"
+                                "    %s\n"
+                                "    cbSrc:              %u\n"
+                                "    u32AddrSrcLow:      0x%08x\n"
+                                "    u16AddrSrcHigh:     0x%08x\n"
+                                "    u16SrcMemType:      0x%08x (MemType: %u, LsbCtxId: %u, Fixed: %u)\n"
+                                "    u32AddrDstLow:      0x%08x\n"
+                                "    u16AddrDstHigh:     0x%08x\n"
+                                "    u16DstMemType:      0x%08x (MemType: %u, Fixed: %u)\n"
+                                "    u32AddrKeyLow:      0x%08x\n"
+                                "    u16AddrKeyHigh:     0x%08x\n"
+                                "    u16KeyMemType:      0x%08x\n",
+                                PspAddrReq, &szDw0[0], pReq->cbSrc, pReq->u32AddrSrcLow, pReq->u16AddrSrcHigh,
+                                pReq->u16SrcMemType, CCP_V5_MEM_TYPE_GET(pReq->u16SrcMemType),
+                                CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType), CCP_V5_MEM_LSB_FIXED_GET(pReq->u16SrcMemType),
+                                pReq->Op.NonSha.u32AddrDstLow, pReq->Op.NonSha.u16AddrDstHigh,
+                                pReq->Op.NonSha.u16DstMemType, CCP_V5_MEM_TYPE_GET(pReq->Op.NonSha.u16DstMemType),
+                                CCP_V5_MEM_LSB_FIXED_GET(pReq->Op.NonSha.u16DstMemType),
+                                pReq->u32AddrKeyLow, pReq->u16AddrKeyHigh, pReq->u16KeyMemType);
     else
-    {
-        printf("    u32ShaBitsLow:      0x%08x\n", pReq->Op.Sha.u32ShaBitsLow);
-        printf("    u32ShaBitsHigh:     0x%08x\n", pReq->Op.Sha.u32ShaBitsHigh);
-    }
-    printf("    u32AddrKeyLow:      0x%08x\n", pReq->u32AddrKeyLow);
-    printf("    u16AddrKeyHigh:     0x%08x\n", pReq->u16AddrKeyHigh);
-    printf("    u16KeyMemType:      0x%08x\n", pReq->u16KeyMemType);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                                "CCP Request 0x%08x:\n"
+                                "    %s\n"
+                                "    cbSrc:              %u\n"
+                                "    u32AddrSrcLow:      0x%08x\n"
+                                "    u16AddrSrcHigh:     0x%08x\n"
+                                "    u16SrcMemType:      0x%08x (MemType: %u, LsbCtxId: %u, Fixed: %u)\n"
+                                "    u32ShaBitsLow:      0x%08x\n"
+                                "    u32ShaBitsHigh:     0x%08x\n"
+                                "    u32AddrKeyLow:      0x%08x\n"
+                                "    u16AddrKeyHigh:     0x%08x\n"
+                                "    u16KeyMemType:      0x%08x\n",
+                                PspAddrReq, &szDw0[0], pReq->cbSrc, pReq->u32AddrSrcLow, pReq->u16AddrSrcHigh,
+                                pReq->u16SrcMemType, CCP_V5_MEM_TYPE_GET(pReq->u16SrcMemType),
+                                CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType), CCP_V5_MEM_LSB_FIXED_GET(pReq->u16SrcMemType),
+                                pReq->Op.Sha.u32ShaBitsLow, pReq->Op.Sha.u32ShaBitsHigh,
+                                pReq->u32AddrKeyLow, pReq->u16AddrKeyHigh, pReq->u16KeyMemType);
 }
 
 
@@ -903,7 +933,7 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
             while (   !rc
                    && cbLeft)
             {
-                uint8_t abData[_4K];
+                uint8_t abData[256];
                 size_t cbThisProc = MIN(cbLeft, sizeof(abData));
 
                 rc = pspDevCcpXferCtxRead(&XferCtx, &abData[0], cbThisProc, NULL);
