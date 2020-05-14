@@ -255,6 +255,7 @@ static const char *pspEmuTraceGetEvtOriginStr(PSPTRACEEVTORIGIN enmOrigin)
         case PSPTRACEEVTORIGIN_LPC:         return "LPC";
         case PSPTRACEEVTORIGIN_X86_UART:    return "X86_UART";
         case PSPTRACEEVTORIGIN_PROXY:       return "PROXY";
+        case PSPTRACEEVTORIGIN_DBG:         return "DBG";
         case PSPTRACEEVTORIGIN_CORE:        return "CORE";
     }
 

@@ -97,6 +97,8 @@ typedef enum PSPTRACEEVTORIGIN
     PSPTRACEEVTORIGIN_X86_UART,
     /** PSP proxy related. */
     PSPTRACEEVTORIGIN_PROXY,
+    /** Debugger related. */
+    PSPTRACEEVTORIGIN_DBG,
     /** PSP core related. */
     PSPTRACEEVTORIGIN_CORE,
     /** Last valid origin. */
