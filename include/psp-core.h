@@ -343,6 +343,16 @@ int PSPEmuCoreMemRegionRemove(PSPCORE hCore, PSPADDR AddrStart, size_t cbRegion)
 int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVMCREG pSvcReg, void *pvUser);
 
 /**
+ * Sets the SMC injection to use for any executed smc instructions.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   pSmcReg                 The SMC injection registration record, use NULL to deregister.
+ * @param   pvUser                  Opaque user data to pass to the svc handlers.
+ */
+int PSPEmuCoreSmcInjectSet(PSPCORE hCore, PCPSPCORESVMCREG pSmcReg, void *pvUser);
+
+/**
  * Sets a specific register to a given value.
  *
  * @returns Status code.

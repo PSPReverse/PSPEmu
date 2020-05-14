@@ -286,6 +286,13 @@ typedef struct PSPCOREINT
     /** The hook for the after SVC breakpoint. */
     uc_hook                 hUcHookSvcAfter;
 
+    /** The SMC injection registartion record set, NULL if no overrides exist. */
+    PCPSPCORESVMCREG        pSmcReg;
+    /** Opaque user data to pass to the SMC handlers. */
+    void                    *pvSmcUser;
+    /** The current smc number being serviced. */
+    uint32_t                idxSmc;
+
     /** CP write hook. */
     uc_hook                 hUcHookCpWrite;
     /** CP read hook. */
@@ -1187,6 +1194,112 @@ static int pspEmuCoreSvcAfter(PPSPCOREINT pThis)
             if (   pSvcDesc->pfnSvmcHnd
                 && pSvcDesc->fFlags & PSPEMU_CORE_SVMC_F_AFTER)
                 pSvcDesc->pfnSvmcHnd(pThis, pThis->idxSvc, PSPEMU_CORE_SVMC_F_AFTER, pThis->pvSvcUser);
+        }
+    }
+
+    return rc;
+}
+
+
+/**
+ * Execute any injected SMC handlers before possibly passing control to the monitor code.
+ *
+ * @returns Status code.
+ * @param   pThis               The PSP emulation code instance.
+ * @param   PspAddrPc           Address of the instruction coming after the SMC instruction.
+ * @param   fThumb              Flag whether the core is currently executing in thumb mode.
+ * @param   pfSwitchToMon       Where to store the flag whether to switch to monitor mode after all
+ *                              handlers where executed.
+ */
+static int pspEmuCoreSmcBefore(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThumb, bool *pfSwitchToMon)
+{
+    int rc = 0;
+    bool fHandled = false; /* Default is to switch to supervisor mode in case there is nothing injected. */
+
+    if (pThis->pSmcReg)
+    {
+        uint32_t idxCall = 0;
+
+        if (fThumb)
+        {
+            uint32_t uInsnSmc;
+            uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 4, &uInsnSmc, sizeof(uInsnSmc));
+            if (rcUc == UC_ERR_OK)
+            {
+                if ((uInsnSmc & 0xfff0ffff) == 0x8000f7f0)
+                    idxCall = (uInsnSmc >> 16) & 0xf;
+                else
+                    rc = -1; /* Should never happen. */
+            }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        }
+        else
+        {
+            uint32_t uInsnSmc;
+            uc_err rcUc = uc_mem_read(pThis->pUcEngine, PspAddrPc - 4, &uInsnSmc, sizeof(uInsnSmc));
+            if (rcUc == UC_ERR_OK)
+            {
+                if ((uInsnSmc & 0x0ffffff0) == 0x01600070)
+                    idxCall = uInsnSmc & 0xf;
+                else
+                    rc = -1; /* Should never happen. */
+            }
+            else
+                rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+        }
+
+        if (!rc)
+        {
+            pThis->idxSmc = idxCall;
+
+            /* Any global handlers?. */
+            if (   pThis->pSmcReg->GlobalSvmc.pfnSvmcHnd
+                && pThis->pSmcReg->GlobalSvmc.fFlags & PSPEMU_CORE_SVMC_F_BEFORE)
+                fHandled = pThis->pSmcReg->GlobalSvmc.pfnSvmcHnd(pThis, idxCall, PSPEMU_CORE_SVMC_F_BEFORE, pThis->pvSmcUser);
+
+            /* Any per SVC handler set?. */
+            if (idxCall < pThis->pSmcReg->cSvmcDescs)
+            {
+                PCPSPCORESVMCDESC pSmcDesc = &pThis->pSmcReg->paSvmcDescs[idxCall];
+                if (   pSmcDesc->pfnSvmcHnd
+                    && pSmcDesc->fFlags & PSPEMU_CORE_SVMC_F_BEFORE)
+                    fHandled = pSmcDesc->pfnSvmcHnd(pThis, idxCall, PSPEMU_CORE_SVMC_F_BEFORE, pThis->pvSmcUser);
+            }
+        }
+    }
+
+    *pfSwitchToMon = fHandled ? false : true;
+
+    return rc;
+}
+
+
+/**
+ * Execute any injected SMC handlers after control was passed to the supervisor code and control is about to
+ * return to the code invoking the SVC.
+ *
+ * @returns Status code.
+ * @param   pThis               The PSP emulation code instance.
+ */
+static int pspEmuCoreSmcAfter(PPSPCOREINT pThis)
+{
+    int rc = 0;
+
+    if (pThis->pSmcReg)
+    {
+        /* Any global handlers?. */
+        if (   pThis->pSmcReg->GlobalSvmc.pfnSvmcHnd
+            && pThis->pSmcReg->GlobalSvmc.fFlags & PSPEMU_CORE_SVMC_F_AFTER)
+            pThis->pSmcReg->GlobalSvmc.pfnSvmcHnd(pThis, pThis->idxSmc, PSPEMU_CORE_SVMC_F_AFTER, pThis->pvSmcUser);
+
+        /* Any per SMC handler set?. */
+        if (pThis->idxSmc < pThis->pSmcReg->cSvmcDescs)
+        {
+            PCPSPCORESVMCDESC pSmcDesc = &pThis->pSvcReg->paSvmcDescs[pThis->idxSvc];
+            if (   pSmcDesc->pfnSvmcHnd
+                && pSmcDesc->fFlags & PSPEMU_CORE_SVMC_F_AFTER)
+                pSmcDesc->pfnSvmcHnd(pThis, pThis->idxSmc, PSPEMU_CORE_SVMC_F_AFTER, pThis->pvSmcUser);
         }
     }
 
@@ -2310,8 +2423,6 @@ static int pspEmuCoreExcpHandle(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThum
 
     if (pThis->enmExcpPending == PSPCOREEXCP_SWI)
     {
-        /* Set new PC, LR, CPSR and SPSR. */
-
         /* Handle any SVC injections before passing control to any supervisor code. */
         bool fSwitchToSvc = true;
         rc = pspEmuCoreSvcBefore(pThis, PspAddrPc, fThumb, &fSwitchToSvc);
@@ -2331,8 +2442,22 @@ static int pspEmuCoreExcpHandle(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThum
     }
     else if (pThis->enmExcpPending == PSPCOREEXCP_SMC)
     {
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "SMC exception");
-        rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_MON, 0x2, PspAddrPc, true /*fUseMVBar*/);
+        /* Handle any SMC injections before passing control to any monitor code. */
+        bool fSwitchToSmc = true;
+        rc = pspEmuCoreSmcBefore(pThis, PspAddrPc, fThumb, &fSwitchToSmc);
+        if (STS_SUCCESS(rc))
+        {
+            if (fSwitchToSmc) /** @todo Set temporary breakpoint to call SVC injection handlers afterwards. */
+                rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_MON, 0x2, PspAddrPc, true /*fUseMVBar*/);
+            else
+            {
+                pspEmuCoreSmcAfter(pThis);
+
+                /* Return to the caller. */
+                PspAddrPc |= fThumb ? 1 : 0;
+                pThis->PspAddrExecNext = PspAddrPc;
+            }
+        }
     }
     else if (pThis->enmExcpPending == PSPCOREEXCP_IRQ)
     {
@@ -2745,6 +2870,15 @@ int PSPEmuCoreSvcInjectSet(PSPCORE hCore, PCPSPCORESVMCREG pSvcReg, void *pvUser
     pThis->pSvcReg   = pSvcReg;
     pThis->pvSvcUser = pvUser;
     return 0;
+}
+
+int PSPEmuCoreSmcInjectSet(PSPCORE hCore, PCPSPCORESVMCREG pSmcReg, void *pvUser)
+{
+    PPSPCOREINT pThis = hCore;
+
+    pThis->pSmcReg   = pSmcReg;
+    pThis->pvSmcUser = pvUser;
+    return STS_INF_SUCCESS;
 }
 
 int PSPEmuCoreSetReg(PSPCORE hCore, PSPCOREREG enmReg, uint32_t uVal)
