@@ -876,7 +876,25 @@ static int gdbStubCmdTraceMarker(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, c
     int rc = PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_DBG,
                                      "%s", pszArgs);
     if (STS_FAILURE(rc))
-        pHlp->pfnPrintf(pHlp, "ADding trace marker failed with %d\n", rc);
+        pHlp->pfnPrintf(pHlp, "Adding trace marker failed with %d\n", rc);
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdDumpCoreState(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD  hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+    PSPCORE hPspCore = NULL;
+
+    int rc = PSPEmuCcdQueryCore(hCcd, &hPspCore);
+    if (rc)
+        return pspEmuDbgErrConvertToGdbStubErr(rc);
+
+    PSPEmuCoreStateDump(hPspCore);
     return GDBSTUB_INF_SUCCESS;
 }
 
@@ -925,6 +943,7 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "covtracedel",  "Delete a coverage tracer, arguments: <id>",                                                       gdbStubCmdCovTraceDel          },
     { "va2pa",        "Resolves the given virtual address to a physical one",                                            gdbStubCmdQueryPAddrFromVAddr  },
     { "tracemarker",  "Dumps the marker given as a string to the trace log",                                             gdbStubCmdTraceMarker          },
+    { "corestate",    "Dumps the core state to the trace log",                                                           gdbStubCmdDumpCoreState        },
     { "insnstepcnt",  "Sets the instruction step count for one debug runloop round, US AT OWN RISK!",                    gdbStubCmdInsnStepCnt          },
     { NULL,           NULL,                                                                                              NULL                           }
 };
