@@ -37,6 +37,7 @@
 
 #include <common/types.h>
 #include <common/cdefs.h>
+#include <common/status.h>
 
 #include <psp-dbg.h>
 #include <psp-cov.h>
@@ -434,6 +435,30 @@ static void pspDbgCovDestroy(PPSPDBGINT pThis, PPSPDBGCOV pCov)
 
 
 /**
+ * Converts the given page table walk status to a human readable string.
+ *
+ * @returns Human readable string.
+ * @param   enmPgTblWalk            The page table walk status.
+ */
+static const char *pspDbgPgTblWalkStsToStr(PSPCOREPGTBLWALKSTS enmPgTblWalk)
+{
+    switch (enmPgTblWalk)
+    {
+        case PSPCOREPGTBLWALKSTS_INVALID:
+            return "INVALID";
+        case PSPCOREPGTBLWALKSTS_NO_MMU:
+            return "NO_MMU";
+        case PSPCOREPGTBLWALKSTS_L1:
+            return "L1";
+        case PSPCOREPGTBLWALKSTS_L2:
+            return "L2";
+    }
+
+    return "<UNKNOWN>";
+}
+
+
+/**
  * @copydoc{FNPSPIOMSMNTRACE}
  */
 static void pspDbgIoSmnTpHit(SMNADDR offSmnAbs, const char *pszDevId, SMNADDR offSmnDev, size_t cbAccess,
@@ -801,6 +826,48 @@ static int gdbStubCmdCovTraceDel(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, c
 /**
  * @copydoc{GDBSTUBCMD,pfnCmd}
  */
+static int gdbStubCmdQueryPAddrFromVAddr(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD  hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+    PSPCORE hPspCore = NULL;
+
+    int rc = PSPEmuCcdQueryCore(hCcd, &hPspCore);
+    if (rc)
+        return pspEmuDbgErrConvertToGdbStubErr(rc);
+
+    /* Parse all arguments. */
+    const char *pszVa = pszArgs;
+    if (pszVa)
+    {
+        char *pszTmp = NULL;
+        PSPVADDR PspVAddr = strtoul(pszVa, &pszTmp, 0);
+        if (   pszVa != pszTmp
+            && *pszTmp == '\0')
+        {
+            PSPPADDR PspPAddr = 0;
+            PSPCOREPGTBLWALKSTS enmPgTblWalk = PSPCOREPGTBLWALKSTS_INVALID;
+            rc = PSPEmuCoreQueryPAddrFromVAddr(hPspCore, PspVAddr, &PspPAddr, &enmPgTblWalk);
+            if (STS_SUCCESS(rc))
+            {
+                pHlp->pfnPrintf(pHlp, "VA[%#x] -> PA[%#x] (%s)\n", PspVAddr, PspPAddr, pspDbgPgTblWalkStsToStr(enmPgTblWalk));
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Virtual address couldn't be resolved (%d)\n", rc);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Virtual address must be numeric: \"%s\"\n", pszVa);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly one argument: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
 static int gdbStubCmdInsnStepCnt(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
@@ -831,17 +898,18 @@ static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const ch
  */
 static const GDBSTUBCMD g_aGdbCmds[] =
 {
-    { "help",         "This help text",                                                                                  gdbStubCmdHelp         },
-    { "restart",      "Restarts the whole emulation",                                                                    gdbStubCmdRestart      },
-    { "reset",        "Restarts the whole emulation",                                                                    gdbStubCmdRestart      }, /* Alias for restart */
-    { "iobp",         "Sets an I/O breakpoint, arguments: mmio|smn|x86 <address> <sz (1,2,4 or 0)> r|w|rw before|after", gdbStubCmdIoBp         },
-    { "iobpdel",      "Deletes an I/O breakpoint, arguments: <id>",                                                      gdbStubCmdIoBpDel      },
-    { "pcset",        "Sets the PC when GDB is too stupid to do it",                                                     gdbStubCmdIoSetPc      },
-    { "covtrace",     "Enable a new coverage trace, arguments: <begin> <end>",                                           gdbStubCmdCovTrace     },
-    { "covtracedump", "Dumps a coverage trace to the given file, arguments: <id> <filename>",                            gdbStubCmdCovTraceDump },
-    { "covtracedel",  "Delete a coverage tracer, arguments: <id>",                                                       gdbStubCmdCovTraceDel  },
-    { "insnstepcnt",  "Sets the instruction step count for one debug runloop round, US AT OWN RISK!",                    gdbStubCmdInsnStepCnt  },
-    { NULL,           NULL,                                                                                              NULL                   }
+    { "help",         "This help text",                                                                                  gdbStubCmdHelp                 },
+    { "restart",      "Restarts the whole emulation",                                                                    gdbStubCmdRestart              },
+    { "reset",        "Restarts the whole emulation",                                                                    gdbStubCmdRestart              }, /* Alias for restart */
+    { "iobp",         "Sets an I/O breakpoint, arguments: mmio|smn|x86 <address> <sz (1,2,4 or 0)> r|w|rw before|after", gdbStubCmdIoBp                 },
+    { "iobpdel",      "Deletes an I/O breakpoint, arguments: <id>",                                                      gdbStubCmdIoBpDel              },
+    { "pcset",        "Sets the PC when GDB is too stupid to do it",                                                     gdbStubCmdIoSetPc              },
+    { "covtrace",     "Enable a new coverage trace, arguments: <begin> <end>",                                           gdbStubCmdCovTrace             },
+    { "covtracedump", "Dumps a coverage trace to the given file, arguments: <id> <filename>",                            gdbStubCmdCovTraceDump         },
+    { "covtracedel",  "Delete a coverage tracer, arguments: <id>",                                                       gdbStubCmdCovTraceDel          },
+    { "va2pa",        "Resolves the given virtual address to a physical one",                                            gdbStubCmdQueryPAddrFromVAddr  },
+    { "insnstepcnt",  "Sets the instruction step count for one debug runloop round, US AT OWN RISK!",                    gdbStubCmdInsnStepCnt          },
+    { NULL,           NULL,                                                                                              NULL                           }
 };
 
 
