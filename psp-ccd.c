@@ -77,21 +77,23 @@ typedef PSPCCDINT *PPSPCCDINT;
 static bool pspEmuSvcTrace(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
 static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser);
 
-#define PSPEMU_CORE_SVC_INIT_NULL                   { NULL, NULL, 0 }
-#define PSPEMU_CORE_SVC_INIT_DEF(a_Name, a_Handler) { a_Name, a_Handler, PSPEMU_CORE_SVMC_F_BEFORE }
+static bool pspEmuSmcTrace(PSPCORE hCore, uint32_t idxCall, uint32_t fFlags, void *pvUser);
+
+#define PSPEMU_CORE_SVMC_INIT_NULL                   { NULL, NULL, 0 }
+#define PSPEMU_CORE_SVMC_INIT_DEF(a_Name, a_Handler) { a_Name, a_Handler, PSPEMU_CORE_SVMC_F_BEFORE }
 
 /**
  * The SVC descriptors table.
  */
 static PSPCORESVMCDESC g_aSvcDescs[] =
 {
-    PSPEMU_CORE_SVC_INIT_NULL,
-    PSPEMU_CORE_SVC_INIT_NULL,
-    PSPEMU_CORE_SVC_INIT_NULL,
-    PSPEMU_CORE_SVC_INIT_NULL,
-    PSPEMU_CORE_SVC_INIT_NULL,
-    PSPEMU_CORE_SVC_INIT_NULL,
-    PSPEMU_CORE_SVC_INIT_DEF("SvcDbgLog", pspEmuSvcDbgLog),
+    PSPEMU_CORE_SVMC_INIT_NULL,
+    PSPEMU_CORE_SVMC_INIT_NULL,
+    PSPEMU_CORE_SVMC_INIT_NULL,
+    PSPEMU_CORE_SVMC_INIT_NULL,
+    PSPEMU_CORE_SVMC_INIT_NULL,
+    PSPEMU_CORE_SVMC_INIT_NULL,
+    PSPEMU_CORE_SVMC_INIT_DEF("SvcDbgLog", pspEmuSvcDbgLog),
 };
 
 
@@ -113,6 +115,27 @@ static const PSPCORESVMCREG g_Svc6Reg =
     ELEMENTS(g_aSvcDescs),
     /** paSvmcDescs */
     &g_aSvcDescs[0]
+};
+
+
+/**
+ * SMC injection registration record.
+ */
+static const PSPCORESVMCREG g_SmcReg =
+{
+    /** GlobalSvmc */
+    {
+        /** pszName */
+        "Trace",
+        /** pfnSvmcHnd */
+        pspEmuSmcTrace,
+        /** fFlags */
+        PSPEMU_CORE_SVMC_F_BEFORE | PSPEMU_CORE_SVMC_F_AFTER
+    },
+    /** cSvmcDescs */
+    0,
+    /** paSvmcDescs */
+    NULL
 };
 
 
@@ -235,6 +258,23 @@ static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags,
     }
 
     return true;
+}
+
+
+/**
+ * SMC tracer callback.
+ */
+static bool pspEmuSmcTrace(PSPCORE hCore, uint32_t idxCall, uint32_t fFlags, void *pvUser)
+{
+    PPSPEMUCFG pCfg = (PPSPEMUCFG)pvUser;
+
+    if (pCfg->fTraceSvcs)
+        PSPEmuTraceEvtAddSmc(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMC, idxCall,
+                               (fFlags & PSPEMU_CORE_SVMC_F_BEFORE)
+                             ? true
+                             : false /* fEntry*/,
+                             NULL /*pszMsg*/);
+    return false;
 }
 
 
@@ -572,7 +612,11 @@ static int pspEmuCcdExecEnvInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
     if (   !rc
         && (   pCfg->fIncptSvc6
             || pCfg->fTraceSvcs))
+    {
         rc = PSPEmuCoreSvcInjectSet(pThis->hPspCore, &g_Svc6Reg, (void *)pCfg);
+        if (STS_SUCCESS(rc))
+            rc = PSPEmuCoreSmcInjectSet(pThis->hPspCore, &g_SmcReg, (void *)pCfg);
+    }
     if (!rc)
         rc = PSPEmuCoreExecSetStartAddr(pThis->hPspCore, PspAddrStartExec);
 
