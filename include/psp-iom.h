@@ -566,5 +566,28 @@ int PSPEmuIoMgrX86AddrRead(PSPIOM hIoMgr, X86PADDR PhysX86Addr, void *pvDst, siz
  */
 int PSPEmuIoMgrX86AddrWrite(PSPIOM hIoMgr, X86PADDR PhysX86Addr, const void *pvSrc, size_t cbWrite);
 
+
+/**
+ * Dumps the state of the given x86 mapping slots to the trace log.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   idxSlotStart            The first slot to dump.
+ * @param   idxSlotEnd              The last slot to dump.
+ */
+int PSPEmuIoMgrX86MapSlotDump(PSPIOM hIoMgr, uint32_t idxSlotStart, uint32_t idxSlotEnd);
+
+
+/**
+ * Dumps the state of the given SMN mapping slots to the trace log.
+ *
+ * @returns Status code.
+ * @param   hIoMgr                  The I/O manager handle.
+ * @param   idxSlotStart            The first slot to dump.
+ * @param   idxSlotEnd              The last slot to dump.
+ */
+int PSPEmuIoMgrSmnMapSlotDump(PSPIOM hIoMgr, uint32_t idxSlotStart, uint32_t idxSlotEnd);
+
+
 #endif /* __psp_iom_h */
 
