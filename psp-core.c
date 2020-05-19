@@ -845,6 +845,24 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
             pCpBank->u32RegPa = 0x1;
     }
     else if (   uCp == 15
+             && uCrn == 7
+             && uCrm == 8
+             && uOpc1 == 0
+             && uOpc2 == 2)
+    {
+        /* V2PCWUR, User Read VA to PA translation */
+        PSPPADDR PspPAddrPg = 0;
+        size_t cbRegion = 0;
+        int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, (PSPVADDR)u64Val, &PspPAddrPg, &cbRegion, NULL /*penmPgTblWalk*/);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                                "pspEmuCoreMmuPAddrQueryFromVAddr(): VAddr=%#lx rc=%d PAddr=%#lx\n",
+                                (PSPVADDR)u64Val, rc, PspPAddrPg);
+        if (!rc)
+            pCpBank->u32RegPa = PspPAddrPg;
+        else
+            pCpBank->u32RegPa = 0x1;
+    }
+    else if (   uCp == 15
              && uCrn == 1
              && uCrm == 1
              && uOpc1 == 0
@@ -2350,7 +2368,7 @@ static bool pspEmuCoreMemMemInvAccess(uc_engine *pUcEngine, uc_mem_type enmMemTy
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CORE,
                                 "pspEmuCoreMemMemInvAccess: PC=%#x cbAcc=%u i64Val=%#lld rc=%d fHandled=%u",
                                 (PSPADDR)uAddr, cbAcc, i64Val, rc, fHandled);
-        PSPEmuCoreStateDump(pThis);
+        PSPEmuCoreStateDump(pThis, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
     }
     else
     {
@@ -2953,7 +2971,7 @@ int PSPEmuCoreExecSetStartAddr(PSPCORE hCore, PSPADDR AddrExecStart)
     return pspEmuCoreErrConvertFromUcErr(rcUc);
 }
 
-int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
+int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t fFlags, uint32_t cInsnExec, uint32_t msExec)
 {
     PPSPCOREINT pThis = hCore;
 
@@ -2966,10 +2984,11 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
 
     pThis->fExecStop = false;
 
+    bool fSingleStep = fFlags & PSPEMU_CORE_EXEC_F_DUMP_CORE_STATE ? true : false;
     while (!rc && cInsnExec && msExec && !pThis->fExecStop)
     {
         uint64_t usUcExec = msExec == PSPEMU_CORE_EXEC_INDEFINITE ? 0 : (uint64_t)msExec * 1000;
-        uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff, usUcExec, cInsnExec);
+        uc_err rcUc = uc_emu_start(pThis->pUcEngine, pThis->PspAddrExecNext, 0xffffffff, usUcExec, fSingleStep ? 1 : cInsnExec);
         if (rcUc == UC_ERR_OK)
         {
             cInsnExec--; /* Executed at least one instruction. */
@@ -3054,7 +3073,7 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
                 printf("DATA ABORT on PC %#x (+8 = %#x)\n", uPc, uPc + 8);
                 rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_ABRT, 0x04, uPc + 8, false /*fUseMVBar*/);
 
-                PSPEmuCoreStateDump(pThis);
+                PSPEmuCoreStateDump(pThis, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
             }
             else
                 rc = pspEmuCoreErrConvertFromUcErr(rcUc2);
@@ -3063,6 +3082,9 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec)
             break;
         else
             rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+
+        if (fSingleStep)
+            PSPEmuCoreStateDump(pThis, PSPEMU_CORE_STATE_DUMP_F_NO_STACK, 1 /*cInsns*/);
     }
 
     return rc;
@@ -3253,7 +3275,7 @@ int PSPEmuCoreWfiSet(PSPCORE hCore, PFNPSPCOREWFI pfnWfiReached, void *pvUser)
     return rc;
 }
 
-void PSPEmuCoreStateDump(PSPCORE hCore)
+void PSPEmuCoreStateDump(PSPCORE hCore, uint32_t fFlags, uint32_t cInsns)
 {
     PPSPCOREINT pThis = hCore;
 
@@ -3261,18 +3283,6 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
     int rc = PSPEmuCoreQueryRegBatch(hCore, &g_aenmRegQueryBatch[0], ELEMENTS(g_aenmRegQueryBatch), &au32Reg[1]);
     if (!rc)
     {
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
-                "R0  > 0x%08x | R1  > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
-                "R4  > 0x%08x | R5  > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
-                "R8  > 0x%08x | R9  > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
-                "R12 > 0x%08x | SP  > 0x%08x | LR > 0x%08x | PC > 0x%08x\n"
-                "CPSR> 0x%08x | SPSR> 0x%08x\n",
-                au32Reg[PSPCOREREG_R0],   au32Reg[PSPCOREREG_R1], au32Reg[PSPCOREREG_R2],  au32Reg[PSPCOREREG_R3],
-                au32Reg[PSPCOREREG_R4],   au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6],  au32Reg[PSPCOREREG_R7],
-                au32Reg[PSPCOREREG_R8],   au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
-                au32Reg[PSPCOREREG_R12],  au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR],  au32Reg[PSPCOREREG_PC],
-                au32Reg[PSPCOREREG_CPSR], au32Reg[PSPCOREREG_SPSR]);
-
         /* Dump a few instructions. */
         uint8_t abInsn[5 * sizeof(uint32_t)];
         char achBuf[_1K];
@@ -3283,36 +3293,47 @@ void PSPEmuCoreStateDump(PSPCORE hCore)
 
             uc_err rcUc = uc_query(pThis->pUcEngine, UC_QUERY_MODE, &ucCpuMode);
             if (rcUc == UC_ERR_OK)
-            {
-                rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC], (ucCpuMode & UC_MODE_THUMB) ? true : false);
-                if (!rc)
-                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
-                           "Disasm:\n"
-                           "%s", &achBuf[0]);
-            }
+                rc = PSPEmuDisasm(&achBuf[0], sizeof(achBuf), cInsns, &abInsn[0], sizeof(abInsn), au32Reg[PSPCOREREG_PC], (ucCpuMode & UC_MODE_THUMB) ? true : false);
             else
                 fprintf(stderr, "Querying CPU mode failed with %d\n", pspEmuCoreErrConvertFromUcErr(rcUc));
         }
 
-        /* Dump last 0x20 bytes of stack memory */
-        uint32_t au32Stack[8];
-        rc = PSPEmuCoreMemReadVirt(hCore, au32Reg[PSPCOREREG_SP], &au32Stack[0], sizeof(au32Stack));
-        if (!rc)
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                "R0  > 0x%08x | R1  > 0x%08x | R2 > 0x%08x | R3 > 0x%08x\n"
+                "R4  > 0x%08x | R5  > 0x%08x | R6 > 0x%08x | R7 > 0x%08x\n"
+                "R8  > 0x%08x | R9  > 0x%08x | R10> 0x%08x | R11> 0x%08x\n"
+                "R12 > 0x%08x | SP  > 0x%08x | LR > 0x%08x | PC > 0x%08x\n"
+                "CPSR> 0x%08x | SPSR> 0x%08x\n"
+                "Disasm:\n"
+                "%s",
+                au32Reg[PSPCOREREG_R0],   au32Reg[PSPCOREREG_R1], au32Reg[PSPCOREREG_R2],  au32Reg[PSPCOREREG_R3],
+                au32Reg[PSPCOREREG_R4],   au32Reg[PSPCOREREG_R5], au32Reg[PSPCOREREG_R6],  au32Reg[PSPCOREREG_R7],
+                au32Reg[PSPCOREREG_R8],   au32Reg[PSPCOREREG_R9], au32Reg[PSPCOREREG_R10], au32Reg[PSPCOREREG_R11],
+                au32Reg[PSPCOREREG_R12],  au32Reg[PSPCOREREG_SP], au32Reg[PSPCOREREG_LR],  au32Reg[PSPCOREREG_PC],
+                au32Reg[PSPCOREREG_CPSR], au32Reg[PSPCOREREG_SPSR], &achBuf[0]);
+
+        if (!(fFlags & PSPEMU_CORE_STATE_DUMP_F_NO_STACK))
         {
-            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
-                   "Stack:\n"
-                   "\t0x%08x: 0x%08x <= SP\n"
-                   "\t0x%08x: 0x%08x\n"
-                   "\t0x%08x: 0x%08x\n"
-                   "\t0x%08x: 0x%08x\n"
-                   "\t0x%08x: 0x%08x\n"
-                   "\t0x%08x: 0x%08x\n"
-                   "\t0x%08x: 0x%08x\n"
-                   "\t0x%08x: 0x%08x\n",
-                   au32Reg[PSPCOREREG_SP],      au32Stack[0], au32Reg[PSPCOREREG_SP] +  4, au32Stack[1],
-                   au32Reg[PSPCOREREG_SP] + 8,  au32Stack[2], au32Reg[PSPCOREREG_SP] + 12, au32Stack[3],
-                   au32Reg[PSPCOREREG_SP] + 16, au32Stack[4], au32Reg[PSPCOREREG_SP] + 20, au32Stack[5],
-                   au32Reg[PSPCOREREG_SP] + 24, au32Stack[6], au32Reg[PSPCOREREG_SP] + 28, au32Stack[7]);
+            /* Dump last 0x20 bytes of stack memory */
+            uint32_t au32Stack[8];
+            rc = PSPEmuCoreMemReadVirt(hCore, au32Reg[PSPCOREREG_SP], &au32Stack[0], sizeof(au32Stack));
+            if (!rc)
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                       "Stack:\n"
+                       "\t0x%08x: 0x%08x <= SP\n"
+                       "\t0x%08x: 0x%08x\n"
+                       "\t0x%08x: 0x%08x\n"
+                       "\t0x%08x: 0x%08x\n"
+                       "\t0x%08x: 0x%08x\n"
+                       "\t0x%08x: 0x%08x\n"
+                       "\t0x%08x: 0x%08x\n"
+                       "\t0x%08x: 0x%08x\n",
+                       au32Reg[PSPCOREREG_SP],      au32Stack[0], au32Reg[PSPCOREREG_SP] +  4, au32Stack[1],
+                       au32Reg[PSPCOREREG_SP] + 8,  au32Stack[2], au32Reg[PSPCOREREG_SP] + 12, au32Stack[3],
+                       au32Reg[PSPCOREREG_SP] + 16, au32Stack[4], au32Reg[PSPCOREREG_SP] + 20, au32Stack[5],
+                       au32Reg[PSPCOREREG_SP] + 24, au32Stack[6], au32Reg[PSPCOREREG_SP] + 28, au32Stack[7]);
+            }
         }
     }
     else

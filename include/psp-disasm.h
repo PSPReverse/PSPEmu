@@ -30,11 +30,12 @@
  * @returns Status code.
  * @param   pchDst                  Pointer to the character buffer holding the zero terminated string on success.
  * @param   cch                     Size of the destination buffer.
+ * @param   cInsnsDisasm            Maximum number of instructions to disassemble, 0 for as much as possible.
  * @param   pbCode                  The code to disassemble.
  * @param   cbCode                  Number of code bytes.
  * @param   uAddrStart              The address of the first instruction.
- * @param   fThumb 					Flag whether to disassemble in THUMB or ARM mode.
+ * @param   fThumb                  Flag whether to disassemble in THUMB or ARM mode.
  */
-int PSPEmuDisasm(char *pchDst, size_t cch, uint8_t *pbCode, size_t cbCode, PSPADDR uAddrStart, bool fThumb);
+int PSPEmuDisasm(char *pchDst, size_t cch, uint32_t cInsnsDisasm, uint8_t *pbCode, size_t cbCode, PSPADDR uAddrStart, bool fThumb);
 
 #endif /* __psp_disasm_h */

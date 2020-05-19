@@ -83,6 +83,7 @@ static struct option g_aOptions[] =
     {"proxy-ccp",                    no_argument,       0, 'X'},
     {"memory-preload",               required_argument, 0, 'M'},
     {"memory-create",                required_argument, 0, 'R'},
+    {"single-step-dump-core-state",  no_argument,       0, 'A'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -461,8 +462,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cMemPreload           = 0;
     pCfg->papszDevs             = NULL;
     pCfg->pCcpProxyIf           = NULL;
+    pCfg->fSingleStepDumpCoreState = false;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:R:", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:R:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -504,6 +506,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --proxy-buffer-writes If proxy mode is enabled certain writes will be cached and sent in bursts to speed up certain access patterns\n"
                        "    --proxy-ccp When proxy mode is enabled this will pass through certain CCP request to a real CCP (AES with keys from the protected LSB so far)\n"
                        "    --dbg-run-up-to <addr> Runs until the given address is hit and drops then into the debugger instead of right at the start\n"
+                       "    --single-step-dump-core-state Single step execution, dumping the core state after each instruction\n"
                        "    --dbg-step-count <count> Number of instructions to step through in a single round, use at own RISK\n",
                        argv[0]);
                 exit(0);
@@ -681,6 +684,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                     return rc;
                 break;
             }
+            case 'A':
+                pCfg->fSingleStepDumpCoreState = true;
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
@@ -806,7 +812,7 @@ static int pspEmuDbgRun(PSPCCD hCcd, PCPSPEMUCFG pCfg)
          * Execute one instruction to initialize the CPU state properly
          * so the debugger has valid values to work with.
          */
-        int rc = PSPEmuCoreExecRun(hPspCore, 1, PSPEMU_CORE_EXEC_INDEFINITE);
+        int rc = PSPEmuCoreExecRun(hPspCore, PSPEMU_CORE_EXEC_F_DEFAULT, 1, PSPEMU_CORE_EXEC_INDEFINITE);
         if (!rc)
         {
             PSPDBG hDbg = NULL;

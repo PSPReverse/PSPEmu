@@ -894,7 +894,7 @@ static int gdbStubCmdDumpCoreState(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp,
     if (rc)
         return pspEmuDbgErrConvertToGdbStubErr(rc);
 
-    PSPEmuCoreStateDump(hPspCore);
+    PSPEmuCoreStateDump(hPspCore, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
     return GDBSTUB_INF_SUCCESS;
 }
 
@@ -1119,7 +1119,7 @@ static int pspDbgGdbStubIfTgtStep(GDBSTUBCTX hGdbStubCtx, void *pvUser)
     PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
 
     pThis->fSingleStep = true;
-    int rc = PSPEmuCoreExecRun(hPspCore, 1, PSPEMU_CORE_EXEC_INDEFINITE);
+    int rc = PSPEmuCoreExecRun(hPspCore, PSPEMU_CORE_EXEC_F_DEFAULT, 1, PSPEMU_CORE_EXEC_INDEFINITE);
     pThis->fSingleStep = false;
     return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
@@ -1482,7 +1482,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
          *      hit and we stop the emulation from the callback, so we single step
          *      through the code when the debugger is enabled.
          */
-        rc = PSPEmuCoreExecRun(hPspCore, pThis->cInsnsStep != 0 ? pThis->cInsnsStep : 1, PSPEMU_CORE_EXEC_INDEFINITE);
+        rc = PSPEmuCoreExecRun(hPspCore, PSPEMU_CORE_EXEC_F_DEFAULT, pThis->cInsnsStep != 0 ? pThis->cInsnsStep : 1, PSPEMU_CORE_EXEC_INDEFINITE);
         if (!rc)
         {
             int rcPsx = poll(&PollFd, 1, 0);
@@ -1498,7 +1498,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
                 rc = -1;
         }
         else
-            PSPEmuCoreStateDump(hPspCore);
+            PSPEmuCoreStateDump(hPspCore, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
     }
 
     return rc;
@@ -1594,7 +1594,7 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
         PSPEmuCoreTraceRegister(hPspCore, pThis->PspAddrRunUpTo, pThis->PspAddrRunUpTo,
                                 PSPEMU_CORE_TRACE_F_EXEC, pspDbgTpBpHit, pTp);
         pThis->fCoreRunning = true;
-        rc = PSPEmuCoreExecRun(hPspCore, 0, PSPEMU_CORE_EXEC_INDEFINITE);
+        rc = PSPEmuCoreExecRun(hPspCore, PSPEMU_CORE_EXEC_F_DEFAULT, 0, PSPEMU_CORE_EXEC_INDEFINITE);
         pThis->fCoreRunning = false;
     }
 

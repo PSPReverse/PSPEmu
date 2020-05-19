@@ -27,7 +27,7 @@
 
 #include <psp-disasm.h>
 
-int PSPEmuDisasm(char *pchDst, size_t cch, uint8_t *pbCode, size_t cbCode, PSPADDR uAddrStart, bool fThumb)
+int PSPEmuDisasm(char *pchDst, size_t cch, uint32_t cInsnsDisasm, uint8_t *pbCode, size_t cbCode, PSPADDR uAddrStart, bool fThumb)
 {
     int rc = 0;
     csh hCapStone;
@@ -43,6 +43,9 @@ int PSPEmuDisasm(char *pchDst, size_t cch, uint8_t *pbCode, size_t cbCode, PSPAD
         size_t cchLeft = cch;
         char *pszDst = pchDst;
         uint32_t i = 0;
+
+        if (cInsnsDisasm)
+            cInsn = MIN(cInsn, cInsnsDisasm);
 
         pchDst[0] = 0;
 

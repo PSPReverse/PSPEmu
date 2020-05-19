@@ -908,8 +908,12 @@ int PSPEmuCcdRun(PSPCCD hCcd)
 {
     PPSPCCDINT pThis = hCcd;
 
-    int rc = PSPEmuCoreExecRun(pThis->hPspCore, 0, PSPEMU_CORE_EXEC_INDEFINITE);
-    PSPEmuCoreStateDump(pThis->hPspCore);
+    int rc = PSPEmuCoreExecRun(pThis->hPspCore,
+                                 pThis->pCfg->fSingleStepDumpCoreState
+                               ? PSPEMU_CORE_EXEC_F_DUMP_CORE_STATE
+                               : PSPEMU_CORE_EXEC_F_DEFAULT,
+                               0, PSPEMU_CORE_EXEC_INDEFINITE);
+    PSPEmuCoreStateDump(pThis->hPspCore, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
     return rc;
 }
 

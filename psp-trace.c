@@ -466,6 +466,7 @@ static const char *pspEmuTraceEvtDumpPrefixCreate(PPSPTRACEINT pThis, char *pszB
 static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT pEvt)
 {
     char achPrefix[512];
+    char achPrefixSpace[512];
     char achBuf[_4K];
     char *pszCur = &achBuf[0];
     size_t cchLeft = sizeof(achBuf);
@@ -478,6 +479,9 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
     if (!pszPrefix)
         return -1;
 
+    memset(&achPrefixSpace[0], ' ', sizeof(achPrefixSpace));
+    achPrefixSpace[strlen(pszPrefix)] = '\0';
+
     /* Now the content specific data. */
     switch (pEvt->enmContent)
     {
@@ -489,7 +493,10 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
             for (uint32_t i = 0; i < pStr->cLines; i++)
             {
                 rcStr = snprintf(pszCur, cchLeft, "%sSTRING \"%s\"%s",
-                                 pszPrefix, pszStr, i == pStr->cLines - 1 ? "" : "\n");
+                                   i == 0
+                                 ? pszPrefix
+                                 : &achPrefixSpace[0],
+                                 pszStr, i == pStr->cLines - 1 ? "" : "\n");
                 if (   rcStr < 0
                     || rcStr >= cchLeft)
                     return -1;

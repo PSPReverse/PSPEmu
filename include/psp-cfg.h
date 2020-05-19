@@ -232,6 +232,8 @@ typedef struct PSPEMUCFG
     bool                    fProxyWrBuffer;
     /** Flag whether to proxy certain CCP requests - requires the proxy to be enabled of course. */
     bool                    fCcpProxy;
+    /** Flag whether to do single step execution with dumping the core state after each instruction. */
+    bool                    fSingleStepDumpCoreState;
     /** Debugger port to listen on, 0 means debugger is disabled. */
     uint16_t                uDbgPort;
     /** Maximum number of instructions to execute in one round, used to workaround a unicorn sync sate issue. */

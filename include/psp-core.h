@@ -170,6 +170,16 @@ typedef PSPCOREPGTBLWALKSTS *PPSPCOREPGTBLWALKSTS;
 
 /** Disables any execution timeouts. */
 #define PSPEMU_CORE_EXEC_INDEFINITE             UINT32_MAX
+/** Default flags for PSPEmuCoreExecRun(). */
+#define PSPEMU_CORE_EXEC_F_DEFAULT              (0)
+/** Print CPU state after each instruction. */
+#define PSPEMU_CORE_EXEC_F_DUMP_CORE_STATE      BIT(0)
+
+
+/** Default dump config. */
+#define PSPEMU_CORE_STATE_DUMP_F_DEFAULT        (0)
+/** Don't output the stack. */
+#define PSPEMU_CORE_STATE_DUMP_F_NO_STACK       BIT(0)
 
 
 /**
@@ -417,11 +427,12 @@ int PSPEmuCoreExecSetStartAddr(PSPCORE hCore, PSPADDR AddrExecStart);
  *
  * @returns Status code.
  * @param   hCore                   The PSP core handle.
- * @param   cInsnExec               Number of insturctions to execute.
+ * @param   fFlags                  Combination of PSPEMU_CORE_EXEC_F_XXX
+ * @param   cInsnExec               Number of instructions to execute.
  * @param   msExec                  Number of milliseconds to execute instructions,
  *                                  use PSPEMU_CORE_EXEC_INDEFINITE to disable any timeouts.
  */
-int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t cInsnExec, uint32_t msExec);
+int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t fFlags, uint32_t cInsnExec, uint32_t msExec);
 
 /**
  * Stop emulation of the code.
@@ -506,8 +517,10 @@ int PSPEmuCoreWfiSet(PSPCORE hCore, PFNPSPCOREWFI pfnWfiReached, void *pvUser);
  *
  * @returns nothing.
  * @param   hCore                   The PSP core handle.
+ * @param   cInsns                  Number of instructions to disassemble, 0 for default.
+ * @param   fFlags                  Combination of PSPEMU_CORE_STATE_DUMP_F_XXX.
  */
-void PSPEmuCoreStateDump(PSPCORE hCore);
+void PSPEmuCoreStateDump(PSPCORE hCore, uint32_t fFlags, uint32_t cInsns);
 
 /**
  * Queries a subset of the given PSP core state.
