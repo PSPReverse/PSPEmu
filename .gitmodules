@@ -1,6 +1,7 @@
 [submodule "psp-includes"]
 	path = psp-includes
-	url = https://github.com/PSPReverse/psp-includes
+	url = https://github.com/hnj2/psp-includes
+	branch = ccp-ecc
 [submodule "capstone"]
 	path = capstone
 	url = https://github.com/aquynh/capstone
