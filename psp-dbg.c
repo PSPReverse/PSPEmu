@@ -111,6 +111,8 @@ typedef struct PSPDBGINT
     bool                    fCoreRunning;
     /** Flag whether we are currently singel stepping (to avoid triggering breakpoints). */
     bool                    fSingleStep;
+    /** Flags given to PSPEmuCoreExecRun(). */
+    uint32_t                fCoreExecRun;
     /** Head of tracepoint list. */
     PPSPDBGTP               pTpsHead;
     /** List of active coverage tracers. */
@@ -988,6 +990,30 @@ static int gdbStubCmdDumpSmnMapSlotState(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP
 /**
  * @copydoc{GDBSTUBCMD,pfnCmd}
  */
+static int gdbStubCmdSingleStep(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    /* Parse all arguments. */
+    if (pszArgs)
+    {
+        if (!strcmp(pszArgs, "on"))
+            pThis->fCoreExecRun |= PSPEMU_CORE_EXEC_F_DUMP_CORE_STATE;
+        else if (!strcmp(pszArgs, "off"))
+            pThis->fCoreExecRun &= ~PSPEMU_CORE_EXEC_F_DUMP_CORE_STATE;
+        else
+            pHlp->pfnPrintf(pHlp, "Argument must be either \"on\" or \"off\", given:\n", pszArgs);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly one argument: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
 static int gdbStubCmdInsnStepCnt(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
@@ -1032,6 +1058,7 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "corestate",    "Dumps the core state to the trace log",                                                           gdbStubCmdDumpCoreState        },
     { "x86mapslot",   "Dumps the x86 mapslot info to the trace log, arguments: <idx start> <idx end>",                   gdbStubCmdDumpX86MapSlotState  },
     { "smnmapslot",   "Dumps the SMN mapslot info to the trace log, arguments: <idx start> <idx end>",                   gdbStubCmdDumpSmnMapSlotState  },
+    { "singlestep",   "Single steps through the code dumping the core state after each instruction, arguments: on|off",  gdbStubCmdSingleStep           },
     { "insnstepcnt",  "Sets the instruction step count for one debug runloop round, US AT OWN RISK!",                    gdbStubCmdInsnStepCnt          },
     { NULL,           NULL,                                                                                              NULL                           }
 };
@@ -1119,7 +1146,7 @@ static int pspDbgGdbStubIfTgtStep(GDBSTUBCTX hGdbStubCtx, void *pvUser)
     PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
 
     pThis->fSingleStep = true;
-    int rc = PSPEmuCoreExecRun(hPspCore, PSPEMU_CORE_EXEC_F_DEFAULT, 1, PSPEMU_CORE_EXEC_INDEFINITE);
+    int rc = PSPEmuCoreExecRun(hPspCore, pThis->fCoreExecRun, 1, PSPEMU_CORE_EXEC_INDEFINITE);
     pThis->fSingleStep = false;
     return pspEmuDbgErrConvertToGdbStubErr(rc);
 }
@@ -1482,7 +1509,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
          *      hit and we stop the emulation from the callback, so we single step
          *      through the code when the debugger is enabled.
          */
-        rc = PSPEmuCoreExecRun(hPspCore, PSPEMU_CORE_EXEC_F_DEFAULT, pThis->cInsnsStep != 0 ? pThis->cInsnsStep : 1, PSPEMU_CORE_EXEC_INDEFINITE);
+        rc = PSPEmuCoreExecRun(hPspCore, pThis->fCoreExecRun, pThis->cInsnsStep != 0 ? pThis->cInsnsStep : 1, PSPEMU_CORE_EXEC_INDEFINITE);
         if (!rc)
         {
             int rcPsx = poll(&PollFd, 1, 0);
@@ -1511,15 +1538,16 @@ int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR 
     PPSPDBGINT pThis = (PPSPDBGINT)calloc(1, sizeof(*pThis) + cCcds * sizeof(PSPCCD));
     if (pThis)
     {
-        pThis->iFdGdbCon      = 0;
-        pThis->fCoreRunning   = false;
-        pThis->pTpsHead       = NULL;
-        pThis->pCovHead       = NULL;
-        pThis->cInsnsStep     = cInsnsStep;
-        pThis->cCcds          = cCcds;
-        pThis->idxCcd         = 0;
-        pThis->idCovNext      = 0;
-        pThis->PspAddrRunUpTo = PspAddrRunUpTo;
+        pThis->iFdGdbCon        = 0;
+        pThis->fCoreRunning     = false;
+        pThis->fCoreExecRun     = PSPEMU_CORE_EXEC_F_DEFAULT;
+        pThis->pTpsHead         = NULL;
+        pThis->pCovHead         = NULL;
+        pThis->cInsnsStep       = cInsnsStep;
+        pThis->cCcds            = cCcds;
+        pThis->idxCcd           = 0;
+        pThis->idCovNext        = 0;
+        pThis->PspAddrRunUpTo   = PspAddrRunUpTo;
         for (uint32_t i = 0; i < cCcds; i++)
             pThis->ahCcds[i] = pahCcds[i];
 
@@ -1594,7 +1622,7 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
         PSPEmuCoreTraceRegister(hPspCore, pThis->PspAddrRunUpTo, pThis->PspAddrRunUpTo,
                                 PSPEMU_CORE_TRACE_F_EXEC, pspDbgTpBpHit, pTp);
         pThis->fCoreRunning = true;
-        rc = PSPEmuCoreExecRun(hPspCore, PSPEMU_CORE_EXEC_F_DEFAULT, 0, PSPEMU_CORE_EXEC_INDEFINITE);
+        rc = PSPEmuCoreExecRun(hPspCore, pThis->fCoreExecRun, 0, PSPEMU_CORE_EXEC_INDEFINITE);
         pThis->fCoreRunning = false;
     }
 
