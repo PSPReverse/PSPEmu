@@ -138,6 +138,22 @@ typedef struct PSPDBGINT
 
 
 /**
+ * Debug output context.
+ */
+typedef struct PSPDBGOUT
+{
+    /** Out helper callback table, must come FIRST!. */
+    PSPDBGOUTHLP            Hlp;
+    /** The GDB output helper to forward to. */
+    PCGDBSTUBOUTHLP         pGdbHlp;
+} PSPDBGOUT;
+/** Pointer to a debug output context. */
+typedef PSPDBGOUT *PPSPDBGOUT;
+/** Pointer to a const debug output context. */
+typedef const PSPDBGOUT *PCPSPDBGOUT;
+
+
+/**
  * GDB stub ARM register names.
  */
 static const GDBSTUBREG g_apszPspDbgGdbStubRegs[] =
@@ -493,6 +509,39 @@ static void pspDbgIoX86TpHit(X86PADDR offX86Abs, const char *pszDevId, X86PADDR 
 {
     PPSPDBGTP pTp = (PPSPDBGTP)pvUser;
     pspDbgIoTpHit(pTp);
+}
+
+
+/**
+ * @copydoc{PSPDBGOUTHLP,pfnPrintf}
+ */
+static int pspDbgOutHlpPrintf(PCPSPDBGOUTHLP pHlp, const char *pszFmt, ...)
+{
+    PCPSPDBGOUT pDbgOut = (PCPSPDBGOUT)pHlp;
+
+    va_list VaArgs;
+    va_start(VaArgs, pszFmt);
+    int rc = STS_INF_SUCCESS;
+    int cbStr = vsnprintf(NULL, 0, pszFmt, VaArgs);
+    if (cbStr > 0)
+    {
+        /* Allocate temporary buffer. */
+        char *pszStr = calloc(cbStr + 1, 1);
+        if (pszStr)
+        {
+            cbStr = vsnprintf(pszStr, cbStr + 1, pszFmt, VaArgs);
+
+            /* Forward to GDB context. */
+            pDbgOut->pGdbHlp->pfnPrintf(pDbgOut->pGdbHlp, "%s", pszStr);
+            free(pszStr);
+        }
+        else
+            rc = STS_ERR_NO_MEMORY;
+    }
+    else
+        rc = STS_ERR_INVALID_PARAMETER; /** @todo Better status code. */
+
+    va_end(VaArgs);
 }
 
 
@@ -1307,6 +1356,49 @@ static int pspDbgGdbStubIfTgtTpClear(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTG
 
 
 /**
+ * @copydoc{GDBSTUBIF,pfnMonCmd}
+ */
+static int pspDbgGdbStubIfMonCmd(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszCmd, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    if (!pThis->hDbgHlp)
+    {
+        pHlp->pfnPrintf(pHlp, "Command wasn't found: \"%s\"\n", pszCmd);
+        return GDBSTUB_INF_SUCCESS;
+    }
+
+    size_t cchCmd = strlen(pszCmd);
+    const char *pszCmdEnd = strchr(pszCmd, ' ');
+    const char *pszArgs = NULL;
+    if (pszCmdEnd)
+    {
+        cchCmd = pszCmdEnd - pszCmd;
+        pszArgs = pszCmdEnd + 1;
+    }
+
+    char szCmd[128]; /* Should be plenty. */
+    int rcGdbStub = GDBSTUB_ERR_BUFFER_OVERFLOW;
+    if (cchCmd < sizeof(szCmd) - 1) /* One character for the terminator. */
+    {
+        memcpy(&szCmd[0], pszCmd, cchCmd);
+        szCmd[cchCmd] = '\0'; /* Ensure termination. */
+
+        /* Initialize the debug output helper. */
+        PSPDBGOUT Out;
+        Out.Hlp.pfnPrintf = pspDbgOutHlpPrintf;
+        Out.pGdbHlp       = pHlp;
+        int rc = PSPEmuDbgHlpCmdExec(pThis->hDbgHlp, &szCmd[0], pszArgs, &Out.Hlp);
+        if (rc == STS_ERR_NOT_FOUND)
+            pHlp->pfnPrintf(pHlp, "Command wasn't found: \"%s\"\n", &szCmd[0]);
+        else
+            rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+    }
+
+    return rcGdbStub;
+}
+
+
+/**
  * GDB stub interface callback table.
  */
 static const GDBSTUBIF g_PspDbgGdbStubIf =
@@ -1346,7 +1438,7 @@ static const GDBSTUBIF g_PspDbgGdbStubIf =
     /** pfnTgtTpClear */
     pspDbgGdbStubIfTgtTpClear,
     /** pfnMonCmd */
-    NULL
+    pspDbgGdbStubIfMonCmd
 };
 
 
