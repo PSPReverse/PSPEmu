@@ -1343,6 +1343,8 @@ static const GDBSTUBIF g_PspDbgGdbStubIf =
     pspDbgGdbStubIfTgtTpSet,
     /** pfnTgtTpClear */
     pspDbgGdbStubIfTgtTpClear,
+    /** pfnMonCmd */
+    NULL
 };
 
 
