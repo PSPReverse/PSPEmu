@@ -525,6 +525,8 @@ static int pspDbgOutHlpPrintf(PCPSPDBGOUTHLP pHlp, const char *pszFmt, ...)
     int cbStr = vsnprintf(NULL, 0, pszFmt, VaArgs);
     if (cbStr > 0)
     {
+        va_end(VaArgs);
+        va_start(VaArgs, pszFmt);
         /* Allocate temporary buffer. */
         char *pszStr = calloc(cbStr + 1, 1);
         if (pszStr)
