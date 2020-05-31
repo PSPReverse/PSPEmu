@@ -313,6 +313,10 @@ typedef struct PSPCOREINT
     bool                    fMmuChanged;
     /** Flag whether the MMU is currently enabled. */
     bool                    fMmuEnabled;
+    /** Flag whether the IRQ line is asserted. */
+    bool                    fIrq;
+    /** Flag whether the FIQ line is asserted. */
+    bool                    fFiq;
     /** Head of MMU mappings sorted by virtual start address. */
     PPSPCOREMMUMAP          pMmuMappingsHead;
     /** Head of page trable tracking structures to monitor writes to L1 and L2. */
@@ -417,6 +421,8 @@ static const PSPCOREREG g_aenmRegQueryBatch[] =
 
 static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr, PSPPADDR *pPspPAddr, size_t *pcbRegion,
                                             PPSPCOREPGTBLWALKSTS penmPgTblWalk);
+static int pspEmuCoreMmuMappingsClear(PPSPCOREINT pThis);
+
 
 /**
  * Converts the PSP core register enum to the unicorn equivalent.
@@ -910,6 +916,13 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
         switch (uOpc2)
         {
             case 1:
+                if (pCpBank->u32RegContextId != (uint32_t)u64Val)
+                {
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                                            "CO-PROC WRITE: ASID changed to %#lx\n", u64Val);
+                    pspEmuCoreMmuMappingsClear(pThis);
+                    fHandled = false; /* Let qemu update its internal states as well. */
+                }
                 pCpBank->u32RegContextId = (uint32_t)u64Val;
                 break;
             case 2:
@@ -1090,21 +1103,27 @@ static void pspEmuCoreCpsrChangeWrapper(struct uc_struct *pUcEngine, uint64_t uA
         }
         pThis->enmCoreMode = enmCoreMode;
     }
-    else if (   pThis->pfnWfiReached
-             && !(u32Val & (BIT(7) | BIT(6))))
+
+    if (   pThis->pfnWfiReached
+        && (u32Val & (BIT(7) | BIT(6))) != 0xc0)
     {
-        bool fIrq = false;
-        bool fFirq = false;
+        bool fIrq = pThis->fIrq;
+        bool fFirq = pThis->fFiq;
         int rc = pThis->pfnWfiReached(pThis, (PSPADDR)uAddrPc, PSPEMU_CORE_WFI_CHECK, &fIrq, &fFirq, pThis->pvWfiUser);
-        if (   STS_SUCCESS(rc)
-            && (fIrq || fFirq))
+        if (STS_SUCCESS(rc))
+        {
+            pThis->fIrq = fIrq;
+            pThis->fFiq = fFirq;
+        }
+
+        if (pThis->fIrq || pThis->fFiq)
         {
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "Injecting IRQ!\n");
             if (pThis->enmExcpPending != PSPCOREEXCP_NONE)
                 printf("OVERWRITING another exception which should not happen!\n");
-            if (fFirq)
+            if (fFirq && !(u32Val & BIT(6)))
                 pThis->enmExcpPending = PSPCOREEXCP_FIQ;
-            else if (fIrq)
+            else if (fIrq && !(u32Val & BIT(7)))
                 pThis->enmExcpPending = PSPCOREEXCP_IRQ;
             uc_emu_stop(pUcEngine);
         }
@@ -2244,7 +2263,7 @@ static int pspEmuCoreMmuSetupPgTblTracking(PPSPCOREINT pThis)
                     {
                         PSPPADDR PhysAddrL2 = au32Tbl[i] & 0xfffffc00;
 
-                        rc = pspEmuCoreMmuPgTblTrackingCreate(pThis, PhysAddrL2, _1K, true /*fL1PgTBl*/);
+                        rc = pspEmuCoreMmuPgTblTrackingCreate(pThis, PhysAddrL2, _1K, true /*fL2PgTbl*/);
                     }
                 }
             }
@@ -2328,6 +2347,7 @@ static int pspEmuCoreMmuSetupTeardown(PPSPCOREINT pThis)
         }
     }
 
+    printf("pspEmuCoreMmuSetupTeardown: rc=%d\n", rc);
     return rc;
 }
 
@@ -2489,7 +2509,7 @@ static int pspEmuCoreExcpHandle(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThum
     else if (pThis->enmExcpPending == PSPCOREEXCP_IRQ)
     {
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "IRQ exception");
-        rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_IRQ, 0x6, PspAddrPc, false /*fUseMVBar*/);
+        rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_IRQ, 0x6, PspAddrPc + 4, false /*fUseMVBar*/);
     }
 
     pThis->enmExcpPending = PSPCOREEXCP_NONE;
@@ -2548,7 +2568,7 @@ static int pspEmuCoreIrqFiqCheck(PPSPCOREINT pThis, PSPADDR PspAddrPc, bool fThu
             if (fFirq)
                 rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_FIQ, 0x7, PspAddrPc, false /*fUseMVBar*/);
             else if (fIrq)
-                rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_IRQ, 0x6, PspAddrPc, false /*fUseMVBar*/);
+                rc = pspEmuCoreExcpInject(pThis, PSPCOREMODE_IRQ, 0x6, PspAddrPc + 4, false /*fUseMVBar*/);
             else
             {
                 PspAddrPc |= fThumb ? 1 : 0;
@@ -2996,6 +3016,7 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t fFlags, uint32_t cInsnExec, uint32
             /* Query the PC and execution mode. */
             uint32_t uPc = 0;
             bool     fThumb = false;
+            bool     fCont = true;
             size_t   ucCpuMode = 0;
             uc_err rcUc2 = uc_reg_read(pThis->pUcEngine, UC_ARM_REG_PC, &uPc);
             if (rcUc2 == UC_ERR_OK)
@@ -3006,8 +3027,12 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t fFlags, uint32_t cInsnExec, uint32
             if (rcUc2 == UC_ERR_OK)
             {
                 if (pThis->enmExcpPending != PSPCOREEXCP_NONE)
+                {
                     rc = pspEmuCoreExcpHandle(pThis, uPc, fThumb);
-                else if (pThis->fMmuChanged)
+                    fCont = false;
+                }
+
+                if (pThis->fMmuChanged)
                 {
                     rc = pspEmuCoreMmuSetupTeardown(pThis);
                     if (STS_SUCCESS(rc))
@@ -3037,7 +3062,7 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t fFlags, uint32_t cInsnExec, uint32
                         break;
                     }
                 }
-                else
+                else if (fCont)
                 {
                     /*
                      * Unicorn doesn't use the CPSR Thumb state bit but switches to the instruction set
