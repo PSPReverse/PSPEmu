@@ -36,6 +36,20 @@
 
 
 /**
+ * A datum read/written.
+ */
+typedef union PSPDATUM
+{
+    uint8_t   u8;
+    uint16_t u16;
+    uint32_t u32;
+    uint64_t u64;
+    uint8_t  ab[8];
+} PSPDATUM;
+typedef PSPDATUM *PPSPDATUM;
+
+
+/**
  * PSP MMIO blacklist descriptor.
  */
 typedef struct PSPMMIOBLACKLISTDESC
@@ -1144,6 +1158,172 @@ static const PSPPROXYIOIF g_PspProxyIoIf =
 };
 
 
+/**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
+static int pspProxyDbgCmdSmnRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
+
+    const char *pszAddr = pszArgs;
+    const char *pszSz   = pszArgs ? strchr(pszAddr, ' ') : NULL;
+
+    if (   pszAddr
+        && pszSz)
+    {
+        /* Get past the space. */
+        pszSz++;
+
+        char *pszAddrEnd = NULL;
+        SMNADDR SmnAddr = strtoul(pszAddr, &pszAddrEnd, 0 /*base*/);
+        if (   pszAddrEnd != pszAddr
+            && *pszAddrEnd == ' ')
+        {
+            if (   pszSz[1] == '\0'
+                && (   pszSz[0] == '1'
+                    || pszSz[0] == '2'
+                    || pszSz[0] == '4'))
+            {
+                size_t cbRead = (size_t)(pszSz[0] - '0');
+                PSPDATUM Datum;
+                int rc = PSPProxyCtxPspSmnRead(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, SmnAddr, cbRead, &Datum.ab[0]);
+                if (STS_SUCCESS(rc))
+                {
+                    uint32_t u32Val;
+
+                    switch (cbRead)
+                    {
+                        case 1:
+                            u32Val = Datum.u8;
+                            break;
+                        case 2:
+                            u32Val = Datum.u16;
+                            break;
+                        case 4:
+                            u32Val = Datum.u32;
+                            break;
+                        default:
+                            pHlp->pfnPrintf(pHlp, "Something is really buggy here cbRead=%zu!\n", cbRead);
+                    }
+
+                    pHlp->pfnPrintf(pHlp, "SMN %#x %zu: %#x\n", SmnAddr, cbRead, u32Val);
+                }
+                else
+                    pHlp->pfnPrintf(pHlp, "Reading %zu bytes from SMN address %#x failed with %d\n", cbRead, SmnAddr, rc);
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Size parameter is invalid, must be 1, 2 or 4\n");
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Address parameter is invalid\n");
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly two: <addr> <sz>\n");
+
+    return STS_INF_SUCCESS;
+}
+
+
+static int pspProxyDbgX86ReadWorker(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser, bool fMmio)
+{
+    PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
+
+    const char *pszAddr = pszArgs;
+    const char *pszSz   = pszArgs ? strchr(pszAddr, ' ') : NULL;
+
+    if (   pszAddr
+        && pszSz)
+    {
+        /* Get past the space. */
+        pszSz++;
+
+        char *pszAddrEnd = NULL;
+        X86PADDR PhysX86Addr = strtoull(pszAddr, &pszAddrEnd, 0 /*base*/);
+        if (   pszAddrEnd != pszAddr
+            && *pszAddrEnd == ' ')
+        {
+            if (   pszSz[1] == '\0'
+                && (   pszSz[0] == '1'
+                    || pszSz[0] == '2'
+                    || pszSz[0] == '4'
+                    || pszSz[0] == '8'))
+            {
+                size_t cbRead = (size_t)(pszSz[0] - '0');
+                PSPDATUM Datum;
+                int rc;
+                if (fMmio)
+                    rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, PhysX86Addr, cbRead, &Datum.ab[0]);
+                else
+                    rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, &Datum.ab[0], cbRead);
+                if (STS_SUCCESS(rc))
+                {
+                    uint64_t u64Val;
+
+                    switch (cbRead)
+                    {
+                        case 1:
+                            u64Val = Datum.u8;
+                            break;
+                        case 2:
+                            u64Val = Datum.u16;
+                            break;
+                        case 4:
+                            u64Val = Datum.u32;
+                            break;
+                        case 8:
+                            u64Val = Datum.u64;
+                            break;
+                        default:
+                            pHlp->pfnPrintf(pHlp, "Something is really buggy here cbRead=%zu!\n", cbRead);
+                    }
+
+                    pHlp->pfnPrintf(pHlp, "SMN %#llx %zu: %#llx\n", PhysX86Addr, cbRead, u64Val);
+                }
+                else
+                    pHlp->pfnPrintf(pHlp, "Reading %zu bytes from x86 address %#llx failed with %d\n", cbRead, PhysX86Addr, rc);
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Size parameter is invalid, must be 1, 2, 4 or 8\n");
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Address parameter is invalid\n");
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly two: <addr> <sz>\n");
+
+    return STS_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
+static int pspProxyDbgCmdX86MemRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    return pspProxyDbgX86ReadWorker(hDbgHlp, pHlp, pszArgs, pvUser, false /*fMmio*/);
+}
+
+
+/**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
+static int pspProxyDbgCmdX86MmioRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    return pspProxyDbgX86ReadWorker(hDbgHlp, pHlp, pszArgs, pvUser, true /*fMmio*/);
+}
+
+
+/**
+ * Arra of proxy related debugger commands registered with the debugger.
+ */
+static const DBGHLPCMD g_aProxyDbgCmds[] =
+{
+    { "proxy.SmnRead",          "Reads a value from the given SMN address, arguments: <addr> <sz>",                    pspProxyDbgCmdSmnRead     },
+    { "proxy.X86MemRead",       "Reads a value from the given x86 as a normal memory address, arguments: <addr> <sz>", pspProxyDbgCmdX86MemRead  },
+    { "proxy.X86MmioRead",      "Reads a value from the given x86 as MMIO address, arguments: <addr> <sz>",            pspProxyDbgCmdX86MmioRead },
+};
+
+
 int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
 {
     int rc = 0;
@@ -1166,6 +1346,9 @@ int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
                 pThis->CcpProxy.CcpProxyIf.pfnAesDo = pspEmuProxyCcpAesDo;
                 pCfg->pCcpProxyIf = &pThis->CcpProxy.CcpProxyIf;
             }
+
+            /* Register our custom commands. */
+            PSPEmuDbgHlpCmdRegister(pCfg->hDbgHlp, g_aProxyDbgCmds, ELEMENTS(g_aProxyDbgCmds), pThis);
 
             *phProxy = pThis;
             return 0;
