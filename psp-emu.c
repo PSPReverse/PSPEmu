@@ -98,6 +98,9 @@ static struct option g_aOptions[] =
  */
 static void pspEmuCfgFree(PPSPEMUCFG pCfg)
 {
+    if (pCfg->hDbgHlp)
+        PSPEmuDbgHlpRelease(pCfg->hDbgHlp);
+
     if (   pCfg->pvOnChipBl
         && pCfg->cbOnChipBl)
         PSPEmuFlashFree(pCfg->pvOnChipBl, pCfg->cbOnChipBl);
@@ -462,6 +465,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cMemPreload           = 0;
     pCfg->papszDevs             = NULL;
     pCfg->pCcpProxyIf           = NULL;
+    pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
 
     while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:R:IA", &g_aOptions[0], &idxOption)) != -1)
@@ -818,7 +822,7 @@ static int pspEmuDbgRun(PSPCCD hCcd, PCPSPEMUCFG pCfg)
             PSPDBG hDbg = NULL;
 
             rc = PSPEmuDbgCreate(&hDbg, pCfg->uDbgPort, pCfg->cDbgInsnStep, pCfg->PspAddrDbgRunUpTo,
-                                 &hCcd, 1);
+                                 &hCcd, 1, pCfg->hDbgHlp);
             if (!rc)
             {
                 printf("Debugger is listening on port %u...\n", pCfg->uDbgPort);
@@ -839,37 +843,44 @@ int main(int argc, char *argv[])
     int rc = pspEmuCfgParse(argc, argv, &Cfg);
     if (!rc)
     {
-        PSPCCD hCcd = NULL;
-        if (   g_idSocketSingle != UINT32_MAX
-            && g_idCcdSingle != UINT32_MAX)
-            rc = PSPEmuCcdCreate(&hCcd, g_idSocketSingle, g_idCcdSingle, &Cfg);
-        else
-            rc = PSPEmuCcdCreate(&hCcd, 0, 0, &Cfg);
+        /* Create a debug helper module if the debugger is going to be used. */
+        if (Cfg.uDbgPort)
+            rc = PSPEmuDbgHlpCreate(&Cfg.hDbgHlp);
 
-        if (!rc)
+        if (STS_SUCCESS(rc))
         {
-            PSPPROXY hProxy = NULL;
-
-            /* Setup the proxy if configured. */
-            if (Cfg.pszPspProxyAddr)
-            {
-                rc = PSPProxyCreate(&hProxy, &Cfg);
-                if (!rc)
-                    rc = PSPProxyCcdRegister(hProxy, hCcd);
-            }
+            PSPCCD hCcd = NULL;
+            if (   g_idSocketSingle != UINT32_MAX
+                && g_idCcdSingle != UINT32_MAX)
+                rc = PSPEmuCcdCreate(&hCcd, g_idSocketSingle, g_idCcdSingle, &Cfg);
+            else
+                rc = PSPEmuCcdCreate(&hCcd, 0, 0, &Cfg);
 
             if (!rc)
             {
-                if (Cfg.uDbgPort)
-                    rc = pspEmuDbgRun(hCcd, &Cfg);
-                else
-                    rc = PSPEmuCcdRun(hCcd);
+                PSPPROXY hProxy = NULL;
+
+                /* Setup the proxy if configured. */
+                if (Cfg.pszPspProxyAddr)
+                {
+                    rc = PSPProxyCreate(&hProxy, &Cfg);
+                    if (!rc)
+                        rc = PSPProxyCcdRegister(hProxy, hCcd);
+                }
+
+                if (!rc)
+                {
+                    if (Cfg.uDbgPort)
+                        rc = pspEmuDbgRun(hCcd, &Cfg);
+                    else
+                        rc = PSPEmuCcdRun(hCcd);
+                }
+
+                if (hProxy)
+                    PSPProxyCcdDeregister(hProxy, hCcd);
+
+                PSPEmuCcdDestroy(hCcd);
             }
-
-            if (hProxy)
-                PSPProxyCcdDeregister(hProxy, hCcd);
-
-            PSPEmuCcdDestroy(hCcd);
         }
 
         pspEmuCfgFree(&Cfg);

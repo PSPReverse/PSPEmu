@@ -24,6 +24,7 @@
 
 #include <common/types.h>
 
+#include <psp-dbg-hlp.h>
 
 /**
  * Emulation mode.
@@ -292,6 +293,9 @@ typedef struct PSPEMUCFG
     const char              **papszDevs;
     /** Pointer to a CCP proxy callback table if enabled. */
     PCCCPPROXY              pCcpProxyIf;
+    /** Debug helper module handle if a debugger is enabled so other components can register custom commands
+     * for use by the debugger. */
+    PSPDBGHLP               hDbgHlp;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;

@@ -103,6 +103,8 @@ typedef struct PSPDBGINT
 {
     /** The GDB stub context for the debugger instance. */
     GDBSTUBCTX              hGdbStubCtx;
+    /** Debug helper module handle. */
+    PSPDBGHLP               hDbgHlp;
     /** The listening socket. */
     int                     iFdListening;
     /** The socket for the current GDB connection. */
@@ -1534,12 +1536,14 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
 }
 
 
-int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR PspAddrRunUpTo, const PPSPCCD pahCcds, uint32_t cCcds)
+int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR PspAddrRunUpTo, const PPSPCCD pahCcds, uint32_t cCcds,
+                    PSPDBGHLP hDbgHlp)
 {
     int rc = 0;
     PPSPDBGINT pThis = (PPSPDBGINT)calloc(1, sizeof(*pThis) + cCcds * sizeof(PSPCCD));
     if (pThis)
     {
+        pThis->hDbgHlp          = hDbgHlp;
         pThis->iFdGdbCon        = 0;
         pThis->fCoreRunning     = false;
         pThis->fCoreExecRun     = PSPEMU_CORE_EXEC_F_DEFAULT;
@@ -1569,6 +1573,8 @@ int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR 
                 int rcPsx = bind(pThis->iFdListening, (struct sockaddr *)&SockAddr, sizeof(SockAddr));
                 if (!rcPsx)
                 {
+                    if (hDbgHlp)
+                        PSPEmuDbgHlpRetain(hDbgHlp);
                     *phDbg = pThis;
                     return 0;
                 }
@@ -1598,6 +1604,8 @@ int PSPEmuDbgDestroy(PSPDBG hDbg)
 {
     PPSPDBGINT pThis = hDbg;
 
+    if (pThis->hDbgHlp)
+        PSPEmuDbgHlpRelease(pThis->hDbgHlp);
     if (pThis->iFdGdbCon != 0)
         close(pThis->iFdGdbCon);
     close(pThis->iFdListening);
