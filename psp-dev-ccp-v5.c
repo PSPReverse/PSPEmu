@@ -121,8 +121,10 @@ typedef struct PSPDEVCCP
     PSPIOMREGIONHANDLE              hMmio;
     /** MMIO2 region handle. */
     PSPIOMREGIONHANDLE              hMmio2;
-    /** The single CCP queue we have. */
-    CCPQUEUE                        Queue;
+    /** The first CCP queue. */
+    CCPQUEUE                        Queue1;
+    /** The second CCP queue. */
+    CCPQUEUE                        Queue2;
     /** The local storage buffer. */
     CCPLSB                          Lsb;
     /** The openssl SHA context currently in use. This doesn't really belong here
@@ -1618,10 +1620,12 @@ static void pspDevCcpMmioRead(PSPADDR offMmio, size_t cbRead, void *pvDst, void 
         uint32_t uQueue = offMmio / CCP_V5_Q_SIZE;
         uint32_t offRegQ = offMmio % CCP_V5_Q_SIZE;
 
-        if (uQueue > 0)
-            printf("%s: offMmio=%#x cbRead=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbRead, uQueue);
+        if (uQueue == 0)
+            pspDevCcpMmioQueueRegRead(pThis, &pThis->Queue1, offRegQ, (uint32_t *)pvDst);
+        else if (uQueue == 1)
+            pspDevCcpMmioQueueRegRead(pThis, &pThis->Queue2, offRegQ, (uint32_t *)pvDst);
         else
-            pspDevCcpMmioQueueRegRead(pThis, &pThis->Queue, offRegQ, (uint32_t *)pvDst);
+            printf("%s: offMmio=%#x cbRead=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbRead, uQueue);
     }
     else
     {
@@ -1647,10 +1651,12 @@ static void pspDevCcpMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVa
         uint32_t uQueue = offMmio / CCP_V5_Q_SIZE;
         uint32_t offRegQ = offMmio % CCP_V5_Q_SIZE;
 
-        if (uQueue > 0)
-            printf("%s: offMmio=%#x cbWrite=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbWrite, uQueue);
+        if (uQueue == 0)
+            pspDevCcpMmioQueueRegWrite(pThis, &pThis->Queue1, offRegQ, *(const uint32_t *)pvVal);
+        else if (uQueue == 1)
+            pspDevCcpMmioQueueRegWrite(pThis, &pThis->Queue2, offRegQ, *(const uint32_t *)pvVal);
         else
-            pspDevCcpMmioQueueRegWrite(pThis, &pThis->Queue, offRegQ, *(const uint32_t *)pvVal);
+            printf("%s: offMmio=%#x cbWrite=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbWrite, uQueue);
     }
     else
     {
@@ -1688,12 +1694,14 @@ static int pspDevCcpInit(PPSPDEV pDev)
     PPSPDEVCCP pThis = (PPSPDEVCCP)&pDev->abInstance[0];
 
     pThis->pDev             = pDev;
-    pThis->Queue.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
-    pThis->Queue.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
+    pThis->Queue1.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
+    pThis->Queue1.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
+    pThis->Queue2.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
+    pThis->Queue2.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
     pThis->pOsslShaCtx      = NULL;
 
     /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + CCP_V5_Q_SIZE,
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + 2*CCP_V5_Q_SIZE,
                                      pspDevCcpMmioRead, pspDevCcpMmioWrite, pThis,
                                      "CCPv5 Global+Queue", &pThis->hMmio);
     /** @todo Not sure this really belongs to the CCP (could be some other hardware block) but
