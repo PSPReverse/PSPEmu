@@ -19,6 +19,7 @@ add_executable(PSPEmu
                       psp-ccd.c
                       psp-disasm.c
                       psp-dbg.c
+                      psp-dbg-hlp.c
                       psp-svc.c
                       psp-flash.c
                       psp-iom.c

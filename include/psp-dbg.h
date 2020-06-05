@@ -25,6 +25,7 @@
 #include <common/types.h>
 
 #include <psp-ccd.h>
+#include <psp-dbg-hlp.h>
 
 
 /** PSP debugger handle. */
@@ -45,9 +46,11 @@ typedef PSPDBG *PPSPDBG;
  * @param   PspAddrRunUpTo          Runs until this address is hit like without a debugger enabled
  *                                  and drops into it when hit.
  * @param   pahCcds                 Array of CCD handles to handle with this debugger instance.
- * @param   cCcds                   NUmber of entris in the given array.
+ * @param   cCcds                   Number of entris in the given array.
+ * @param   hDbgHlp                 Debug helper module handle to use, optional.
  */
-int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR PspAddrRunUpTo, const PPSPCCD pahCcds, uint32_t cCcds);
+int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR PspAddrRunUpTo, const PPSPCCD pahCcds, uint32_t cCcds,
+                    PSPDBGHLP hDbgHlp);
 
 /**
  * Destroys the given debugger handle.
