@@ -1436,13 +1436,16 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
                                   bool fInit, bool fEom)
 {
-    int      rc     = 0;
-    uint16_t uMagic = CCP_V5_ENGINE_ECC_MAGIC_VALUE_GET(uFunc);
-    uint8_t  uOp    = CCP_V5_ENGINE_ECC_OP_GET(uFunc);
+    int      rc    = 0;
+    uint16_t uBits = CCP_V5_ENGINE_ECC_BIT_COUNT_GET(uFunc);
+    uint8_t  uOp   = CCP_V5_ENGINE_ECC_OP_GET(uFunc);
 
-    /* Check magic value */
-    if (uMagic == CCP_V5_ENGINE_ECC_MAGIC_VALUE)
+    /* Check bit count (we have 0x48 bytes, or 576 bits) */
+    if (uBits <= 576)
     {
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CCP,
+            "CCP: ECC with %u bits\n", ubits);
+
         /** @todo */
         switch (uOp)
         {
@@ -1514,7 +1517,7 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     else
     {
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                "CCP: ECC ERROR uMagic=%u is wrong!\n",
+                                "CCP: ECC ERROR uBits=%u is too large!\n",
                                 uMagic);
         rc = -1;
     }
