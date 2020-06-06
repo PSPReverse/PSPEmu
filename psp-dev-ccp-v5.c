@@ -1424,6 +1424,106 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
 
 /**
+ * Processes an ECC request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ * @param   uFunc               The engine specific function.
+ * @param   fInit               Flag whether to initialize the context state.
+ * @param   fEom                Flag whether this request marks the end of the message.
+ */
+static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
+                                  bool fInit, bool fEom)
+{
+    int      rc     = 0;
+    uint16_t uMagic = CCP_V5_ENGINE_ECC_MAGIC_VALUE_GET(uFunc);
+    uint8_t  uOp    = CCP_V5_ENGINE_ECC_OP_GET(uFunc);
+
+    /* Check magic value */
+    if (uMagic == CCP_V5_ENGINE_ECC_MAGIC_VALUE)
+    {
+        /** @todo */
+        switch (uOp)
+        {
+            case CCP_V5_ENGINE_ECC_OP_MUL_FIELD:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: ECC ERROR operation MUL (field) not implemented!\n",
+                                        uOp);
+                rc = -1;
+                break;
+            }
+            case CCP_V5_ENGINE_ECC_OP_ADD_FIELD:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: ECC ERROR operation ADD (field) not implemented!\n",
+                                        uOp);
+                rc = -1;
+                break;
+            }
+            case CCP_V5_ENGINE_ECC_OP_INV_FIELD:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: ECC ERROR operation INV (field) not implemented!\n",
+                                        uOp);
+                rc = -1;
+                break;
+            }
+            case CCP_V5_ENGINE_ECC_OP_ADD_CURVE:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: ECC ERROR operation ADD (curve) not implemented!\n",
+                                        );
+                rc = -1;
+                break;
+            }
+            case CCP_V5_ENGINE_ECC_OP_MUL_CURVE:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: ECC ERROR operation MUL (curve) not implemented!\n"
+                                        );
+                rc = -1;
+                break;
+            }
+            case CCP_V5_ENGINE_ECC_OP_DOUBLE_CURVE:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: ECC ERROR operation DOUBLE (curve) not implemented!\n"
+                                        );
+                rc = -1;
+                break;
+            }
+            case CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: ECC ERROR operation MUL_ADD (curve) not implemented!\n",
+                                        );
+                rc = -1;
+                break;
+            }
+            default:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                        "CCP: ECC ERROR uOp=%u not implemented!\n",
+                                        uOp);
+                rc = -1;
+            }
+        }
+    }
+    else
+    {
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: ECC ERROR uMagic=%u is wrong!\n",
+                                uMagic);
+        rc = -1;
+    }
+
+    return rc;
+}
+
+
+/**
  * Processes the given request.
  *
  * @returns Status code.
@@ -1467,8 +1567,10 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
         }
         case CCP_V5_ENGINE_XTS_AES128:
         case CCP_V5_ENGINE_DES3:
-        case CCP_V5_ENGINE_ECC:
             /** @todo */
+            break;
+        case CCP_V5_ENGINE_ECC:
+            rc = pspDevCcpReqEccProcess(pThis, pReq, uFunction, fInit, fEom);
             break;
         default:
             rc = -1;
