@@ -1449,31 +1449,31 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
             case CCP_V5_ENGINE_ECC_OP_MUL_FIELD:
             {
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC ERROR operation MUL (field) not implemented!\n",
-                                        uOp);
+                                        "CCP: ECC ERROR operation MUL (field) not implemented!\n"
+                                        );
                 rc = -1;
                 break;
             }
             case CCP_V5_ENGINE_ECC_OP_ADD_FIELD:
             {
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC ERROR operation ADD (field) not implemented!\n",
-                                        uOp);
+                                        "CCP: ECC ERROR operation ADD (field) not implemented!\n"
+                                        );
                 rc = -1;
                 break;
             }
             case CCP_V5_ENGINE_ECC_OP_INV_FIELD:
             {
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC ERROR operation INV (field) not implemented!\n",
-                                        uOp);
+                                        "CCP: ECC ERROR operation INV (field) not implemented!\n"
+                                        );
                 rc = -1;
                 break;
             }
             case CCP_V5_ENGINE_ECC_OP_ADD_CURVE:
             {
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC ERROR operation ADD (curve) not implemented!\n",
+                                        "CCP: ECC ERROR operation ADD (curve) not implemented!\n"
                                         );
                 rc = -1;
                 break;
@@ -1497,7 +1497,7 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
             case CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE:
             {
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC ERROR operation MUL_ADD (curve) not implemented!\n",
+                                        "CCP: ECC ERROR operation MUL_ADD (curve) not implemented!\n"
                                         );
                 rc = -1;
                 break;
