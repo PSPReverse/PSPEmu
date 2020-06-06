@@ -1444,7 +1444,7 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     if (uBits <= 576)
     {
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CCP,
-            "CCP: ECC with %u bits\n", ubits);
+            "CCP: ECC with %u bits\n", uBits);
 
         /** @todo */
         switch (uOp)
@@ -1518,7 +1518,7 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     {
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
                                 "CCP: ECC ERROR uBits=%u is too large!\n",
-                                uMagic);
+                                uBits);
         rc = -1;
     }
 
