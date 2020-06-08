@@ -35,6 +35,7 @@
 #include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
+#include <openssl/ec.h>
 
 /* OpenSSL version 1.0.x support (see https://www.openssl.org/docs/man1.1.0/man3/EVP_MD_CTX_new.html#HISTORY) */
 # if OPENSSL_VERSION_NUMBER < 0x10100000 // = OpenSSL 1.1.0
@@ -1025,6 +1026,14 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
         );
     }
 
+    size_t ec_curves_num = EC_get_builtin_curves(NULL, 0);
+    EC_builtin_curve * ec_curves = malloc(sizeof(EC_builtin_curve) * ec_curves_num);
+    EC_get_built_in_curves(ec_curves, ec_curves_num);
+
+    for (int i = 0; i < ec_curves_num; i++)
+    {
+        println("ec curve: %s\n", ec_curves[i].comment);
+    }
 }
 
 
