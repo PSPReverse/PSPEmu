@@ -934,14 +934,14 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                 char szCoefficientB[256];
 
                 pspDevCcpDumpEccNumber(szFactor, sizeof(szFactor),
-                    &EccData->Op.CurveMultiplicationAddition.Factor);
+                    &EccData->Op.CurveMultiplication.Factor);
                 pspDevCcpDumpEccNumber(szPointX, sizeof(szPointX),
-                    &EccData->Op.CurveMultiplicationAddition.Point.x);
+                    &EccData->Op.CurveMultiplication.Point.x);
                 pspDevCcpDumpEccNumber(szPointY, sizeof(szPointY),
-                    &EccData->Op.CurveMultiplicationAddition.Point.y);
+                    &EccData->Op.CurveMultiplication.Point.y);
 
                 pspDevCcpDumpEccNumber(szCoefficientB, sizeof(szCoefficientB),
-                    &EccData->Op.CurveMultiplicationAddition.CoefficientB);
+                    &EccData->Op.CurveMultiplication.CoefficientB);
 
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
                     "CCP ECC Data (Field Inversion):\n"
