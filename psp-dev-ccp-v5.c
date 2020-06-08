@@ -944,7 +944,7 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                     &EccData->Op.CurveMultiplication.CoefficientB);
 
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                    "CCP ECC Data (Field Inversion):\n"
+                    "CCP ECC Data (Curve Multiplication):\n"
                     "    Prime:             %s\n"
                     "    Factor:            %s\n"
                     "    PointX:            %s\n"
@@ -986,7 +986,7 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                     &EccData->Op.CurveMultiplicationAddition.CoefficientB);
 
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                    "CCP ECC Data (Field Inversion):\n"
+                    "CCP ECC Data (Curve Multiplication and Addition):\n"
                     "    Prime:             %s\n"
                     "    Factor1:           %s\n"
                     "    Point1X:           %s\n"
