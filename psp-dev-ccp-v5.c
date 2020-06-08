@@ -1021,7 +1021,7 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CCP,
             "CCP ECC Data Number %02i:\n"
             "    %s\n",
-            szPrime
+            i, szPrime
         );
     }
 
