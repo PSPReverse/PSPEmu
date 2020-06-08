@@ -888,10 +888,10 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                 pspDevCcpDumpEccNumber(szFactor2, sizeof(szFactor2),
                     &EccData->Op.FieldMultiplication.Factor2);
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                    "ECC Data (Field Multiplication):\n"
-                    "    Prime:         %s\n",
-                    "    Factor1:       %s\n",
-                    "    Factor2:       %s\n",
+                    "CCP ECC Data (Field Multiplication):\n"
+                    "    Prime:             %s\n"
+                    "    Factor1:           %s\n"
+                    "    Factor2:           %s\n",
                     szPrime, szFactor1, szFactor2
                 );
             }
@@ -904,10 +904,10 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                 pspDevCcpDumpEccNumber(szSummand2, sizeof(szSummand2),
                     &EccData->Op.FieldAddition.Summand2);
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                    "ECC Data (Field Multiplication):\n"
-                    "    Prime:         %s\n",
-                    "    Summand1:       %s\n",
-                    "    Summand2:       %s\n",
+                    "CCP ECC Data (Field Addition):\n"
+                    "    Prime:             %s\n"
+                    "    Summand1:          %s\n"
+                    "    Summand2:          %s\n",
                     szPrime, szSummand1, szSummand2
                 );
             }
@@ -918,20 +918,99 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                 pspDevCcpDumpEccNumber(szNumber, sizeof(szNumber),
                     &EccData->Op.FieldInversion.Number);
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                    "ECC Data (Field Inversion):\n"
-                    "    Prime:         %s\n",
-                    "    Number:       %s\n",
+                    "CCP ECC Data (Field Inversion):\n"
+                    "    Prime:             %s\n"
+                    "    Number:            %s\n",
                     szPrime, szNumber
                 );
             }
             break;
+        case CCP_V5_ENGINE_ECC_OP_MUL_CURVE:
+            {
+                char szFactor[256];
+                char szPointX[256];
+                char szPointY[256];
+
+                char szCoefficientB[256];
+
+                pspDevCcpDumpEccNumber(szFactor, sizeof(szFactor),
+                    &EccData->Op.CurveMultiplicationAddition.Factor);
+                pspDevCcpDumpEccNumber(szPointX, sizeof(szPointX),
+                    &EccData->Op.CurveMultiplicationAddition.Point.x);
+                pspDevCcpDumpEccNumber(szPointY, sizeof(szPointY),
+                    &EccData->Op.CurveMultiplicationAddition.Point.y);
+
+                pspDevCcpDumpEccNumber(szCoefficientB, sizeof(szCoefficientB),
+                    &EccData->Op.CurveMultiplicationAddition.CoefficientB);
+
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Field Inversion):\n"
+                    "    Prime:             %s\n"
+                    "    Factor:            %s\n"
+                    "    PointX:            %s\n"
+                    "    PointY:            %s\n"
+                    "    CurveCoefficientB: %s\n",
+                    szPrime,
+                    szFactor, szPointX, szPointY,
+                    szCoefficientB
+                );
+            }
+            break;
+        case CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE:
+            {
+                char szFactor1[256];
+                char szPoint1X[256];
+                char szPoint1Y[256];
+
+                char szFactor2[256];
+                char szPoint2X[256];
+                char szPoint2Y[256];
+
+                char szCoefficientB[256];
+
+                pspDevCcpDumpEccNumber(szFactor1, sizeof(szFactor1),
+                    &EccData->Op.CurveMultiplicationAddition.Factor1);
+                pspDevCcpDumpEccNumber(szPoint1X, sizeof(szPoint1X),
+                    &EccData->Op.CurveMultiplicationAddition.Point1.x);
+                pspDevCcpDumpEccNumber(szPoint1Y, sizeof(szPoint1Y),
+                    &EccData->Op.CurveMultiplicationAddition.Point1.y);
+
+                pspDevCcpDumpEccNumber(szFactor2, sizeof(szFactor2),
+                    &EccData->Op.CurveMultiplicationAddition.Factor2);
+                pspDevCcpDumpEccNumber(szPoint2X, sizeof(szPoint2X),
+                    &EccData->Op.CurveMultiplicationAddition.Point2.x);
+                pspDevCcpDumpEccNumber(szPoint2Y, sizeof(szPoint2Y),
+                    &EccData->Op.CurveMultiplicationAddition.Point2.y);
+
+                pspDevCcpDumpEccNumber(szCoefficientB, sizeof(szCoefficientB),
+                    &EccData->Op.CurveMultiplicationAddition.CoefficientB);
+
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Field Inversion):\n"
+                    "    Prime:             %s\n"
+                    "    Factor1:           %s\n"
+                    "    Point1X:           %s\n"
+                    "    Point1Y:           %s\n"
+                    "    Factor2:           %s\n"
+                    "    Point2X:           %s\n"
+                    "    Point2Y:           %s\n"
+                    "    CurveCoefficientB: %s\n",
+                    szPrime,
+                    szFactor1, szPoint1X, szPoint1Y,
+                    szFactor2, szPoint2X, szPoint2Y,
+                    szCoefficientB
+                );
+            }
+            break;
         default:
-            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                "ECC Data (Unkown Operation):\n"
-                "    Prime:         %s\n",
-                "    Unknown Parameters ...\n",
-                szPrime
-            );
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Unkown Operation):\n"
+                    "    Prime:                 %s\n"
+                    "    Unknown Parameters ...\n",
+                    szPrime
+                );
+            }
             break;
     }
 }
