@@ -754,6 +754,27 @@ static void pspDevCcpReqDumpRsaFunction(char *pszBuf, size_t cbBuf, uint32_t uFu
 
 
 /**
+ * Extracts and dumps information about the given ECC function.
+ *
+ * @returns nothing.
+ * @param   pszBuf              The buffer to dump into.
+ * @param   cbBuf               Size of the buffer in bytes.
+ * @param   uFunc               The function part of dword 0.
+ * @param   u32Dw0Raw           The raw dw0 value used for dumping.
+ * @param   pszEngine           The used engine string.
+ */
+static void pspDevCcpReqDumpEccFunction(char *pszBuf, size_t cbBuf, uint32_t uFunc,
+                                        uint32_t u32Dw0Raw, const char *pszEngine)
+{
+    uint8_t  uOp   = CCP_V5_ENGINE_ECC_OP_GET(uFunc);
+    uint16_t uBits = CCP_V5_ENGINE_ECC_BIT_COUNT_GET(uFunc);
+
+    snprintf(pszBuf, cbBuf, "u32Dw0:             0x%08x (Engine: %s, Op: %u, Bits: %u)",
+                                                 u32Dw0Raw, pszEngine, uOp, uBits);
+}
+
+
+/**
  * Dumps the CCP5 request descriptor.
  *
  * @returns nothing.
@@ -774,6 +795,8 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
         pspDevCcpReqDumpPassthruFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else if (uEngine == CCP_V5_ENGINE_RSA)
         pspDevCcpReqDumpRsaFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
+    else if (uEngine == CCP_V5_ENGINE_ECC)
+        pspDevCcpReqDumpEccFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else
         snprintf(&szDw0[0], sizeof(szDw0), "u32Dw0:             0x%08x (Engine: %s)",
                                                                 pReq->u32Dw0, pszEngine);
@@ -817,6 +840,100 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
                                 CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType), CCP_V5_MEM_LSB_FIXED_GET(pReq->u16SrcMemType),
                                 pReq->Op.Sha.u32ShaBitsLow, pReq->Op.Sha.u32ShaBitsHigh,
                                 pReq->u32AddrKeyLow, pReq->u16AddrKeyHigh, pReq->u16KeyMemType);
+}
+
+
+/**
+ * Dump ecc number.
+ *
+ * @returns nothing.
+ * @param   pszBuf              The buffer to dump into.
+ * @param   cbBuf               Size of the buffer in bytes.
+ * @param   pNum                The ecc number to dump.
+ */
+static void pspDevCcpDumpEccNumber(char * pszBuf, size_t cbBuf, const CCP5ECC_NUMBER * pNum)
+{
+    const uint64_t * pu64Num = (const uint64_t *) pNum;
+
+    snprintf(pszBuf, cbBuf,
+        "0x%.216lx_%.216lx_%.216lx_%.216lx"
+        "_%.216lx_%.216lx_%.216lx_%.216lx"
+        "_%.216lx",
+        pu64Num[8], pu64Num[7], pu64Num[6], pu64Num[5],
+        pu64Num[4], pu64Num[3], pu64Num[2], pu64Num[1],
+        pu64Num[0],
+    );
+}
+
+
+/**
+ * Dumps the ecc data for a request.
+ *
+ * @returns nothing.
+ * @param   uOp                 The ecc operation.
+ * @param   EccData             The ecc data.
+ */
+static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
+{
+    char szPrime[256];
+    pspDevCcpDumpEccNumber(szPrime, sizeof(szPrime), &EccData->Prime);
+
+    switch (uOp)
+    {
+        case CCP_V5_ENGINE_ECC_OP_MUL_FIELD:
+            {
+                char szFactor1[256], szFactor2[256];
+                pspDevCcpDumpEccNumber(szFactor1, sizeof(szFactor1),
+                    &EccData->Op.FieldMultiplication.Factor1);
+                pspDevCcpDumpEccNumber(szFactor2, sizeof(szFactor2),
+                    &EccData->Op.FieldMultiplication.Factor2);
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "ECC Data (Field Multiplication):\n"
+                    "    Prime:         %s\n",
+                    "    Factor1:       %s\n",
+                    "    Factor2:       %s\n",
+                    szPrime, szFactor1, szFactor2
+                );
+            }
+            break;
+        case CCP_V5_ENGINE_ECC_OP_ADD_FIELD:
+            {
+                char szSummand1[256], szSummand2[256];
+                pspDevCcpDumpEccNumber(szSummand1, sizeof(szSummand1),
+                    &EccData->Op.FieldAddition.Summand1);
+                pspDevCcpDumpEccNumber(szSummand2, sizeof(szSummand2),
+                    &EccData->Op.FieldAddition.Summand2);
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "ECC Data (Field Multiplication):\n"
+                    "    Prime:         %s\n",
+                    "    Summand1:       %s\n",
+                    "    Summand2:       %s\n",
+                    szPrime, szSummand1, szSummand2
+                );
+            }
+            break;
+        case CCP_V5_ENGINE_ECC_OP_INV_FIELD:
+            {
+                char szNumber[256];
+                pspDevCcpDumpEccNumber(szNumber, sizeof(szNumber),
+                    &EccData->Op.FieldInversion.Number);
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "ECC Data (Field Inversion):\n"
+                    "    Prime:         %s\n",
+                    "    Number:       %s\n",
+                    szPrime, szNumber
+                );
+            }
+            break;
+        default:
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                "ECC Data (Unkown Operation):\n"
+                "    Prime:         %s\n",
+                "    Unknown Parameters ...\n",
+                szPrime
+            );
+            break;
+    }
 }
 
 
@@ -1439,6 +1556,8 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     int      rc    = 0;
     uint16_t uBits = CCP_V5_ENGINE_ECC_BIT_COUNT_GET(uFunc);
     uint8_t  uOp   = CCP_V5_ENGINE_ECC_OP_GET(uFunc);
+    /* Size of the output. */
+    uint8_t  uSz   = uOp <= 3 ? sizeof(CCP5ECC_NUMBER) : sizeof(CCP5ECC_POINT);
 
     /* Check bit count (we have 0x48 bytes, or 576 bits) */
     if (uBits <= 576)
@@ -1446,64 +1565,77 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CCP,
             "CCP: ECC with %u bits\n", uBits);
 
-        /** @todo */
-        switch (uOp)
+        /* Try to read data. */
+        CCPXFERCTX XferCtx;
+        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/,
+                uSz, false /*fWriteRev*/);
+        if (!rc)
         {
-            case CCP_V5_ENGINE_ECC_OP_MUL_FIELD:
+            CCP5ECC_DATA EccData;
+            rc = pspDevCcpXferCtxRead(&XferCtx, &EccData, sizeof(EccData), NULL);
+            if (!rc)
             {
-                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC operation MUL (field) not implemented!\n"
-                                        );
-                break;
-            }
-            case CCP_V5_ENGINE_ECC_OP_ADD_FIELD:
-            {
-                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC operation ADD (field) not implemented!\n"
-                                        );
-                break;
-            }
-            case CCP_V5_ENGINE_ECC_OP_INV_FIELD:
-            {
-                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC operation INV (field) not implemented!\n"
-                                        );
-                break;
-            }
-            case CCP_V5_ENGINE_ECC_OP_ADD_CURVE:
-            {
-                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC operation ADD (curve) not implemented!\n"
-                                        );
-                break;
-            }
-            case CCP_V5_ENGINE_ECC_OP_MUL_CURVE:
-            {
-                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC operation MUL (curve) not implemented!\n"
-                                        );
-                break;
-            }
-            case CCP_V5_ENGINE_ECC_OP_DOUBLE_CURVE:
-            {
-                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC operation DOUBLE (curve) not implemented!\n"
-                                        );
-                break;
-            }
-            case CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE:
-            {
-                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC operation MUL_ADD (curve) not implemented!\n"
-                                        );
-                break;
-            }
-            default:
-            {
-                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                        "CCP: ECC ERROR uOp=%u not implemented!\n",
-                                        uOp);
-                rc = -1;
+
+                pspDevCcpDumpEccData(uOp, &EccData);
+                switch (uOp)
+                {
+                    case CCP_V5_ENGINE_ECC_OP_MUL_FIELD:
+                    {
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                                "CCP: ECC operation MUL (field) not implemented!\n"
+                                                );
+                        break;
+                    }
+                    case CCP_V5_ENGINE_ECC_OP_ADD_FIELD:
+                    {
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                                "CCP: ECC operation ADD (field) not implemented!\n"
+                                                );
+                        break;
+                    }
+                    case CCP_V5_ENGINE_ECC_OP_INV_FIELD:
+                    {
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                                "CCP: ECC operation INV (field) not implemented!\n"
+                                                );
+                        break;
+                    }
+                    case CCP_V5_ENGINE_ECC_OP_ADD_CURVE:
+                    {
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                                "CCP: ECC operation ADD (curve) not implemented!\n"
+                                                );
+                        break;
+                    }
+                    case CCP_V5_ENGINE_ECC_OP_MUL_CURVE:
+                    {
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                                "CCP: ECC operation MUL (curve) not implemented!\n"
+                                                );
+                        break;
+                    }
+                    case CCP_V5_ENGINE_ECC_OP_DOUBLE_CURVE:
+                    {
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                                "CCP: ECC operation DOUBLE (curve) not implemented!\n"
+                                                );
+                        break;
+                    }
+                    case CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE:
+                    {
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                                "CCP: ECC operation MUL_ADD (curve) not implemented!\n"
+                                                );
+                        break;
+                    }
+                    default:
+                    {
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                                "CCP: ECC ERROR uOp=%u not implemented!\n",
+                                                uOp);
+                        rc = -1;
+                    }
+                }
             }
         }
     }
