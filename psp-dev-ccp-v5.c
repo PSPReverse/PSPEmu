@@ -932,7 +932,7 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                 char szPointX[256];
                 char szPointY[256];
 
-                char szCoefficientB[256];
+                char szCoefficient[256];
 
                 pspDevCcpDumpEccNumber(szFactor, sizeof(szFactor),
                     &EccData->Op.CurveMultiplication.Factor);
@@ -941,8 +941,8 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                 pspDevCcpDumpEccNumber(szPointY, sizeof(szPointY),
                     &EccData->Op.CurveMultiplication.Point.y);
 
-                pspDevCcpDumpEccNumber(szCoefficientB, sizeof(szCoefficientB),
-                    &EccData->Op.CurveMultiplication.CoefficientB);
+                pspDevCcpDumpEccNumber(szCoefficient, sizeof(szCoefficient),
+                    &EccData->Op.CurveMultiplication.Coefficient);
 
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
                     "CCP ECC Data (Curve Multiplication):\n"
@@ -950,10 +950,10 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                     "    Factor:            %s\n"
                     "    PointX:            %s\n"
                     "    PointY:            %s\n"
-                    "    CurveCoefficientB: %s\n",
+                    "    CurveCoefficient:  %s\n",
                     szPrime,
                     szFactor, szPointX, szPointY,
-                    szCoefficientB
+                    szCoefficient
                 );
             }
             break;
@@ -967,7 +967,7 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                 char szPoint2X[256];
                 char szPoint2Y[256];
 
-                char szCoefficientB[256];
+                char szCoefficient[256];
 
                 pspDevCcpDumpEccNumber(szFactor1, sizeof(szFactor1),
                     &EccData->Op.CurveMultiplicationAddition.Factor1);
@@ -983,8 +983,8 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                 pspDevCcpDumpEccNumber(szPoint2Y, sizeof(szPoint2Y),
                     &EccData->Op.CurveMultiplicationAddition.Point2.y);
 
-                pspDevCcpDumpEccNumber(szCoefficientB, sizeof(szCoefficientB),
-                    &EccData->Op.CurveMultiplicationAddition.CoefficientB);
+                pspDevCcpDumpEccNumber(szCoefficient, sizeof(szCoefficient),
+                    &EccData->Op.CurveMultiplicationAddition.Coefficient);
 
                 PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
                     "CCP ECC Data (Curve Multiplication and Addition):\n"
@@ -995,11 +995,11 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
                     "    Factor2:           %s\n"
                     "    Point2X:           %s\n"
                     "    Point2Y:           %s\n"
-                    "    CurveCoefficientB: %s\n",
+                    "    CurveCoefficient:  %s\n",
                     szPrime,
                     szFactor1, szPoint1X, szPoint1Y,
                     szFactor2, szPoint2X, szPoint2Y,
-                    szCoefficientB
+                    szCoefficient
                 );
             }
             break;
@@ -1024,15 +1024,6 @@ static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
             "    %s\n",
             i, szPrime
         );
-    }
-
-    size_t ec_curves_num = EC_get_builtin_curves(NULL, 0);
-    EC_builtin_curve * ec_curves = malloc(sizeof(EC_builtin_curve) * ec_curves_num);
-    EC_get_builtin_curves(ec_curves, ec_curves_num);
-
-    for (int i = 0; i < ec_curves_num; i++)
-    {
-        printf("ec curve: %s\n", ec_curves[i].comment);
     }
 }
 
@@ -1641,6 +1632,97 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
 
 /**
+ * Creates the elliptic curve calculation context.
+ *
+ * @todo The coefficient seems to be the "a" coefficient.
+ *       But that doesn't make sense, as that one is mostly -3.
+ *       It should be both or the "b" coefficient.
+ *       Well, for the moment we simply return the NIST P-384 curve
+ *       and assert that the Prime is correct.
+ *
+ * @returns                     The ecc context used for calculations or NULL on error.
+ * @param   BnCtx               The bignum context used for calculations.
+ * @param   Prime               The prime of the field for the curve.
+ * @param   Coefficient         A coefficient of the curve.
+ */
+static EC_GROUP * pspDevCcpEccGetGroup(BN_CTX * BnCtx, const BIGNUM * Prime,
+                                       const CCP5ECC_NUMBER * Coefficient)
+{
+    // TODO Do as said in the description.
+    EC_GROUP * EcGroup = EC_GROUP_new_by_curve_name(EC_curve_nist2nid("P-384"));
+    if (!EcGroup)
+        return NULL;
+
+    // Checking that the prime is correct.
+    const BIGNUM * Prime384 = EC_GROUP_get0_field(EcGroup);
+    if (!Prime384)
+        return NULL;
+    if (BN_cmp(Prime, Prime384) != 0)
+        return NULL;
+
+    return EcGroup;
+}
+
+
+/**
+ * Writes an output number.
+ *
+ * @returns                     Status code.
+ * @param   XferCtx             The context to be written to.
+ * @param   Result              The number to be written.
+ */
+static int pspDevCcpReqEccReturnNumber(PCCPXFERCTX XferCtx, const BIGNUM * Result)
+{
+    CCP5ECC_NUMBER Output;
+
+    /* This should never happen. */
+    if (BN_num_bytes(result) > sizeof(output.bytes))
+        return -1;
+
+    if (BN_bn2bin(result, output.bytes) == 0)
+        return -1;
+
+    return pspDevCcpXferCtxWrite(XferCtx, output.bytes, 0x48, NULL);
+}
+
+
+/**
+ * Writes an output point.
+ *
+ * @returns                     Status code.
+ * @param   XferCtx             The context to be written to.
+ * @param   BnCtx               The context for BIGNUM operations.
+ * @param   Curve               The curve on which the point lies.
+ * @param   Result              The point to be written.
+ */
+static int pspDevCcpReqEccReturnPoint(PCCPXFERCTX XferCtx, BN_CTX * BnCtx,
+                                      const EC_GROUP * Curve, const BIGNUM * Point)
+{
+    int rc = -1;
+
+    BIGNUM * X = BN_new();
+    BIGNUM * Y = BN_new();
+
+    if (X && Y)
+    {
+        if (EC_POINT_get_affine_coordinates(Curve, Point, X, Y, BnCtx))
+        {
+            if (pspDevCcpRevEccReturnNumber(XferCtx, X) &&
+                pspDevCcpRevEccReturnNumber(XferCtx, Y))
+            {
+                rc = 0;
+            }
+        }
+    }
+
+    BN_free(X);
+    BN_free(Y);
+
+    return rc;
+}
+
+
+/**
  * Processes an ECC request.
  *
  * @returns Status code.
@@ -1653,99 +1735,175 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
                                   bool fInit, bool fEom)
 {
-    int      rc    = 0;
     uint16_t uBits = CCP_V5_ENGINE_ECC_BIT_COUNT_GET(uFunc);
     uint8_t  uOp   = CCP_V5_ENGINE_ECC_OP_GET(uFunc);
     /* Size of the output. */
     uint8_t  uSz   = uOp <= 3 ? sizeof(CCP5ECC_NUMBER) : sizeof(CCP5ECC_POINT);
 
     /* Check bit count (we have 0x48 bytes, or 576 bits) */
-    if (uBits <= 576)
-    {
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CCP,
-            "CCP: ECC with %u bits\n", uBits);
-
-        /* Try to read data. */
-        CCPXFERCTX XferCtx;
-        rc = pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/,
-                uSz, false /*fWriteRev*/);
-        if (!rc)
-        {
-            CCP5ECC_DATA EccData;
-            rc = pspDevCcpXferCtxRead(&XferCtx, &EccData, sizeof(EccData), NULL);
-            if (!rc)
-            {
-
-                pspDevCcpDumpEccData(uOp, &EccData);
-                switch (uOp)
-                {
-                    case CCP_V5_ENGINE_ECC_OP_MUL_FIELD:
-                    {
-                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                                "CCP: ECC operation MUL (field) not implemented!\n"
-                                                );
-                        break;
-                    }
-                    case CCP_V5_ENGINE_ECC_OP_ADD_FIELD:
-                    {
-                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                                "CCP: ECC operation ADD (field) not implemented!\n"
-                                                );
-                        break;
-                    }
-                    case CCP_V5_ENGINE_ECC_OP_INV_FIELD:
-                    {
-                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                                "CCP: ECC operation INV (field) not implemented!\n"
-                                                );
-                        break;
-                    }
-                    case CCP_V5_ENGINE_ECC_OP_ADD_CURVE:
-                    {
-                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                                "CCP: ECC operation ADD (curve) not implemented!\n"
-                                                );
-                        break;
-                    }
-                    case CCP_V5_ENGINE_ECC_OP_MUL_CURVE:
-                    {
-                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                                "CCP: ECC operation MUL (curve) not implemented!\n"
-                                                );
-                        break;
-                    }
-                    case CCP_V5_ENGINE_ECC_OP_DOUBLE_CURVE:
-                    {
-                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                                "CCP: ECC operation DOUBLE (curve) not implemented!\n"
-                                                );
-                        break;
-                    }
-                    case CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE:
-                    {
-                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                                "CCP: ECC operation MUL_ADD (curve) not implemented!\n"
-                                                );
-                        break;
-                    }
-                    default:
-                    {
-                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
-                                                "CCP: ECC ERROR uOp=%u not implemented!\n",
-                                                uOp);
-                        rc = -1;
-                    }
-                }
-            }
-        }
-    }
-    else
+    if (uBits > 576)
     {
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
                                 "CCP: ECC ERROR uBits=%u is too large!\n",
                                 uBits);
-        rc = -1;
+        return -1;
     }
+
+    /* Create Transfer Context. */
+    CCPXFERCTX XferCtx;
+    if (pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/,
+            uSz, false /*fWriteRev*/))
+        return -1;
+
+    /* Try to read data. */
+    CCP5ECC_DATA EccData;
+    if (pspDevCcpXferCtxRead(&XferCtx, &EccData, sizeof(EccData), NULL))
+        return -1;
+
+    /* Logging */
+    pspDevCcpDumpEccData(uOp, &EccData);
+
+    int rc = -1;
+
+    /* Create BIGNUM context and prime BIGNUM */
+    BN_CTX * BnCtx = BN_CTX_new();
+    BIGNUM * Prime = BN_bin2bn(&cccData.Prime.bytes, sizeof(CCP5ECC_NUMBER), NULL);
+    if (BnCtx && Prime)
+    {
+
+        if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_FIELD)
+        {
+            BIGNUM * Factor1 = BN_bin2bn(&EccData.Op.FieldMultiplication.Factor1.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor2 = BN_bin2bn(&EccData.Op.FieldMultiplication.Factor2.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Product = BN_new();
+            if (Factor1 && Factor2 && Product
+                && BN_mod_mul(Product, Factor1, Factor2, Prime, BnCtx))
+            {
+                rc = pspDevCcpReqEccReturnNumber(&XferCtx, Product);
+            }
+
+            BN_free(Factor1);
+            BN_free(Factor2);
+            BN_free(Product);
+
+        }
+        else if (uOp == CCP_V5_ENGINE_ECC_OP_ADD_FIELD)
+        {
+            BIGNUM * Summand1 = BN_bin2bn(&EccData.Op.FieldAddition.Summand1.bytes,
+                                          sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Summand2 = BN_bin2bn(&EccData.Op.FieldAddition.Summand2.bytes,
+                                          sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Sum = BN_new();
+            if (Summand1 && Summand2 && Sum
+                && BN_mod_add(Sum, Summand1, Summand2, Prime, BnCtx))
+            {
+                rc = pspDevCcpReqEccReturnNumber(&XferCtx, Sum);
+            }
+
+            BN_free(Summand1);
+            BN_free(Summand2);
+            BN_free(Sum);
+
+        }
+        else if (uOp == CCP_V5_ENGINE_ECC_OP_INV_FIELD)
+        {
+            BIGNUM * Number = BN_bin2bn(&EccData.Op.FieldAddition.Summand1.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            if (Number)
+            {
+                BIGNUM * Inverse = BN_mod_inverse(NULL, Number, Prime, BnCtx);
+                if (Inverse)
+                {
+                    rc = pspDevCcpReqEccReturnNumber(&XferCtx, Inverse);
+
+                    BN_free(Inverse);
+                }
+
+                BN_free(Number);
+            }
+
+        }
+        else if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_CURVE)
+        {
+            BIGNUM * PointX = BN_bin2bn(&EccData.Op.CurveMultiplication.Point.x.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * PointY = BN_bin2bn(&EccData.Op.CurveMultiplication.Point.y.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor = BN_bin2bn(&EccData.Op.CurveMultiplication.Factor.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            EC_GROUP * Curve = pspDevCcpEccGetGroup(BnCtx, Prime,
+                                                    &EccData.Op.CurveMultiplication.Coefficient);
+            /* These can take NULL as an argument. */
+            EC_POINT * Point = EC_POINT_new(Curve);
+            EC_POINT * Result = EC_POINT_new(Curve);
+
+            if (PointX && PointY && Factor
+                && Curve && Point && Result
+                && EC_POINT_set_affine_coordinates(Curve, Point, PointX, PointY, BnCtx)
+                && EC_POINT_mul(Curve, Result, NULL, Point, Factor, BnCtx))
+            {
+                rc = pspDevCcpReqEccReturnPoint(&XferCtx, &BnCtx, Curve, Result);
+            }
+
+            EC_POINT_free(Point);
+            EC_POINT_free(Result);
+            EC_GROUP_free(Curve);
+            BN_free(PointX);
+            BN_free(PointY);
+            BN_free(Factor);
+
+        }
+        else if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE)
+        {
+            BIGNUM * Point1X = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Point1.x.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point1Y = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Point1.y.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor1 = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Factor1.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point2X = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Point2.x.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point2Y = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Point2.y.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor2 = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Factor2.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            EC_GROUP * Curve = pspDevCcpEccGetGroup(BnCtx, Prime,
+                                                    &EccData.Op.CurveMultiplicationAddition.Coefficient);
+            /* These can take NULL as an argument. */
+            EC_POINT * Point1 = EC_POINT_new(Curve);
+            EC_POINT * Point2 = EC_POINT_new(Curve);
+            EC_POINT * Result = EC_POINT_new(Curve);
+
+            if (Point1X && Point1Y && Factor1
+                && Point2X && Point2Y && Factor2
+                && Curve && Point1 && Point2 && Result
+                && EC_POINT_set_affine_coordinates(Curve, Point1, Point1X, Point1Y, BnCtx)
+                && EC_POINT_set_affine_coordinates(Curve, Point2, Point2X, Point2Y, BnCtx)
+                && EC_POINT_mul(Curve, Result, NULL, Point1, Factor1, BnCtx)
+                && EC_POINT_mul(Curve, Point1, NULL, Point2, Factor2, BnCtx)
+                && EC_POINT_add(Curve, Result, Result, Point1, BnCtx))
+            {
+                rc = pspDevCcpReqEccReturnPoint(&XferCtx, &BnCtx, Curve, Result);
+            }
+
+            EC_POINT_free(Point1);
+            EC_POINT_free(Point2;
+            EC_POINT_free(Result);
+            EC_GROUP_free(Curve);
+            BN_free(Point1X);
+            BN_free(Point1Y);
+            BN_free(Factor1);
+            BN_free(Point2X);
+            BN_free(Point2Y);
+            BN_free(Factor2);
+
+        }
+    }
+
+    BN_free(Prime);
+    BN_CTX_free(BnCtx);
 
     return rc;
 }
