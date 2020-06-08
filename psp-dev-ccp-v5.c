@@ -856,9 +856,9 @@ static void pspDevCcpDumpEccNumber(char * pszBuf, size_t cbBuf, const CCP5ECC_NU
     const uint64_t * pu64Num = (const uint64_t *) pNum;
 
     snprintf(pszBuf, cbBuf,
-        "0x%.216lx_%.216lx_%.216lx_%.216lx"
-        "_%.216lx_%.216lx_%.216lx_%.216lx"
-        "_%.216lx",
+        "0x%016lx_%016lx_%016lx_%016lx"
+        "_%016lx_%016lx_%016lx_%016lx"
+        "_%016lx",
         pu64Num[8], pu64Num[7], pu64Num[6], pu64Num[5],
         pu64Num[4], pu64Num[3], pu64Num[2], pu64Num[1],
         pu64Num[0]
