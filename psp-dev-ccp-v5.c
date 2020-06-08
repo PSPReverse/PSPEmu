@@ -1624,7 +1624,7 @@ static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32
             if (pQueue->u32RegCtrl & CCP_V5_Q_REG_CTRL_RUN) /* Running bit set? Process requests. */
             {
                 /* Clear halt and running bit. */
-                pQueue->u32RegCtrl &= ~(CCP_V5_Q_REG_CTRL_RUN | CCP_V5_Q_REG_CTRL_HALT);
+                pQueue->u32RegCtrl &= ~CCP_V5_Q_REG_CTRL_HALT;
 
                 uint32_t u32ReqTail = pQueue->u32RegReqTail;
                 uint32_t u32ReqHead = pQueue->u32RegReqHead;
