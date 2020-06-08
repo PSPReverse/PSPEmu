@@ -1648,19 +1648,24 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 static EC_GROUP * pspDevCcpEccGetGroup(BN_CTX * BnCtx, const BIGNUM * Prime,
                                        const CCP5ECC_NUMBER * Coefficient)
 {
-    // TODO Do as said in the description.
-    EC_GROUP * EcGroup = EC_GROUP_new_by_curve_name(EC_curve_nist2nid("P-384"));
-    if (!EcGroup)
-        return NULL;
-
     // Checking that the prime is correct.
-    const BIGNUM * Prime384 = EC_GROUP_get0_field(EcGroup);
+
+    // P-384 prime = 2^384 - 2^128  - 2^96 + 2^32 - 1
+    uint8_t Prime384Bytes[48] = {
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, //  64
+        0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // 128
+        0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // 192
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // 256
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // 320
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff  // 384
+    };
+    const BIGNUM * Prime384 = BN_bin2bn(Prime384Bytes, sizeof(Prime384Bytes), NULL);
     if (!Prime384)
         return NULL;
     if (BN_cmp(Prime, Prime384) != 0)
         return NULL;
 
-    return EcGroup;
+    return EC_GROUP_new_by_curve_name(EC_curve_nist2nid("P-384"));
 }
 
 
@@ -1676,13 +1681,13 @@ static int pspDevCcpReqEccReturnNumber(PCCPXFERCTX XferCtx, const BIGNUM * Resul
     CCP5ECC_NUMBER Output;
 
     /* This should never happen. */
-    if (BN_num_bytes(result) > sizeof(output.bytes))
+    if (BN_num_bytes(Result) > sizeof(Output.bytes))
         return -1;
 
-    if (BN_bn2bin(result, output.bytes) == 0)
+    if (BN_bn2bin(Result, Output.bytes) == 0)
         return -1;
 
-    return pspDevCcpXferCtxWrite(XferCtx, output.bytes, 0x48, NULL);
+    return pspDevCcpXferCtxWrite(XferCtx, Output.bytes, 0x48, NULL);
 }
 
 
@@ -1696,7 +1701,7 @@ static int pspDevCcpReqEccReturnNumber(PCCPXFERCTX XferCtx, const BIGNUM * Resul
  * @param   Result              The point to be written.
  */
 static int pspDevCcpReqEccReturnPoint(PCCPXFERCTX XferCtx, BN_CTX * BnCtx,
-                                      const EC_GROUP * Curve, const BIGNUM * Point)
+                                      const EC_GROUP * Curve, const EC_POINT * Point)
 {
     int rc = -1;
 
@@ -1707,8 +1712,8 @@ static int pspDevCcpReqEccReturnPoint(PCCPXFERCTX XferCtx, BN_CTX * BnCtx,
     {
         if (EC_POINT_get_affine_coordinates(Curve, Point, X, Y, BnCtx))
         {
-            if (pspDevCcpRevEccReturnNumber(XferCtx, X) &&
-                pspDevCcpRevEccReturnNumber(XferCtx, Y))
+            if (pspDevCcpReqEccReturnNumber(XferCtx, X) &&
+                pspDevCcpReqEccReturnNumber(XferCtx, Y))
             {
                 rc = 0;
             }
@@ -1767,15 +1772,15 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
     /* Create BIGNUM context and prime BIGNUM */
     BN_CTX * BnCtx = BN_CTX_new();
-    BIGNUM * Prime = BN_bin2bn(&cccData.Prime.bytes, sizeof(CCP5ECC_NUMBER), NULL);
+    BIGNUM * Prime = BN_bin2bn(&EccData.Prime.bytes, sizeof(CCP5ECC_NUMBER), NULL);
     if (BnCtx && Prime)
     {
 
         if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_FIELD)
         {
-            BIGNUM * Factor1 = BN_bin2bn(&EccData.Op.FieldMultiplication.Factor1.bytes,
+            BIGNUM * Factor1 = BN_bin2bn(EccData.Op.FieldMultiplication.Factor1.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Factor2 = BN_bin2bn(&EccData.Op.FieldMultiplication.Factor2.bytes,
+            BIGNUM * Factor2 = BN_bin2bn(EccData.Op.FieldMultiplication.Factor2.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
             BIGNUM * Product = BN_new();
             if (Factor1 && Factor2 && Product
@@ -1791,9 +1796,9 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
         else if (uOp == CCP_V5_ENGINE_ECC_OP_ADD_FIELD)
         {
-            BIGNUM * Summand1 = BN_bin2bn(&EccData.Op.FieldAddition.Summand1.bytes,
+            BIGNUM * Summand1 = BN_bin2bn(EccData.Op.FieldAddition.Summand1.bytes,
                                           sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Summand2 = BN_bin2bn(&EccData.Op.FieldAddition.Summand2.bytes,
+            BIGNUM * Summand2 = BN_bin2bn(EccData.Op.FieldAddition.Summand2.bytes,
                                           sizeof(CCP5ECC_NUMBER), NULL);
             BIGNUM * Sum = BN_new();
             if (Summand1 && Summand2 && Sum
@@ -1809,7 +1814,7 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
         else if (uOp == CCP_V5_ENGINE_ECC_OP_INV_FIELD)
         {
-            BIGNUM * Number = BN_bin2bn(&EccData.Op.FieldAddition.Summand1.bytes,
+            BIGNUM * Number = BN_bin2bn(EccData.Op.FieldAddition.Summand1.bytes,
                                         sizeof(CCP5ECC_NUMBER), NULL);
             if (Number)
             {
@@ -1827,11 +1832,11 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
         else if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_CURVE)
         {
-            BIGNUM * PointX = BN_bin2bn(&EccData.Op.CurveMultiplication.Point.x.bytes,
+            BIGNUM * PointX = BN_bin2bn(EccData.Op.CurveMultiplication.Point.x.bytes,
                                         sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * PointY = BN_bin2bn(&EccData.Op.CurveMultiplication.Point.y.bytes,
+            BIGNUM * PointY = BN_bin2bn(EccData.Op.CurveMultiplication.Point.y.bytes,
                                         sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Factor = BN_bin2bn(&EccData.Op.CurveMultiplication.Factor.bytes,
+            BIGNUM * Factor = BN_bin2bn(EccData.Op.CurveMultiplication.Factor.bytes,
                                         sizeof(CCP5ECC_NUMBER), NULL);
             EC_GROUP * Curve = pspDevCcpEccGetGroup(BnCtx, Prime,
                                                     &EccData.Op.CurveMultiplication.Coefficient);
@@ -1844,7 +1849,7 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 && EC_POINT_set_affine_coordinates(Curve, Point, PointX, PointY, BnCtx)
                 && EC_POINT_mul(Curve, Result, NULL, Point, Factor, BnCtx))
             {
-                rc = pspDevCcpReqEccReturnPoint(&XferCtx, &BnCtx, Curve, Result);
+                rc = pspDevCcpReqEccReturnPoint(&XferCtx, BnCtx, Curve, Result);
             }
 
             EC_POINT_free(Point);
@@ -1857,17 +1862,17 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
         else if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE)
         {
-            BIGNUM * Point1X = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Point1.x.bytes,
-                                        sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Point1Y = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Point1.y.bytes,
-                                        sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Factor1 = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Factor1.bytes,
-                                        sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Point2X = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Point2.x.bytes,
-                                        sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Point2Y = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Point2.y.bytes,
-                                        sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Factor2 = BN_bin2bn(&EccData.Op.CurveMultiplicationAddition.Factor2.bytes,
+            BIGNUM * Point1X = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Point1.x.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point1Y = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Point1.y.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor1 = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Factor1.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point2X = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Point2.x.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point2Y = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Point2.y.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor2 = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Factor2.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
             EC_GROUP * Curve = pspDevCcpEccGetGroup(BnCtx, Prime,
                                                     &EccData.Op.CurveMultiplicationAddition.Coefficient);
@@ -1885,11 +1890,11 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 && EC_POINT_mul(Curve, Point1, NULL, Point2, Factor2, BnCtx)
                 && EC_POINT_add(Curve, Result, Result, Point1, BnCtx))
             {
-                rc = pspDevCcpReqEccReturnPoint(&XferCtx, &BnCtx, Curve, Result);
+                rc = pspDevCcpReqEccReturnPoint(&XferCtx, BnCtx, Curve, Result);
             }
 
             EC_POINT_free(Point1);
-            EC_POINT_free(Point2;
+            EC_POINT_free(Point2);
             EC_POINT_free(Result);
             EC_GROUP_free(Curve);
             BN_free(Point1X);
