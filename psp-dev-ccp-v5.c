@@ -1910,6 +1910,13 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
     BN_free(Prime);
     BN_CTX_free(BnCtx);
 
+    if (rc)
+    {
+        const char * err = ERR_error_string(ERR_get_error(), NULL);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: ECC ERROR: %s\n", err);
+    }
+
     return rc;
 }
 
