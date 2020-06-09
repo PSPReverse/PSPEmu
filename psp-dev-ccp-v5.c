@@ -1666,6 +1666,7 @@ static EC_GROUP * pspDevCcpEccGetGroup(BN_CTX * BnCtx, const BIGNUM * Prime,
     if (BN_cmp(Prime, Prime384) != 0)
         return NULL;
 
+    BN_free(Prime384);
     return EC_GROUP_new_by_curve_name(EC_curve_nist2nid("P-384"));
 }
 
