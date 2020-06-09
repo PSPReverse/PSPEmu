@@ -1661,7 +1661,7 @@ static EC_GROUP * pspDevCcpEccGetGroup(BN_CTX * BnCtx, const BIGNUM * Prime,
         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // 384
         0
     };
-    const BIGNUM * Prime384 = BN_bin2bn(Prime384Bytes, sizeof(Prime384Bytes), NULL);
+    BIGNUM * Prime384 = BN_lebin2bn(Prime384Bytes, sizeof(Prime384Bytes), NULL);
     if (!Prime384)
         return NULL;
     if (BN_cmp(Prime, Prime384) != 0)
@@ -1687,7 +1687,7 @@ static int pspDevCcpReqEccReturnNumber(PCCPXFERCTX XferCtx, const BIGNUM * Resul
     if (BN_num_bytes(Result) > sizeof(Output.bytes))
         return -1;
 
-    if (BN_bn2bin(Result, Output.bytes) == 0)
+    if (BN_bn2lebinpad(Result, Output.bytes, sizeof(Output.bytes)) == 0)
         return -1;
 
     return pspDevCcpXferCtxWrite(XferCtx, Output.bytes, 0x48, NULL);
@@ -1775,15 +1775,15 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
     /* Create BIGNUM context and prime BIGNUM */
     BN_CTX * BnCtx = BN_CTX_new();
-    BIGNUM * Prime = BN_bin2bn(EccData.Prime.bytes, sizeof(CCP5ECC_NUMBER), NULL);
+    BIGNUM * Prime = BN_lebin2bn(EccData.Prime.bytes, sizeof(CCP5ECC_NUMBER), NULL);
     if (BnCtx && Prime)
     {
 
         if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_FIELD)
         {
-            BIGNUM * Factor1 = BN_bin2bn(EccData.Op.FieldMultiplication.Factor1.bytes,
+            BIGNUM * Factor1 = BN_lebin2bn(EccData.Op.FieldMultiplication.Factor1.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Factor2 = BN_bin2bn(EccData.Op.FieldMultiplication.Factor2.bytes,
+            BIGNUM * Factor2 = BN_lebin2bn(EccData.Op.FieldMultiplication.Factor2.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
             BIGNUM * Product = BN_new();
             if (Factor1 && Factor2 && Product
@@ -1799,9 +1799,9 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
         else if (uOp == CCP_V5_ENGINE_ECC_OP_ADD_FIELD)
         {
-            BIGNUM * Summand1 = BN_bin2bn(EccData.Op.FieldAddition.Summand1.bytes,
+            BIGNUM * Summand1 = BN_lebin2bn(EccData.Op.FieldAddition.Summand1.bytes,
                                           sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Summand2 = BN_bin2bn(EccData.Op.FieldAddition.Summand2.bytes,
+            BIGNUM * Summand2 = BN_lebin2bn(EccData.Op.FieldAddition.Summand2.bytes,
                                           sizeof(CCP5ECC_NUMBER), NULL);
             BIGNUM * Sum = BN_new();
             if (Summand1 && Summand2 && Sum
@@ -1817,7 +1817,7 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
         else if (uOp == CCP_V5_ENGINE_ECC_OP_INV_FIELD)
         {
-            BIGNUM * Number = BN_bin2bn(EccData.Op.FieldAddition.Summand1.bytes,
+            BIGNUM * Number = BN_lebin2bn(EccData.Op.FieldAddition.Summand1.bytes,
                                         sizeof(CCP5ECC_NUMBER), NULL);
             if (Number)
             {
@@ -1835,11 +1835,11 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
         else if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_CURVE)
         {
-            BIGNUM * PointX = BN_bin2bn(EccData.Op.CurveMultiplication.Point.x.bytes,
+            BIGNUM * PointX = BN_lebin2bn(EccData.Op.CurveMultiplication.Point.x.bytes,
                                         sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * PointY = BN_bin2bn(EccData.Op.CurveMultiplication.Point.y.bytes,
+            BIGNUM * PointY = BN_lebin2bn(EccData.Op.CurveMultiplication.Point.y.bytes,
                                         sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Factor = BN_bin2bn(EccData.Op.CurveMultiplication.Factor.bytes,
+            BIGNUM * Factor = BN_lebin2bn(EccData.Op.CurveMultiplication.Factor.bytes,
                                         sizeof(CCP5ECC_NUMBER), NULL);
             EC_GROUP * Curve = pspDevCcpEccGetGroup(BnCtx, Prime,
                                                     &EccData.Op.CurveMultiplication.Coefficient);
@@ -1865,17 +1865,17 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         }
         else if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE)
         {
-            BIGNUM * Point1X = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Point1.x.bytes,
+            BIGNUM * Point1X = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Point1.x.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Point1Y = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Point1.y.bytes,
+            BIGNUM * Point1Y = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Point1.y.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Factor1 = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Factor1.bytes,
+            BIGNUM * Factor1 = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Factor1.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Point2X = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Point2.x.bytes,
+            BIGNUM * Point2X = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Point2.x.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Point2Y = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Point2.y.bytes,
+            BIGNUM * Point2Y = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Point2.y.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
-            BIGNUM * Factor2 = BN_bin2bn(EccData.Op.CurveMultiplicationAddition.Factor2.bytes,
+            BIGNUM * Factor2 = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Factor2.bytes,
                                          sizeof(CCP5ECC_NUMBER), NULL);
             EC_GROUP * Curve = pspDevCcpEccGetGroup(BnCtx, Prime,
                                                     &EccData.Op.CurveMultiplicationAddition.Coefficient);
