@@ -1772,7 +1772,7 @@ static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
     /* Create BIGNUM context and prime BIGNUM */
     BN_CTX * BnCtx = BN_CTX_new();
-    BIGNUM * Prime = BN_bin2bn(&EccData.Prime.bytes, sizeof(CCP5ECC_NUMBER), NULL);
+    BIGNUM * Prime = BN_bin2bn(EccData.Prime.bytes, sizeof(CCP5ECC_NUMBER), NULL);
     if (BnCtx && Prime)
     {
 
