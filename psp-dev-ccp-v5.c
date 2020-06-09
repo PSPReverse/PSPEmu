@@ -36,6 +36,7 @@
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
 #include <openssl/ec.h>
+#include <openssl/err.h>
 
 /* OpenSSL version 1.0.x support (see https://www.openssl.org/docs/man1.1.0/man3/EVP_MD_CTX_new.html#HISTORY) */
 # if OPENSSL_VERSION_NUMBER < 0x10100000 // = OpenSSL 1.1.0
