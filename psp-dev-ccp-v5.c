@@ -1715,10 +1715,9 @@ static int pspDevCcpReqEccReturnPoint(PCCPXFERCTX XferCtx, BN_CTX * BnCtx,
     {
         if (EC_POINT_get_affine_coordinates(Curve, Point, X, Y, BnCtx))
         {
-            if (pspDevCcpReqEccReturnNumber(XferCtx, X) &&
-                pspDevCcpReqEccReturnNumber(XferCtx, Y))
+            if (pspDevCcpReqEccReturnNumber(XferCtx, X) == 0)
             {
-                rc = 0;
+                rc = pspDevCcpReqEccReturnNumber(XferCtx, Y);
             }
         }
     }
