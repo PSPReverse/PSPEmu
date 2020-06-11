@@ -23,6 +23,7 @@ add_executable(PSPEmu
                       psp-svc.c
                       psp-flash.c
                       psp-iom.c
+                      psp-iolog.c
                       psp-trace.c
                       psp-cov.c
                       psp-proxy.c
