@@ -65,3 +65,11 @@ target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/capstone/libcapstone.a)
 target_link_libraries(PSPEmu ${CMAKE_SOURCE_DIR}/libgdbstub/libgdbstub.a)
 target_link_libraries(PSPEmu m)
 target_link_libraries(PSPEmu ${CMAKE_THREAD_LIBS_INIT})
+
+add_executable (psp-iolog-tool
+                                psp-iolog-tool.c
+                                psp-iolog.c)
+target_include_directories(psp-iolog-tool PUBLIC
+                           "${PROJECT_SOURCE_DIR}/include"
+                           "${PROJECT_SOURCE_DIR}/psp-includes"
+                           )
