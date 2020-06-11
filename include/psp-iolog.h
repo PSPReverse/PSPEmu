@@ -89,12 +89,13 @@ void PSPEmuIoLogWrDestroy(PSPIOLOGWR hIoLogWr);
  *
  * @returns Status code.
  * @param   hIoLogWr                The I/O log writer handle.
+ * @param   idCcd                   The CCD id the access originates from.
  * @param   SmnAddr                 The SMN address the access started at.
  * @param   fWrite                  Flag whether this access is a write.
  * @param   cb                      Size of the access in bytes.
  * @param   pv                      Data being read or written depending on the write flag.
  */
-int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, SMNADDR SmnAddr, bool fWrite, size_t cb, const void *pv);
+int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, SMNADDR SmnAddr, bool fWrite, size_t cb, const void *pv);
 
 
 /**
@@ -102,12 +103,13 @@ int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, SMNADDR SmnAddr, bool fWrite, si
  *
  * @returns Status code.
  * @param   hIoLogWr                The I/O log writer handle.
+ * @param   idCcd                   The CCD id the access originates from.
  * @param   PspAddrMmio             The MMIO address the access started at.
  * @param   fWrite                  Flag whether this access is a write.
  * @param   cb                      Size of the access in bytes.
  * @param   pv                      Data being read or written depending on the write flag.
  */
-int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, PSPADDR PspAddrMmio, bool fWrite, size_t cb, const void *pv);
+int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrMmio, bool fWrite, size_t cb, const void *pv);
 
 
 /**
@@ -115,12 +117,13 @@ int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, PSPADDR PspAddrMmio, bool fWrit
  *
  * @returns Status code.
  * @param   hIoLogWr                The I/O log writer handle.
+ * @param   idCcd                   The CCD id the access originates from.
  * @param   PhysX86Addr             The physical x86 address the access started at.
  * @param   fWrite                  Flag whether this access is a write.
  * @param   cb                      Size of the access in bytes.
  * @param   pv                      Data being read or written depending on the write flag.
  */
-int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, X86PADDR PhysX86Addr, bool fWrite, size_t cb, const void *pv);
+int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, X86PADDR PhysX86Addr, bool fWrite, size_t cb, const void *pv);
 
 
 /**

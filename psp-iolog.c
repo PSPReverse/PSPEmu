@@ -45,11 +45,11 @@
 
 
 /** SMN address space was accessed. */
-#define PSP_IO_LOG_EVT_ADDR_SPACE_SMN       0x00000001
+#define PSP_IO_LOG_EVT_ADDR_SPACE_SMN       0x0001
 /** PSP MMIO address space was accessed. */
-#define PSP_IO_LOG_EVT_ADDR_SPACE_MMIO      0x00000002
+#define PSP_IO_LOG_EVT_ADDR_SPACE_MMIO      0x0002
 /** x86 address space was accessed. */
-#define PSP_IO_LOG_EVT_ADDR_SPACE_X86       0x00000003
+#define PSP_IO_LOG_EVT_ADDR_SPACE_X86       0x0003
 
 
 /** The event describes a read. */
@@ -90,9 +90,11 @@ typedef const PSPIOLOGHDR *PCPSPIOLOGHDR;
 typedef struct PSPIOLOGEVT
 {
     /** The accessed address space. */
-    uint32_t                        u32AddrSpace;
+    uint16_t                        u16AddrSpace;
     /** Flags for this event. */
-    uint32_t                        fFlags;
+    uint16_t                        fFlags;
+    /** CCD ID the event orignated from. */
+    uint32_t                        idCcd;
     /** The adress being accessed. */
     uint64_t                        u64Addr;
     /** Number of bytes being accessed, this defines the number of bytes following the event header. */
@@ -219,42 +221,45 @@ void PSPEmuIoLogWrDestroy(PSPIOLOGWR hIoLogWr)
 }
 
 
-int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, SMNADDR SmnAddr, bool fWrite, size_t cb, const void *pv)
+int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, SMNADDR SmnAddr, bool fWrite, size_t cb, const void *pv)
 {
     PPSPIOLOGWRINT pThis = hIoLogWr;
 
     PSPIOLOGEVT Evt;
-    Evt.u32AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_SMN;
+    Evt.u16AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_SMN;
+    Evt.fFlags       = fWrite ? PSP_IO_LOG_EVT_F_WRITE : PSP_IO_LOG_EVT_F_READ;
+    Evt.idCcd        = idCcd;
     Evt.u64Addr      = SmnAddr;
-    Evt.fFlags       = fWrite ? PSP_IO_LOG_EVT_F_WRITE : PSP_IO_LOG_EVT_F_READ;
     Evt.cbAcc        = cb;
     Evt.u64TsEvt     = pspEmuIoLogGetTimeNs() - pThis->u64TsStart;
     return pspEmuIoLogWrEvtAdd(pThis, &Evt, pv, cb);
 }
 
 
-int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, PSPADDR PspAddrMmio, bool fWrite, size_t cb, const void *pv)
+int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrMmio, bool fWrite, size_t cb, const void *pv)
 {
     PPSPIOLOGWRINT pThis = hIoLogWr;
 
     PSPIOLOGEVT Evt;
-    Evt.u32AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_MMIO;
+    Evt.u16AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_MMIO;
+    Evt.fFlags       = fWrite ? PSP_IO_LOG_EVT_F_WRITE : PSP_IO_LOG_EVT_F_READ;
+    Evt.idCcd        = idCcd;
     Evt.u64Addr      = PspAddrMmio;
-    Evt.fFlags       = fWrite ? PSP_IO_LOG_EVT_F_WRITE : PSP_IO_LOG_EVT_F_READ;
     Evt.cbAcc        = cb;
     Evt.u64TsEvt     = pspEmuIoLogGetTimeNs() - pThis->u64TsStart;
     return pspEmuIoLogWrEvtAdd(pThis, &Evt, pv, cb);
 }
 
 
-int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, X86PADDR PhysX86Addr, bool fWrite, size_t cb, const void *pv)
+int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, X86PADDR PhysX86Addr, bool fWrite, size_t cb, const void *pv)
 {
     PPSPIOLOGWRINT pThis = hIoLogWr;
 
     PSPIOLOGEVT Evt;
-    Evt.u32AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_X86;
-    Evt.u64Addr      = PhysX86Addr;
+    Evt.u16AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_X86;
     Evt.fFlags       = fWrite ? PSP_IO_LOG_EVT_F_WRITE : PSP_IO_LOG_EVT_F_READ;
+    Evt.idCcd        = idCcd;
+    Evt.u64Addr      = PhysX86Addr;
     Evt.cbAcc        = cb;
     Evt.u64TsEvt     = pspEmuIoLogGetTimeNs() - pThis->u64TsStart;
     return pspEmuIoLogWrEvtAdd(pThis, &Evt, pv, cb);
