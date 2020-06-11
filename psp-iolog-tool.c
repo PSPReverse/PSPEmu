@@ -80,7 +80,9 @@ static void pspIoLogToolEvtDump(PCPSPIOLOGRDREVT pIoEvt)
             break;
     }
 
-    fprintf(stdout, "%s %16s %#16lx %u",
+    fprintf(stdout, "%02u 0x%08lx %s %16s %#16lx %u",
+            pIoEvt->idCcd,
+            pIoEvt->PspAddrPc,
             pszAddrSpace,
             pIoEvt->fWrite ? "WRITE" : "READ ",
             uAddr, pIoEvt->cbAcc);

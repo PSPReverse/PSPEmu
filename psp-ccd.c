@@ -316,11 +316,18 @@ static void pspEmuCcdIoLogMmioTrace(PSPADDR offMmioAbs, const char *pszDevId, PS
     (void)offMmioDev;
 
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-    int rc = PSPEmuIoLogWrMmioAccAdd(pThis->hIoLogWr, pThis->idCcd, offMmioAbs,
+    PSPADDR PspAddrPc;
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_PC, &PspAddrPc);
+    if (STS_SUCCESS(rc))
+    {
+        rc = PSPEmuIoLogWrMmioAccAdd(pThis->hIoLogWr, pThis->idCcd, PspAddrPc, offMmioAbs,
                                      (fFlags & PSPEMU_IOM_TRACE_F_WRITE) ? true : false,
                                      cbAccess, pvVal);
-    if (STS_FAILURE(rc))
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_MMIO, "PSPEmuIoLogWrMmioAccAdd() -> %d\n", rc);
+        if (STS_FAILURE(rc))
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_MMIO, "PSPEmuIoLogWrMmioAccAdd() -> %d\n", rc);
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_MMIO, "PSPEmuCoreQueryReg() -> %d\n", rc);
 }
 
 
@@ -334,11 +341,18 @@ static void pspEmuCcdIoLogSmnTrace(SMNADDR offSmnAbs, const char *pszDevId, SMNA
     (void)offSmnDev;
 
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-    int rc = PSPEmuIoLogWrSmnAccAdd(pThis->hIoLogWr, pThis->idCcd, offSmnAbs,
+    PSPADDR PspAddrPc;
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_PC, &PspAddrPc);
+    if (STS_SUCCESS(rc))
+    {
+        rc = PSPEmuIoLogWrSmnAccAdd(pThis->hIoLogWr, pThis->idCcd, PspAddrPc, offSmnAbs,
                                     (fFlags & PSPEMU_IOM_TRACE_F_WRITE) ? true : false,
                                     cbAccess, pvVal);
-    if (STS_FAILURE(rc))
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_SMN, "PSPEmuIoLogWrSmnAccAdd() -> %d\n", rc);
+        if (STS_FAILURE(rc))
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_SMN, "PSPEmuIoLogWrSmnAccAdd() -> %d\n", rc);
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_MMIO, "PSPEmuCoreQueryReg() -> %d\n", rc);
 }
 
 
@@ -352,11 +366,18 @@ static void pspEmuCcdIoLogX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86
     (void)offX86Dev;
 
     PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
-    int rc = PSPEmuIoLogWrX86AccAdd(pThis->hIoLogWr, pThis->idCcd, offX86Abs,
+    PSPADDR PspAddrPc;
+    int rc = PSPEmuCoreQueryReg(pThis->hPspCore, PSPCOREREG_PC, &PspAddrPc);
+    if (STS_SUCCESS(rc))
+    {
+        rc = PSPEmuIoLogWrX86AccAdd(pThis->hIoLogWr, pThis->idCcd, PspAddrPc, offX86Abs,
                                     (fFlags & PSPEMU_IOM_TRACE_F_WRITE) ? true : false,
                                     cbAccess, pvVal);
-    if (STS_FAILURE(rc))
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86, "PSPEmuIoLogWrX86AccAdd() -> %d\n", rc);
+        if (STS_FAILURE(rc))
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86, "PSPEmuIoLogWrX86AccAdd() -> %d\n", rc);
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_MMIO, "PSPEmuCoreQueryReg() -> %d\n", rc);
 }
 
 

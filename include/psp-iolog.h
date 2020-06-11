@@ -41,6 +41,10 @@ typedef struct PSPIOLOGRDREVT
 {
     /** The address space being accessed. */
     PSPADDRSPACE                enmAddrSpace;
+    /** The CCD ID causing the access. */
+    uint32_t                    idCcd;
+    /** The program counter causing the access. */
+    PSPADDR                     PspAddrPc;
     /** Size of the access in bytes. */
     size_t                      cbAcc;
     /** Flag whether the access was a read or write. */
@@ -95,7 +99,7 @@ void PSPEmuIoLogWrDestroy(PSPIOLOGWR hIoLogWr);
  * @param   cb                      Size of the access in bytes.
  * @param   pv                      Data being read or written depending on the write flag.
  */
-int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, SMNADDR SmnAddr, bool fWrite, size_t cb, const void *pv);
+int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrPc, SMNADDR SmnAddr, bool fWrite, size_t cb, const void *pv);
 
 
 /**
@@ -109,7 +113,7 @@ int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, SMNADDR SmnAddr,
  * @param   cb                      Size of the access in bytes.
  * @param   pv                      Data being read or written depending on the write flag.
  */
-int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrMmio, bool fWrite, size_t cb, const void *pv);
+int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrPc, PSPADDR PspAddrMmio, bool fWrite, size_t cb, const void *pv);
 
 
 /**
@@ -123,7 +127,7 @@ int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddr
  * @param   cb                      Size of the access in bytes.
  * @param   pv                      Data being read or written depending on the write flag.
  */
-int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, X86PADDR PhysX86Addr, bool fWrite, size_t cb, const void *pv);
+int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrPc, X86PADDR PhysX86Addr, bool fWrite, size_t cb, const void *pv);
 
 
 /**

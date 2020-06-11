@@ -95,10 +95,12 @@ typedef struct PSPIOLOGEVT
     uint16_t                        fFlags;
     /** CCD ID the event orignated from. */
     uint32_t                        idCcd;
+    /** The PC causing the access. */
+    uint32_t                        uAddrPc;
+    /** Number of bytes being accessed, this defines the number of bytes following the event header. */
+    uint32_t                        cbAcc;
     /** The adress being accessed. */
     uint64_t                        u64Addr;
-    /** Number of bytes being accessed, this defines the number of bytes following the event header. */
-    uint64_t                        cbAcc;
     /** Timestamp of the event relative to the start timestamp. */
     uint64_t                        u64TsEvt;             
 } PSPIOLOGEVT;
@@ -305,7 +307,7 @@ void PSPEmuIoLogWrDestroy(PSPIOLOGWR hIoLogWr)
 }
 
 
-int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, SMNADDR SmnAddr, bool fWrite, size_t cb, const void *pv)
+int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrPc, SMNADDR SmnAddr, bool fWrite, size_t cb, const void *pv)
 {
     PPSPIOLOGWRINT pThis = hIoLogWr;
 
@@ -313,14 +315,15 @@ int PSPEmuIoLogWrSmnAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, SMNADDR SmnAddr,
     Evt.u16AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_SMN;
     Evt.fFlags       = fWrite ? PSP_IO_LOG_EVT_F_WRITE : PSP_IO_LOG_EVT_F_READ;
     Evt.idCcd        = idCcd;
+    Evt.uAddrPc      = PspAddrPc;
     Evt.u64Addr      = SmnAddr;
-    Evt.cbAcc        = cb;
+    Evt.cbAcc        = (uint32_t)cb;
     Evt.u64TsEvt     = pspEmuIoLogGetTimeNs() - pThis->u64TsStart;
     return pspEmuIoLogWrEvtAdd(pThis, &Evt, pv, cb);
 }
 
 
-int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrMmio, bool fWrite, size_t cb, const void *pv)
+int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrPc, PSPADDR PspAddrMmio, bool fWrite, size_t cb, const void *pv)
 {
     PPSPIOLOGWRINT pThis = hIoLogWr;
 
@@ -328,14 +331,15 @@ int PSPEmuIoLogWrMmioAccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddr
     Evt.u16AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_MMIO;
     Evt.fFlags       = fWrite ? PSP_IO_LOG_EVT_F_WRITE : PSP_IO_LOG_EVT_F_READ;
     Evt.idCcd        = idCcd;
+    Evt.uAddrPc      = PspAddrPc;
     Evt.u64Addr      = PspAddrMmio;
-    Evt.cbAcc        = cb;
+    Evt.cbAcc        = (uint32_t)cb;
     Evt.u64TsEvt     = pspEmuIoLogGetTimeNs() - pThis->u64TsStart;
     return pspEmuIoLogWrEvtAdd(pThis, &Evt, pv, cb);
 }
 
 
-int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, X86PADDR PhysX86Addr, bool fWrite, size_t cb, const void *pv)
+int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, PSPADDR PspAddrPc, X86PADDR PhysX86Addr, bool fWrite, size_t cb, const void *pv)
 {
     PPSPIOLOGWRINT pThis = hIoLogWr;
 
@@ -343,8 +347,9 @@ int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, X86PADDR PhysX86
     Evt.u16AddrSpace = PSP_IO_LOG_EVT_ADDR_SPACE_X86;
     Evt.fFlags       = fWrite ? PSP_IO_LOG_EVT_F_WRITE : PSP_IO_LOG_EVT_F_READ;
     Evt.idCcd        = idCcd;
+    Evt.uAddrPc      = PspAddrPc;
     Evt.u64Addr      = PhysX86Addr;
-    Evt.cbAcc        = cb;
+    Evt.cbAcc        = (uint32_t)cb;
     Evt.u64TsEvt     = pspEmuIoLogGetTimeNs() - pThis->u64TsStart;
     return pspEmuIoLogWrEvtAdd(pThis, &Evt, pv, cb);
 }
@@ -424,9 +429,11 @@ int PSPEmuIoLogRdrEvtQueryNext(PSPIOLOGRDR hIoLogRdr, PCPSPIOLOGRDREVT *ppIoLogE
             PPSPIOLOGRDREVT pEvt = (PPSPIOLOGRDREVT)calloc(1, sizeof(*pEvt) + EvtHdr.cbAcc);
             if (pEvt)
             {
-                pEvt->cbAcc  = (size_t)EvtHdr.cbAcc;
-                pEvt->fWrite = (EvtHdr.fFlags & PSP_IO_LOG_EVT_F_WRITE) ? true : false;
-                pEvt->pvData = (pEvt + 1);
+                pEvt->idCcd     = EvtHdr.idCcd;
+                pEvt->PspAddrPc = EvtHdr.uAddrPc;
+                pEvt->cbAcc     = (size_t)EvtHdr.cbAcc;
+                pEvt->fWrite    = (EvtHdr.fFlags & PSP_IO_LOG_EVT_F_WRITE) ? true : false;
+                pEvt->pvData    = (pEvt + 1);
 
                 switch (EvtHdr.u16AddrSpace)
                 {
