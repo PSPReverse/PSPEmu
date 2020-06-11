@@ -37,11 +37,11 @@
 *********************************************************************************************************************************/
 
 /** PSP I/O log header magic (sans the zero terminator). */
-#define PSP_IOLOG_HDR_MAGIC                 "PSPIOLOG"
+#define PSP_IO_LOG_HDR_MAGIC                "PSPIOLOG"
 /** This defines the endianess of the log. */
 #define PSP_IO_LOG_HDR_ENDIANESS            0xdeadc0de
 /** I/O log file format version (1.0 currently). */
-#define PSP_IO_LOG_HDR_VERSION              0x00010000;
+#define PSP_IO_LOG_HDR_VERSION              0x00010000
 
 
 /** SMN address space was accessed. */
@@ -122,6 +122,32 @@ typedef struct PSPIOLOGWRINT
 typedef PSPIOLOGWRINT *PPSPIOLOGWRINT;
 
 
+/**
+ * Internal I/O log reader instance data.
+ */
+typedef struct PSPIOLOGRDRINT
+{
+    /** The file handle. */
+    FILE                            *pFile;
+    /** The start timestamp read from the log header. */
+    uint64_t                        u64TsStart;
+    /** Current amount of data in the buffer. */
+    size_t                          cbData;
+    /** Where to read next from the buffer. */
+    uint32_t                        offBuf;
+    /** Error flag. */
+    bool                            fError;
+    /** Eos flag. */
+    bool                            fEos;
+    /** Buffered data. */
+    uint8_t                         abBuf[64 * 1024];
+} PSPIOLOGRDRINT;
+/** Pointer to a file buffered reader. */
+typedef PSPIOLOGRDRINT *PPSPIOLOGRDRINT;
+/** Pointer to a const file buffered reader. */
+typedef const PSPIOLOGRDRINT *PCPSPIOLOGRDRINT;
+
+
 /*********************************************************************************************************************************
 *   Internal Functions                                                                                                           *
 *********************************************************************************************************************************/
@@ -168,6 +194,64 @@ static int pspEmuIoLogWrEvtAdd(PPSPIOLOGWRINT pThis, PCPSPIOLOGEVT pEvt, const v
 }
 
 
+/**
+ * Fill the data buffer with data from the file.
+ *
+ * @returns Status code.
+ * @param   pThis                   The I/O log reader instance.
+ */
+static int pspEmuIoLogRdrBufFill(PPSPIOLOGRDRINT pThis)
+{
+    /* Try reading in more data. */
+    size_t cbRead = fread(&pThis->abBuf[0], 1, sizeof(pThis->abBuf), pThis->pFile);
+    pThis->cbData = cbRead;
+    pThis->offBuf = 0;
+    if (!cbRead)
+        pThis->fEos = 1;
+
+    return STS_INF_SUCCESS;
+}
+
+
+/**
+ * Reads the given amount of data from the I/O log.
+ *
+ * @returns Status code.
+ * @param   pThis                   The I/O log reader instance.
+ * @param   pv                      Where to store the read data.
+ * @param   cbRead                  Amount of bytes to read.
+ */
+static int pspEmuIoLogRdrRead(PPSPIOLOGRDRINT pThis, void *pv, size_t cbRead)
+{
+    int rc = STS_INF_SUCCESS;
+    uint8_t *pb = (uint8_t *)pv;
+    size_t cbReadLeft = cbRead;
+
+    /* Try filling up the buffer first. */
+    if (   pThis->offBuf == pThis->cbData
+        && !pThis->fEos)
+        rc = pspEmuIoLogRdrBufFill(pThis);
+
+    while (   cbReadLeft
+           && STS_SUCCESS(rc)
+           && pThis->cbData)
+    {
+        size_t cbThisRead = MIN(cbReadLeft, pThis->cbData - pThis->offBuf);
+        memcpy(pb, &pThis->abBuf[pThis->offBuf], cbThisRead);
+
+        pb            += cbThisRead;
+        cbReadLeft    -= cbThisRead;
+        pThis->offBuf += cbThisRead;
+
+        if (   pThis->offBuf == pThis->cbData
+            && !pThis->fEos)
+            rc = pspEmuIoLogRdrBufFill(pThis);
+    }
+
+    return rc;
+}
+
+
 int PSPEmuIoLogWrCreate(PPSPIOLOGWR phIoLogWr, uint32_t fFlags, const char *pszFilename)
 {
     if (fFlags)
@@ -185,7 +269,7 @@ int PSPEmuIoLogWrCreate(PPSPIOLOGWR phIoLogWr, uint32_t fFlags, const char *pszF
 
             /* Write the header. */
             PSPIOLOGHDR Hdr;
-            memcpy(&Hdr.achMagic[0], PSP_IOLOG_HDR_MAGIC, sizeof(Hdr.achMagic));
+            memcpy(&Hdr.achMagic[0], PSP_IO_LOG_HDR_MAGIC, sizeof(Hdr.achMagic));
             Hdr.u32Endianess = PSP_IO_LOG_HDR_ENDIANESS;
             Hdr.u32Version   = PSP_IO_LOG_HDR_VERSION;
             Hdr.u64TsStart   = pThis->u64TsStart;
@@ -268,32 +352,128 @@ int PSPEmuIoLogWrX86AccAdd(PSPIOLOGWR hIoLogWr, uint32_t idCcd, X86PADDR PhysX86
 
 int PSPEmuIoLogRdrCreate(PPSPIOLOGRDR phIoLogRdr, const char *pszFilename)
 {
-    (void)phIoLogRdr;
-    (void)pszFilename;
+    int rc = STS_ERR_GENERAL_ERROR;
+    FILE *pIoLogFile = fopen(pszFilename, "rb");
+    if (pIoLogFile)
+    {
+        PSPIOLOGHDR Hdr;
+        size_t cbRead = fread(&Hdr, sizeof(Hdr), 1, pIoLogFile);
+        if (cbRead == 1)
+        {
+            /* Verify header. */
+            if (   !memcmp(&Hdr.achMagic[0], PSP_IO_LOG_HDR_MAGIC, sizeof(Hdr.achMagic))
+                && Hdr.u32Endianess == PSP_IO_LOG_HDR_ENDIANESS
+                && Hdr.u32Version == PSP_IO_LOG_HDR_VERSION
+                && Hdr.u64Rsvd0 == 0)
+            {
+                PPSPIOLOGRDRINT pThis = (PPSPIOLOGRDRINT)calloc(1, sizeof(*pThis));
+                if (pThis)
+                {
+                    pThis->pFile      = pIoLogFile;
+                    pThis->u64TsStart = Hdr.u64TsStart;
+                    pThis->cbData     = 0;
+                    pThis->offBuf     = 0;
+                    pThis->fError     = false;
+                    pThis->fEos       = false;
+                    *phIoLogRdr = pThis;
+                    return STS_INF_SUCCESS;
+                }
+                else
+                    rc = STS_ERR_NO_MEMORY;
+            }
+            else /** @todo You might be the lucky one having to implement endianess handling. */
+                rc = STS_ERR_GENERAL_ERROR;
+        }
+        else
+            rc = STS_ERR_GENERAL_ERROR;
 
-    return STS_ERR_GENERAL_ERROR;
+        fclose(pIoLogFile);
+    }
+
+    return rc;
 }
 
 
 void PSPEmuIoLogRdrDestroy(PSPIOLOGRDR hIoLogRdr)
 {
-    (void)hIoLogRdr;
+    PPSPIOLOGRDRINT pThis = hIoLogRdr;
+
+    fclose(pThis->pFile);
+    free(pThis);
 }
 
 
 int PSPEmuIoLogRdrEvtQueryNext(PSPIOLOGRDR hIoLogRdr, PCPSPIOLOGRDREVT *ppIoLogEvt)
 {
-    (void)hIoLogRdr;
     (void)ppIoLogEvt;
 
-    return STS_ERR_GENERAL_ERROR;
+    PPSPIOLOGRDRINT pThis = hIoLogRdr;
+    if (   pThis->fEos
+        && pThis->cbData == pThis->offBuf)
+        return STS_ERR_GENERAL_ERROR; /** @todo Proper status code. */
+
+    PSPIOLOGEVT EvtHdr;
+    int rc = pspEmuIoLogRdrRead(pThis, &EvtHdr, sizeof(EvtHdr));
+    if (STS_SUCCESS(rc))
+    {
+        if (   (   EvtHdr.u16AddrSpace == PSP_IO_LOG_EVT_ADDR_SPACE_SMN
+                || EvtHdr.u16AddrSpace == PSP_IO_LOG_EVT_ADDR_SPACE_MMIO
+                || EvtHdr.u16AddrSpace == PSP_IO_LOG_EVT_ADDR_SPACE_X86)
+            && (EvtHdr.cbAcc < 16 * 1024 * 1024)) /* Arbitrary limit. */
+        {
+            PPSPIOLOGRDREVT pEvt = (PPSPIOLOGRDREVT)calloc(1, sizeof(*pEvt) + EvtHdr.cbAcc);
+            if (pEvt)
+            {
+                pEvt->cbAcc  = (size_t)EvtHdr.cbAcc;
+                pEvt->fWrite = (EvtHdr.fFlags & PSP_IO_LOG_EVT_F_WRITE) ? true : false;
+                pEvt->pvData = (pEvt + 1);
+
+                switch (EvtHdr.u16AddrSpace)
+                {
+                    case PSP_IO_LOG_EVT_ADDR_SPACE_SMN:
+                    {
+                        pEvt->enmAddrSpace = PSPADDRSPACE_SMN;
+                        pEvt->u.SmnAddr    = (SMNADDR)EvtHdr.u64Addr;
+                        break;
+                    }
+                    case PSP_IO_LOG_EVT_ADDR_SPACE_MMIO:
+                    {
+                        pEvt->enmAddrSpace  = PSPADDRSPACE_PSP;
+                        pEvt->u.PspAddrMmio = (PSPADDR)EvtHdr.u64Addr;
+                        break;
+                    }
+                    case PSP_IO_LOG_EVT_ADDR_SPACE_X86:
+                    {
+                        pEvt->enmAddrSpace  = PSPADDRSPACE_X86;
+                        pEvt->u.PhysX86Addr = EvtHdr.u64Addr;
+                        break;
+                    }
+                    default:
+                        rc = STS_ERR_GENERAL_ERROR;
+                        break;
+                }
+
+                rc = pspEmuIoLogRdrRead(pThis, pEvt + 1, pEvt->cbAcc);
+                if (STS_SUCCESS(rc))
+                    *ppIoLogEvt = pEvt;
+                else
+                    free(pEvt);
+            }
+            else
+                rc = STS_ERR_NO_MEMORY;
+        }
+        else
+            rc = STS_ERR_INVALID_PARAMETER;
+    }
+
+    return rc;
 }
 
 
 int PSPEmuIoLogRdrEvtFree(PSPIOLOGRDR hIoLogRdr, PCPSPIOLOGRDREVT pIoLogEvt)
 {
     (void)hIoLogRdr;
-    (void)pIoLogEvt;
 
-    return STS_ERR_GENERAL_ERROR;
+    free((void *)pIoLogEvt); /* Keep it simple for now */
+    return STS_INF_SUCCESS;
 }
