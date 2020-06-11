@@ -26,6 +26,7 @@
 
 #include <common/types.h>
 #include <common/cdefs.h>
+#include <common/status.h>
 #include <psp-fw/boot-rom-svc-page.h>
 
 #include <psp-ccd.h>
@@ -36,6 +37,7 @@
 #include <psp-svc.h>
 #include <psp-trace.h>
 #include <psp-cov.h>
+#include <psp-iolog.h>
 
 
 /**
@@ -69,6 +71,14 @@ typedef struct PSPCCDINT
     PSPSVC                      hSvc;
     /** The trace log handle. */
     PSPTRACE                    hTrace;
+    /** The I/O log handle. */
+    PSPIOLOGWR                  hIoLogWr;
+    /** MMIO I/O tracepoint handle. */
+    PSPIOMTP                    hIoTpIoLogMmio;
+    /** SMN I/O tracepoint handle. */
+    PSPIOMTP                    hIoTpIoLogSmn;
+    /** X86 I/O tracepoint handle. */
+    PSPIOMTP                    hIoTpIoLogX86;
     /** The coverage trace handle. */
     PSPCOV                      hCov;
     /** The SMN region handle for the ID register. */
@@ -293,6 +303,60 @@ static bool pspEmuSmcTrace(PSPCORE hCore, uint32_t idxCall, uint32_t fFlags, voi
                              : false /* fEntry*/,
                              NULL /*pszMsg*/);
     return false;
+}
+
+
+/**
+ * MMIO tracepoint callback for writing to the I/O log.
+ */
+static void pspEmuCcdIoLogMmioTrace(PSPADDR offMmioAbs, const char *pszDevId, PSPADDR offMmioDev, size_t cbAccess,
+                                    const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    (void)pszDevId;
+    (void)offMmioDev;
+
+    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
+    int rc = PSPEmuIoLogWrMmioAccAdd(pThis->hIoLogWr, pThis->idCcd, offMmioAbs,
+                                     (fFlags & PSPEMU_IOM_TRACE_F_WRITE) ? true : false,
+                                     cbAccess, pvVal);
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_MMIO, "PSPEmuIoLogWrMmioAccAdd() -> %d\n", rc);
+}
+
+
+/**
+ * SMN tracepoint callback for writing to the I/O log.
+ */
+static void pspEmuCcdIoLogSmnTrace(SMNADDR offSmnAbs, const char *pszDevId, SMNADDR offSmnDev, size_t cbAccess,
+                                   const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    (void)pszDevId;
+    (void)offSmnDev;
+
+    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
+    int rc = PSPEmuIoLogWrSmnAccAdd(pThis->hIoLogWr, pThis->idCcd, offSmnAbs,
+                                    (fFlags & PSPEMU_IOM_TRACE_F_WRITE) ? true : false,
+                                    cbAccess, pvVal);
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_SMN, "PSPEmuIoLogWrSmnAccAdd() -> %d\n", rc);
+}
+
+
+/**
+ * X86 tracepoint callback for writing to the I/O log.
+ */
+static void pspEmuCcdIoLogX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86PADDR offX86Dev, size_t cbAccess,
+                                const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    (void)pszDevId;
+    (void)offX86Dev;
+
+    PPSPCCDINT pThis = (PPSPCCDINT)pvUser;
+    int rc = PSPEmuIoLogWrX86AccAdd(pThis->hIoLogWr, pThis->idCcd, offX86Abs,
+                                    (fFlags & PSPEMU_IOM_TRACE_F_WRITE) ? true : false,
+                                    cbAccess, pvVal);
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86, "PSPEmuIoLogWrX86AccAdd() -> %d\n", rc);
 }
 
 
@@ -744,6 +808,27 @@ static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
             rc = PSPEmuCovCreate(&pThis->hCov, pThis->hPspCore, PspAddrBegin, PspAddrEnd);
     }
 
+    if (pCfg->pszIoLog)
+    {
+        /* Create an I/O log writer instance and register trace points for all access spaces with IOM. */
+        rc = PSPEmuIoLogWrCreate(&pThis->hIoLogWr, 0 /*fFlags*/, pCfg->pszIoLog);
+        if (STS_SUCCESS(rc))
+        {
+            uint32_t fTpFlags = PSPEMU_IOM_TRACE_F_READ | PSPEMU_IOM_TRACE_F_WRITE | PSPEMU_IOM_TRACE_F_AFTER;
+            rc = PSPEmuIoMgrMmioTraceRegister(pThis->hIoMgr, 0 /*PspAddrMmioStart*/, 0xffffffff /*PspAddrMmioEnd*/,
+                                              0 /*cbAccess*/, fTpFlags, pspEmuCcdIoLogMmioTrace, pThis,
+                                              &pThis->hIoTpIoLogMmio);
+            if (STS_SUCCESS(rc))
+                rc = PSPEmuIoMgrSmnTraceRegister(pThis->hIoMgr, 0 /*SmnAddrStart*/, 0xffffffff /*SmnAddrEnd*/,
+                                                 0 /*cbAccess*/, fTpFlags, pspEmuCcdIoLogSmnTrace, pThis,
+                                                &pThis->hIoTpIoLogSmn);
+            if (STS_SUCCESS(rc))
+                rc = PSPEmuIoMgrX86TraceRegister(pThis->hIoMgr, 0 /*PhysX86AddrStart*/, 0xffffffffffffffff /*PhysX86AddrEnd*/,
+                                                 0 /*cbAccess*/, fTpFlags, pspEmuCcdIoLogX86Trace, pThis,
+                                                 &pThis->hIoTpIoLogX86); 
+        }
+    }
+
     return rc;
 }
 
@@ -834,6 +919,30 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
 void PSPEmuCcdDestroy(PSPCCD hCcd)
 {
     PPSPCCDINT pThis = hCcd;
+
+    if (pThis->hIoTpIoLogMmio)
+    {
+        PSPEmuIoMgrTpDeregister(pThis->hIoTpIoLogMmio);
+        pThis->hIoTpIoLogMmio = NULL;
+    }
+
+    if (pThis->hIoTpIoLogSmn)
+    {
+        PSPEmuIoMgrTpDeregister(pThis->hIoTpIoLogSmn);
+        pThis->hIoTpIoLogSmn = NULL;
+    }
+
+    if (pThis->hIoTpIoLogX86)
+    {
+        PSPEmuIoMgrTpDeregister(pThis->hIoTpIoLogX86);
+        pThis->hIoTpIoLogX86 = NULL;
+    }
+
+    if (pThis->hIoLogWr)
+    {
+        PSPEmuIoLogWrDestroy(pThis->hIoLogWr);
+        pThis->hIoLogWr = NULL;
+    }
 
     if (pThis->hTrace)
     {

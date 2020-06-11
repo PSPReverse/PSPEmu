@@ -76,6 +76,7 @@ static struct option g_aOptions[] =
     {"emulate-single-die-id",        required_argument, 0, 'D'},
     {"emulate-devices",              required_argument, 0, 'E'},
     {"iom-log-all-accesses",         no_argument      , 0, 'I'},
+    {"io-log-write",                 required_argument, 0, 'L'},
     {"proxy-buffer-writes",          no_argument      , 0, 'P'},
     {"dbg-step-count",               required_argument, 0, 'G'},
     {"dbg-run-up-to",                required_argument, 0, 'U'},
@@ -468,7 +469,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:R:IA", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:R:L:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -507,6 +508,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n"
                        "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n"
                        "    --iom-log-all-accesses I/O manager logs all device accesses not only the ones to unassigned regions\n"
+                       "    --io-log-write <path/to/io/log> Writes a log of all I/O accesses for later replay\n"
                        "    --proxy-buffer-writes If proxy mode is enabled certain writes will be cached and sent in bursts to speed up certain access patterns\n"
                        "    --proxy-ccp When proxy mode is enabled this will pass through certain CCP request to a real CCP (AES with keys from the protected LSB so far)\n"
                        "    --dbg-run-up-to <addr> Runs until the given address is hit and drops then into the debugger instead of right at the start\n"
@@ -658,6 +660,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'I':
                 pCfg->fIomLogAllAccesses = true;
+                break;
+            case 'L':
+                pCfg->pszIoLog = optarg;
                 break;
             case 'P':
                 pCfg->fProxyWrBuffer = true;

@@ -274,6 +274,8 @@ typedef struct PSPEMUCFG
     uint16_t                uEm100FlashEmuPort;
     /** SPI flash trace file to write. */
     const char              *pszSpiFlashTrace;
+    /** Pointer to the I/O log file to write. */
+    const char              *pszIoLog;
     /** Coverage tracing filename if enabled. */
     const char              *pszCovTrace;
     /** Number of sockets in the system to emulate. */
