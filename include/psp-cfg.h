@@ -276,6 +276,8 @@ typedef struct PSPEMUCFG
     const char              *pszSpiFlashTrace;
     /** Pointer to the I/O log file to write. */
     const char              *pszIoLog;
+    /** Pointer to the I/O log file to replay. */
+    const char              *pszIoLogReplay;
     /** Coverage tracing filename if enabled. */
     const char              *pszCovTrace;
     /** Number of sockets in the system to emulate. */

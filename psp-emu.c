@@ -36,6 +36,7 @@
 #include <psp-dbg.h>
 #include <psp-flash.h>
 #include <psp-proxy.h>
+#include <psp-iolog-replay.h>
 
 
 static uint32_t g_idSocketSingle = UINT32_MAX;
@@ -77,6 +78,7 @@ static struct option g_aOptions[] =
     {"emulate-devices",              required_argument, 0, 'E'},
     {"iom-log-all-accesses",         no_argument      , 0, 'I'},
     {"io-log-write",                 required_argument, 0, 'L'},
+    {"io-log-replay",                required_argument, 0, 'Y'},
     {"proxy-buffer-writes",          no_argument      , 0, 'P'},
     {"dbg-step-count",               required_argument, 0, 'G'},
     {"dbg-run-up-to",                required_argument, 0, 'U'},
@@ -457,6 +459,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszAppPreload         = NULL;
     pCfg->uEm100FlashEmuPort    = 0;
     pCfg->pszSpiFlashTrace      = NULL;
+    pCfg->pszIoLog              = NULL;
+    pCfg->pszIoLogReplay        = NULL;
     pCfg->pszCovTrace           = NULL;
     pCfg->cSockets              = 1;
     pCfg->cCcdsPerSocket        = 1;
@@ -469,7 +473,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:R:L:IA", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:R:L:Y:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -503,12 +507,13 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --spi-flash-trace <path/to/psptrace/compatible/flash/trace>\n"
                        "    --coverage-trace <path/to/coverage/trace/file>\n"
                        "    --sockets <number of sockets to emulate>\n"
-                       "    --ccds-per-sockets <number of CCDS per socket to emulate>\n"
+                       "    --ccds-per-socket <number of CCDS per socket to emulate>\n"
                        "    --emulate-single-socket-id <id> Emulate only a single PSP with the given socket ID\n"
                        "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n"
                        "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n"
                        "    --iom-log-all-accesses I/O manager logs all device accesses not only the ones to unassigned regions\n"
                        "    --io-log-write <path/to/io/log> Writes a log of all I/O accesses for later replay\n"
+                       "    --io-log-replay <path/to/io/log> Replays the given I/O log, mutually exclusive with proxy mode\n"
                        "    --proxy-buffer-writes If proxy mode is enabled certain writes will be cached and sent in bursts to speed up certain access patterns\n"
                        "    --proxy-ccp When proxy mode is enabled this will pass through certain CCP request to a real CCP (AES with keys from the protected LSB so far)\n"
                        "    --dbg-run-up-to <addr> Runs until the given address is hit and drops then into the debugger instead of right at the start\n"
@@ -664,6 +669,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'L':
                 pCfg->pszIoLog = optarg;
                 break;
+            case 'Y':
+                pCfg->pszIoLogReplay = optarg;
+                break;
             case 'P':
                 pCfg->fProxyWrBuffer = true;
                 break;
@@ -755,6 +763,13 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     {
         fprintf(stderr, "Application mode and SVC tracing are mutually exclusive (svcs are always traced in app mode)\n");
         return -1;
+    }
+
+    if (   pCfg->pszIoLogReplay
+        && pCfg->pszPspProxyAddr)
+    {
+        fprintf(stderr, "Proxy mode and I/O log replay are mutually exclusive\n");
+        return STS_ERR_GENERAL_ERROR;
     }
 
     int rc = 0;
@@ -864,6 +879,7 @@ int main(int argc, char *argv[])
             if (!rc)
             {
                 PSPPROXY hProxy = NULL;
+                PSPIOLOGREPLAY hIoLogReplay = NULL;
 
                 /* Setup the proxy if configured. */
                 if (Cfg.pszPspProxyAddr)
@@ -871,6 +887,12 @@ int main(int argc, char *argv[])
                     rc = PSPProxyCreate(&hProxy, &Cfg);
                     if (!rc)
                         rc = PSPProxyCcdRegister(hProxy, hCcd);
+                }
+                else if (Cfg.pszIoLogReplay)
+                {
+                    rc = PSPIoLogReplayCreate(&hIoLogReplay, Cfg.pszIoLogReplay);
+                    if (STS_SUCCESS(rc))
+                        rc = PSPIoLogReplayCcdRegister(hIoLogReplay, hCcd);
                 }
 
                 if (!rc)
@@ -882,7 +904,16 @@ int main(int argc, char *argv[])
                 }
 
                 if (hProxy)
+                {
                     PSPProxyCcdDeregister(hProxy, hCcd);
+                    PSPProxyDestroy(hProxy);
+                }
+
+                if (hIoLogReplay)
+                {
+                    PSPIoLogReplayCcdDeregister(hIoLogReplay, hCcd);
+                    PSPIoLogReplayDestroy(hIoLogReplay);
+                }
 
                 PSPEmuCcdDestroy(hCcd);
             }
