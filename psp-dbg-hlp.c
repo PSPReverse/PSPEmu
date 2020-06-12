@@ -154,6 +154,10 @@ int PSPEmuDbgHlpCmdRegister(PSPDBGHLP hDbgHlp, PCDBGHLPCMD paCmds, uint32_t cCmd
 {
     PPSPDBGHLPINT pThis = hDbgHlp;
 
+    /* No debugger, no command registration. */
+    if (!pThis)
+        return STS_INF_SUCCESS;
+
     /* Check that there is no command existing with the same name already. */
     for (uint32_t i = 0; i < cCmds; i++)
     {
