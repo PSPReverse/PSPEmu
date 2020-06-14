@@ -64,6 +64,14 @@ typedef struct PSPREG
     uint64_t                    cWrites;
     /** Number of reads observed. */
     uint64_t                    cReads;
+    /** Last written PC. */
+    PSPVADDR                    PspAddrPcWriteLast;
+    /** Last event I/O number. */
+    uint32_t                    idxIoEvtWriteLast;
+    /** Last read PC. */
+    PSPVADDR                    PspAddrPcReadLast;
+    /** Last read event I/O number. */
+    uint32_t                    idxIoEvtReadLast;
 } PSPREG;
 /** Pointer to a PSP register. */
 typedef PSPREG *PPSPREG;
@@ -125,20 +133,37 @@ static void pspIoLogToolRegMapInit(PPSPREGMAP pRegMap)
 
 
 /**
+ * Destroys a register map.
+ *
+ * @returns nothing.
+ * @param   pRegMap                 The register map to destroy.
+ */
+static void pspIoLogToolRegMapDestroy(PPSPREGMAP pRegMap)
+{
+    if (pRegMap->paRegs)
+        free(pRegMap->paRegs);
+
+    pspIoLogToolRegMapInit(pRegMap);
+}
+
+
+/**
  * Dumps the content of the given register map.
  *
  * @returns nothing.
  * @param   pRegMap                 The register map to dump.
+ * @param   cbAddr                  Size of the address in bytes.
  * @param   pszPrefix               The prefix/address space to use.
  */
-static void pspIoLogToolRegMapDump(PCPSPREGMAP pRegMap, const char *pszPrefix)
+static void pspIoLogToolRegMapDump(PCPSPREGMAP pRegMap, uint32_t cbAddr, const char *pszPrefix)
 {
     printf("%s:\n", pszPrefix);
     for (uint32_t i = 0; i < pRegMap->cRegs; i++)
     {
         PCPSPREG pReg = &pRegMap->paRegs[i];
-        printf("    0x%08llx    %02u    READS: %04u    WRITES: %04u\n",
-               pReg->uAddr, pReg->cbReg, pReg->cReads, pReg->cWrites);
+        printf("    0x%0*llx    %12u    READS: %8u    WRITES: %8u    LWPC: 0x%08x    LWIOID: %012u    LRPC: 0x%08x    LRIOID: %012u\n",
+               cbAddr * 2, pReg->uAddr, pReg->cbReg, pReg->cReads, pReg->cWrites, pReg->PspAddrPcWriteLast, pReg->idxIoEvtWriteLast,
+               pReg->PspAddrPcReadLast, pReg->idxIoEvtReadLast);
     }
 
     printf("\n");
@@ -159,8 +184,10 @@ static int pspIoLogToolRegMapEnsureSpace(PPSPREGMAP pRegMap, uint32_t cRegs)
     if (pRegMap->cRegs + cRegs <= pRegMap->cRegsAlloc)
         return STS_INF_SUCCESS;
 
+    cRegs = cRegs < 128 ? 128 : cRegs;
+
     int rc = STS_INF_SUCCESS;
-    uint32_t cRegsNew = pRegMap->cRegsAlloc + cRegs + 128;
+    uint32_t cRegsNew = pRegMap->cRegsAlloc + cRegs;
     PPSPREG paRegsNew = (PPSPREG)realloc(pRegMap->paRegs, cRegsNew * sizeof(PSPREG));
     if (paRegsNew)
     {
@@ -193,6 +220,7 @@ static PPSPREG pspIoLogToolRegMapFind(PCPSPREGMAP pRegMap, uint64_t uAddr, PCPSP
 
     if (pRegMap->cRegs)
     {
+#if 0
         /* Do a binary search here. */
         uint32_t idxCur   = pRegMap->cRegs / 2;
         uint32_t idxEnd   = pRegMap->cRegs - 1;
@@ -222,8 +250,26 @@ static PPSPREG pspIoLogToolRegMapFind(PCPSPREGMAP pRegMap, uint64_t uAddr, PCPSP
                 idxStart = idxCur + 1;
             }
 
-            idxCur = idxStart + (idxEnd - idxStart) / 2;
+            idxCur = idxStart + (idxEnd - idxStart + 1) / 2;
         }
+#else /* Simpler version for debugging. */
+        uint32_t idxCur = 0;
+        while (idxCur < pRegMap->cRegs)
+        {
+            PPSPREG pCur = &pRegMap->paRegs[idxCur];
+
+            if (   uAddr >= pCur->uAddr
+                && uAddr < pCur->uAddr + pCur->cbReg)
+            {
+                pReg = pCur;
+                break;
+            }
+            else if (uAddr < pCur->uAddr)
+                break; /* Register not known. */
+
+            idxCur++;
+        }
+#endif
 
         if (   idxCur
             && ppRegBelow)
@@ -249,8 +295,11 @@ static PPSPREG pspIoLogToolRegMapFind(PCPSPREGMAP pRegMap, uint64_t uAddr, PCPSP
  * @param   uAddr                   The address to add.
  * @param   fWrite                  Flag whether this was a read or write.
  * @param   cbAcc                   Register access width.
+ * @param   idxIoEvt                I/O event index.
+ * @param   PspAddrPc               PC where the access happened.
  */
-static int pspIoLoToolRegMapAdd(PPSPREGMAP pRegMap, uint64_t uAddr, bool fWrite, size_t cbAcc)
+static int pspIoLoToolRegMapAdd(PPSPREGMAP pRegMap, uint64_t uAddr, bool fWrite, size_t cbAcc, uint32_t idxIoEvt,
+                                PSPVADDR PspAddrPc)
 {
     int rc = STS_INF_SUCCESS;
     PCPSPREG pRegBelow = NULL;
@@ -258,14 +307,17 @@ static int pspIoLoToolRegMapAdd(PPSPREGMAP pRegMap, uint64_t uAddr, bool fWrite,
     PPSPREG pReg = pspIoLogToolRegMapFind(pRegMap, uAddr, &pRegBelow, &idxRegBelow);
     if (!pReg)
     {
-        /* Register not know, add it. */
+        /* Register not known, add it. */
         rc = pspIoLogToolRegMapEnsureSpace(pRegMap, 1 /*cRegs*/);
         if (STS_SUCCESS(rc))
         {
             if (pRegBelow)
             {
-                size_t cbMove = (pRegMap->cRegs - (idxRegBelow + 2)) * sizeof(PSPREG);
-                memmove(&pRegMap->paRegs[idxRegBelow + 2], &pRegMap->paRegs[idxRegBelow + 1], cbMove);
+                if (idxRegBelow < pRegMap->cRegs - 1)
+                {
+                    size_t cbMove = (pRegMap->cRegs - (idxRegBelow + 1)) * sizeof(PSPREG);
+                    memmove(&pRegMap->paRegs[idxRegBelow + 2], &pRegMap->paRegs[idxRegBelow + 1], cbMove);
+                }
                 pReg = &pRegMap->paRegs[idxRegBelow + 1];
             }
             else
@@ -275,10 +327,14 @@ static int pspIoLoToolRegMapAdd(PPSPREGMAP pRegMap, uint64_t uAddr, bool fWrite,
                 pReg = &pRegMap->paRegs[0];
             }
 
-            pReg->uAddr   = uAddr;
-            pReg->cbReg   = cbAcc;
-            pReg->cReads  = 0;
-            pReg->cWrites = 0;
+            pReg->uAddr              = uAddr;
+            pReg->cbReg              = cbAcc;
+            pReg->cReads             = 0;
+            pReg->cWrites            = 0;
+            pReg->idxIoEvtWriteLast  = 0;
+            pReg->PspAddrPcWriteLast = 0;
+            pReg->idxIoEvtReadLast   = 0;
+            pReg->PspAddrPcReadLast  = 0;
             pRegMap->cRegs++;
         }
     }
@@ -286,12 +342,94 @@ static int pspIoLoToolRegMapAdd(PPSPREGMAP pRegMap, uint64_t uAddr, bool fWrite,
     if (STS_SUCCESS(rc))
     {
         if (fWrite)
+        {
             pReg->cWrites++;
+            pReg->PspAddrPcWriteLast = PspAddrPc;
+            pReg->idxIoEvtWriteLast  = idxIoEvt;
+        }
         else
+        {
             pReg->cReads++;
+            pReg->PspAddrPcReadLast = PspAddrPc;
+            pReg->idxIoEvtReadLast  = idxIoEvt;
+        }
     }
 
     return rc;
+}
+
+
+/**
+ * Checks whether the given two registers are mergable - checking write patterns.
+ *
+ * @returns Flag whether the two registers can be merged.
+ * @param   pRegFirst               The first register.
+ * @param   pRegNext                The next adjacent register.
+ */
+static inline bool pspIoLogTooRegMapIsRegWriteMergable(PPSPREG pRegFirst, PPSPREG pRegNext)
+{
+    return (   pRegFirst->cWrites == 1
+            && pRegNext->cWrites == 1
+            && pRegFirst->PspAddrPcWriteLast == pRegNext->PspAddrPcWriteLast
+            && pRegFirst->idxIoEvtWriteLast + 2 >= pRegNext->idxIoEvtWriteLast);
+}
+
+
+/**
+ * Checks whether the given two registers are mergable - checking read patterns.
+ *
+ * @returns Flag whether the two registers can be merged.
+ * @param   pRegFirst               The first register.
+ * @param   pRegNext                The next adjacent register.
+ */
+static inline bool pspIoLogTooRegMapIsRegReadMergable(PPSPREG pRegFirst, PPSPREG pRegNext)
+{
+    return (   !pRegFirst->cWrites
+            && !pRegNext->cWrites
+            && pRegFirst->PspAddrPcReadLast == pRegNext->PspAddrPcReadLast
+            && pRegFirst->idxIoEvtReadLast + 2 >= pRegNext->idxIoEvtReadLast);
+}
+
+
+/**
+ * Tries to collapse the entries in the given register map to a minimum by applying some heuristics.
+ *
+ * @returns nothing.
+ * @param   pRegMap                 The register map to collapse.
+ */
+static void pspIoLogToolRegMapCollapse(PPSPREGMAP pRegMap)
+{
+    /**
+     * 1. pass, collapse adjacent writes from the same PC with adjacent I/O event IDs
+     *          because they likely belong to a memcpy operation.
+     */
+    uint32_t idxReg = 0;
+    while (idxReg < pRegMap->cRegs - 1)
+    {
+        PPSPREG pCur  = &pRegMap->paRegs[idxReg];
+        PPSPREG pNext = pCur + 1;
+
+        if (   pCur->uAddr + pCur->cbReg == pNext->uAddr
+            && (   pspIoLogTooRegMapIsRegWriteMergable(pCur, pNext)
+                || pspIoLogTooRegMapIsRegReadMergable(pCur, pNext)))
+        {
+            /* Merge the two registers into a single entry and fill the gap. */
+            /** @todo The number of reads metric is not really applicable here... */
+            pCur->cReads += pNext->cReads;
+            pCur->cbReg  += pNext->cbReg;
+            pCur->idxIoEvtWriteLast = pNext->idxIoEvtWriteLast;
+            pCur->idxIoEvtReadLast = pNext->idxIoEvtReadLast;
+
+            size_t cbMove = (pRegMap->cRegs - idxReg - 1) * sizeof(PSPREG);
+            if (cbMove)
+                memmove(pNext, pNext + 1, cbMove);
+
+            pRegMap->cRegs--; /* We lost a register in the map */
+        }
+        else
+            idxReg++; /* Advance to the next register. */
+    }
+
 }
 
 
@@ -405,6 +543,7 @@ static int pspIoLogToolRegMap(PSPIOLOGRDR hIoLogRdr)
     pspIoLogToolRegMapInit(&RegMapMmio);
     pspIoLogToolRegMapInit(&RegMapX86);
 
+    uint32_t idxIoEvt = 0;
     do
     {
         PCPSPIOLOGRDREVT pIoEvt = NULL;
@@ -430,17 +569,26 @@ static int pspIoLogToolRegMap(PSPIOLOGRDR hIoLogRdr)
                     break;
             }
 
-            rc = pspIoLoToolRegMapAdd(pRegMap, uAddr, pIoEvt->fWrite, pIoEvt->cbAcc);
+            rc = pspIoLoToolRegMapAdd(pRegMap, uAddr, pIoEvt->fWrite, pIoEvt->cbAcc, idxIoEvt,
+                                      pIoEvt->PspAddrPc);
             PSPEmuIoLogRdrEvtFree(hIoLogRdr, pIoEvt);
+            idxIoEvt++;
         }
         else
             fprintf(stderr, "Reading I/O event failed with %d\n", rc);
     } while (STS_SUCCESS(rc));
 
-    pspIoLogToolRegMapDump(&RegMapSmn, "SMN");
-    pspIoLogToolRegMapDump(&RegMapMmio, "MMIO");
-    pspIoLogToolRegMapDump(&RegMapX86, "X86");
+    pspIoLogToolRegMapCollapse(&RegMapSmn);
+    pspIoLogToolRegMapCollapse(&RegMapMmio);
+    pspIoLogToolRegMapCollapse(&RegMapX86);
 
+    pspIoLogToolRegMapDump(&RegMapSmn,  sizeof(SMNADDR),   "SMN");
+    pspIoLogToolRegMapDump(&RegMapMmio, sizeof(PSPPADDR),  "MMIO");
+    pspIoLogToolRegMapDump(&RegMapX86,  sizeof(X86PADDR),  "X86");
+
+    pspIoLogToolRegMapDestroy(&RegMapSmn);
+    pspIoLogToolRegMapDestroy(&RegMapMmio);
+    pspIoLogToolRegMapDestroy(&RegMapX86);
     return rc;
 }
 
