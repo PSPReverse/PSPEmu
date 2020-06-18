@@ -35,6 +35,8 @@
 #include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
+#include <openssl/ec.h>
+#include <openssl/err.h>
 
 /* OpenSSL version 1.0.x support (see https://www.openssl.org/docs/man1.1.0/man3/EVP_MD_CTX_new.html#HISTORY) */
 # if OPENSSL_VERSION_NUMBER < 0x10100000 // = OpenSSL 1.1.0
@@ -121,8 +123,10 @@ typedef struct PSPDEVCCP
     PSPIOMREGIONHANDLE              hMmio;
     /** MMIO2 region handle. */
     PSPIOMREGIONHANDLE              hMmio2;
-    /** The single CCP queue we have. */
-    CCPQUEUE                        Queue;
+    /** The first CCP queue. */
+    CCPQUEUE                        Queue1;
+    /** The second CCP queue. */
+    CCPQUEUE                        Queue2;
     /** The local storage buffer. */
     CCPLSB                          Lsb;
     /** The openssl SHA context currently in use. This doesn't really belong here
@@ -752,6 +756,27 @@ static void pspDevCcpReqDumpRsaFunction(char *pszBuf, size_t cbBuf, uint32_t uFu
 
 
 /**
+ * Extracts and dumps information about the given ECC function.
+ *
+ * @returns nothing.
+ * @param   pszBuf              The buffer to dump into.
+ * @param   cbBuf               Size of the buffer in bytes.
+ * @param   uFunc               The function part of dword 0.
+ * @param   u32Dw0Raw           The raw dw0 value used for dumping.
+ * @param   pszEngine           The used engine string.
+ */
+static void pspDevCcpReqDumpEccFunction(char *pszBuf, size_t cbBuf, uint32_t uFunc,
+                                        uint32_t u32Dw0Raw, const char *pszEngine)
+{
+    uint8_t  uOp   = CCP_V5_ENGINE_ECC_OP_GET(uFunc);
+    uint16_t uBits = CCP_V5_ENGINE_ECC_BIT_COUNT_GET(uFunc);
+
+    snprintf(pszBuf, cbBuf, "u32Dw0:             0x%08x (Engine: %s, Op: %u, Bits: %u)",
+                                                 u32Dw0Raw, pszEngine, uOp, uBits);
+}
+
+
+/**
  * Dumps the CCP5 request descriptor.
  *
  * @returns nothing.
@@ -772,6 +797,8 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
         pspDevCcpReqDumpPassthruFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else if (uEngine == CCP_V5_ENGINE_RSA)
         pspDevCcpReqDumpRsaFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
+    else if (uEngine == CCP_V5_ENGINE_ECC)
+        pspDevCcpReqDumpEccFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else
         snprintf(&szDw0[0], sizeof(szDw0), "u32Dw0:             0x%08x (Engine: %s)",
                                                                 pReq->u32Dw0, pszEngine);
@@ -815,6 +842,190 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
                                 CCP_V5_MEM_LSB_CTX_ID_GET(pReq->u16SrcMemType), CCP_V5_MEM_LSB_FIXED_GET(pReq->u16SrcMemType),
                                 pReq->Op.Sha.u32ShaBitsLow, pReq->Op.Sha.u32ShaBitsHigh,
                                 pReq->u32AddrKeyLow, pReq->u16AddrKeyHigh, pReq->u16KeyMemType);
+}
+
+
+/**
+ * Dump ecc number.
+ *
+ * @returns nothing.
+ * @param   pszBuf              The buffer to dump into.
+ * @param   cbBuf               Size of the buffer in bytes.
+ * @param   pNum                The ecc number to dump.
+ */
+static void pspDevCcpDumpEccNumber(char * pszBuf, size_t cbBuf, const CCP5ECC_NUMBER * pNum)
+{
+    const uint64_t * pu64Num = (const uint64_t *) pNum;
+
+    snprintf(pszBuf, cbBuf,
+        "0x%016lx_%016lx_%016lx_%016lx"
+        "_%016lx_%016lx_%016lx_%016lx"
+        "_%016lx",
+        pu64Num[8], pu64Num[7], pu64Num[6], pu64Num[5],
+        pu64Num[4], pu64Num[3], pu64Num[2], pu64Num[1],
+        pu64Num[0]
+    );
+}
+
+
+/**
+ * Dumps the ecc data for a request.
+ *
+ * @returns nothing.
+ * @param   uOp                 The ecc operation.
+ * @param   EccData             The ecc data.
+ */
+static void pspDevCcpDumpEccData(uint8_t uOp, const CCP5ECC_DATA * EccData)
+{
+    char szPrime[256];
+    pspDevCcpDumpEccNumber(szPrime, sizeof(szPrime), &EccData->Prime);
+
+    switch (uOp)
+    {
+        case CCP_V5_ENGINE_ECC_OP_MUL_FIELD:
+            {
+                char szFactor1[256], szFactor2[256];
+                pspDevCcpDumpEccNumber(szFactor1, sizeof(szFactor1),
+                    &EccData->Op.FieldMultiplication.Factor1);
+                pspDevCcpDumpEccNumber(szFactor2, sizeof(szFactor2),
+                    &EccData->Op.FieldMultiplication.Factor2);
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Field Multiplication):\n"
+                    "    Prime:             %s\n"
+                    "    Factor1:           %s\n"
+                    "    Factor2:           %s\n",
+                    szPrime, szFactor1, szFactor2
+                );
+            }
+            break;
+        case CCP_V5_ENGINE_ECC_OP_ADD_FIELD:
+            {
+                char szSummand1[256], szSummand2[256];
+                pspDevCcpDumpEccNumber(szSummand1, sizeof(szSummand1),
+                    &EccData->Op.FieldAddition.Summand1);
+                pspDevCcpDumpEccNumber(szSummand2, sizeof(szSummand2),
+                    &EccData->Op.FieldAddition.Summand2);
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Field Addition):\n"
+                    "    Prime:             %s\n"
+                    "    Summand1:          %s\n"
+                    "    Summand2:          %s\n",
+                    szPrime, szSummand1, szSummand2
+                );
+            }
+            break;
+        case CCP_V5_ENGINE_ECC_OP_INV_FIELD:
+            {
+                char szNumber[256];
+                pspDevCcpDumpEccNumber(szNumber, sizeof(szNumber),
+                    &EccData->Op.FieldInversion.Number);
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Field Inversion):\n"
+                    "    Prime:             %s\n"
+                    "    Number:            %s\n",
+                    szPrime, szNumber
+                );
+            }
+            break;
+        case CCP_V5_ENGINE_ECC_OP_MUL_CURVE:
+            {
+                char szFactor[256];
+                char szPointX[256];
+                char szPointY[256];
+
+                char szCoefficient[256];
+
+                pspDevCcpDumpEccNumber(szFactor, sizeof(szFactor),
+                    &EccData->Op.CurveMultiplication.Factor);
+                pspDevCcpDumpEccNumber(szPointX, sizeof(szPointX),
+                    &EccData->Op.CurveMultiplication.Point.x);
+                pspDevCcpDumpEccNumber(szPointY, sizeof(szPointY),
+                    &EccData->Op.CurveMultiplication.Point.y);
+
+                pspDevCcpDumpEccNumber(szCoefficient, sizeof(szCoefficient),
+                    &EccData->Op.CurveMultiplication.Coefficient);
+
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Curve Multiplication):\n"
+                    "    Prime:             %s\n"
+                    "    Factor:            %s\n"
+                    "    PointX:            %s\n"
+                    "    PointY:            %s\n"
+                    "    CurveCoefficient:  %s\n",
+                    szPrime,
+                    szFactor, szPointX, szPointY,
+                    szCoefficient
+                );
+            }
+            break;
+        case CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE:
+            {
+                char szFactor1[256];
+                char szPoint1X[256];
+                char szPoint1Y[256];
+
+                char szFactor2[256];
+                char szPoint2X[256];
+                char szPoint2Y[256];
+
+                char szCoefficient[256];
+
+                pspDevCcpDumpEccNumber(szFactor1, sizeof(szFactor1),
+                    &EccData->Op.CurveMultiplicationAddition.Factor1);
+                pspDevCcpDumpEccNumber(szPoint1X, sizeof(szPoint1X),
+                    &EccData->Op.CurveMultiplicationAddition.Point1.x);
+                pspDevCcpDumpEccNumber(szPoint1Y, sizeof(szPoint1Y),
+                    &EccData->Op.CurveMultiplicationAddition.Point1.y);
+
+                pspDevCcpDumpEccNumber(szFactor2, sizeof(szFactor2),
+                    &EccData->Op.CurveMultiplicationAddition.Factor2);
+                pspDevCcpDumpEccNumber(szPoint2X, sizeof(szPoint2X),
+                    &EccData->Op.CurveMultiplicationAddition.Point2.x);
+                pspDevCcpDumpEccNumber(szPoint2Y, sizeof(szPoint2Y),
+                    &EccData->Op.CurveMultiplicationAddition.Point2.y);
+
+                pspDevCcpDumpEccNumber(szCoefficient, sizeof(szCoefficient),
+                    &EccData->Op.CurveMultiplicationAddition.Coefficient);
+
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Curve Multiplication and Addition):\n"
+                    "    Prime:             %s\n"
+                    "    Factor1:           %s\n"
+                    "    Point1X:           %s\n"
+                    "    Point1Y:           %s\n"
+                    "    Factor2:           %s\n"
+                    "    Point2X:           %s\n"
+                    "    Point2Y:           %s\n"
+                    "    CurveCoefficient:  %s\n",
+                    szPrime,
+                    szFactor1, szPoint1X, szPoint1Y,
+                    szFactor2, szPoint2X, szPoint2Y,
+                    szCoefficient
+                );
+            }
+            break;
+        default:
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CCP,
+                    "CCP ECC Data (Unkown Operation):\n"
+                    "    Prime:                 %s\n"
+                    "    Unknown Parameters ...\n",
+                    szPrime
+                );
+            }
+            break;
+    }
+
+    const CCP5ECC_NUMBER * pNum = (const CCP5ECC_NUMBER *) EccData;
+    for (int i = 0; i < sizeof(CCP5ECC_DATA)/sizeof(CCP5ECC_NUMBER); i++)
+    {
+        pspDevCcpDumpEccNumber(szPrime, sizeof(szPrime), pNum + i);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CCP,
+            "CCP ECC Data Number %02i:\n"
+            "    %s\n",
+            i, szPrime
+        );
+    }
 }
 
 
@@ -1422,6 +1633,297 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
 
 /**
+ * Creates the elliptic curve calculation context.
+ *
+ * @todo The coefficient seems to be the "a" coefficient.
+ *       But that doesn't make sense, as that one is mostly -3.
+ *       It should be both or the "b" coefficient.
+ *       Well, for the moment we simply return the NIST P-384 curve
+ *       and assert that the Prime is correct.
+ *
+ * @returns                     The ecc context used for calculations or NULL on error.
+ * @param   BnCtx               The bignum context used for calculations.
+ * @param   Prime               The prime of the field for the curve.
+ * @param   Coefficient         A coefficient of the curve.
+ */
+static EC_GROUP * pspDevCcpEccGetGroup(BN_CTX * BnCtx, const BIGNUM * Prime,
+                                       const CCP5ECC_NUMBER * Coefficient)
+{
+    // Checking that the prime is correct.
+
+    // P-384 prime = 2^384 - 2^128  - 2^96 + 2^32 - 1
+    uint8_t Prime384Bytes[49] = {
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, //  64
+        0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, // 128
+        0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // 192
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // 256
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // 320
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // 384
+        0
+    };
+    BIGNUM * Prime384 = BN_lebin2bn(Prime384Bytes, sizeof(Prime384Bytes), NULL);
+    if (!Prime384)
+        return NULL;
+    if (BN_cmp(Prime, Prime384) != 0)
+        return NULL;
+
+    BN_free(Prime384);
+    return EC_GROUP_new_by_curve_name(EC_curve_nist2nid("P-384"));
+}
+
+
+/**
+ * Writes an output number.
+ *
+ * @returns                     Status code.
+ * @param   XferCtx             The context to be written to.
+ * @param   Result              The number to be written.
+ */
+static int pspDevCcpReqEccReturnNumber(PCCPXFERCTX XferCtx, const BIGNUM * Result)
+{
+    CCP5ECC_NUMBER Output;
+
+    /* This should never happen. */
+    if (BN_num_bytes(Result) > sizeof(Output.bytes))
+        return -1;
+
+    if (BN_bn2lebinpad(Result, Output.bytes, sizeof(Output.bytes)) == 0)
+        return -1;
+
+    return pspDevCcpXferCtxWrite(XferCtx, Output.bytes, 0x48, NULL);
+}
+
+
+/**
+ * Writes an output point.
+ *
+ * @returns                     Status code.
+ * @param   XferCtx             The context to be written to.
+ * @param   BnCtx               The context for BIGNUM operations.
+ * @param   Curve               The curve on which the point lies.
+ * @param   Result              The point to be written.
+ */
+static int pspDevCcpReqEccReturnPoint(PCCPXFERCTX XferCtx, BN_CTX * BnCtx,
+                                      const EC_GROUP * Curve, const EC_POINT * Point)
+{
+    int rc = -1;
+
+    BIGNUM * X = BN_new();
+    BIGNUM * Y = BN_new();
+
+    if (X && Y)
+    {
+        if (EC_POINT_get_affine_coordinates(Curve, Point, X, Y, BnCtx))
+        {
+            if (pspDevCcpReqEccReturnNumber(XferCtx, X) == 0)
+            {
+                rc = pspDevCcpReqEccReturnNumber(XferCtx, Y);
+            }
+        }
+    }
+
+    BN_free(X);
+    BN_free(Y);
+
+    return rc;
+}
+
+
+/**
+ * Processes an ECC request.
+ *
+ * @returns Status code.
+ * @param   pThis               The CCP device instance data.
+ * @param   pReq                The request to process.
+ * @param   uFunc               The engine specific function.
+ * @param   fInit               Flag whether to initialize the context state.
+ * @param   fEom                Flag whether this request marks the end of the message.
+ */
+static int pspDevCcpReqEccProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFunc,
+                                  bool fInit, bool fEom)
+{
+    uint16_t uBits = CCP_V5_ENGINE_ECC_BIT_COUNT_GET(uFunc);
+    uint8_t  uOp   = CCP_V5_ENGINE_ECC_OP_GET(uFunc);
+    /* Size of the output. */
+    uint8_t  uSz   = uOp <= 3 ? sizeof(CCP5ECC_NUMBER) : sizeof(CCP5ECC_POINT);
+
+    /* Check bit count (we have 0x48 bytes, or 576 bits) */
+    if (uBits > 576)
+    {
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: ECC ERROR uBits=%u is too large!\n",
+                                uBits);
+        return -1;
+    }
+
+    /* Create Transfer Context. */
+    CCPXFERCTX XferCtx;
+    if (pspDevCcpXferCtxInit(&XferCtx, pThis, pReq, false /*fSha*/,
+            uSz, false /*fWriteRev*/))
+        return -1;
+
+    /* Try to read data. */
+    CCP5ECC_DATA EccData;
+    if (pspDevCcpXferCtxRead(&XferCtx, &EccData, sizeof(EccData), NULL))
+        return -1;
+
+    /* Logging */
+    pspDevCcpDumpEccData(uOp, &EccData);
+
+    int rc = -1;
+
+    /* Create BIGNUM context and prime BIGNUM */
+    BN_CTX * BnCtx = BN_CTX_new();
+    BIGNUM * Prime = BN_lebin2bn(EccData.Prime.bytes, sizeof(CCP5ECC_NUMBER), NULL);
+    if (BnCtx && Prime)
+    {
+
+        if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_FIELD)
+        {
+            BIGNUM * Factor1 = BN_lebin2bn(EccData.Op.FieldMultiplication.Factor1.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor2 = BN_lebin2bn(EccData.Op.FieldMultiplication.Factor2.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Product = BN_new();
+            if (Factor1 && Factor2 && Product
+                && BN_mod_mul(Product, Factor1, Factor2, Prime, BnCtx))
+            {
+                rc = pspDevCcpReqEccReturnNumber(&XferCtx, Product);
+            }
+
+            BN_free(Factor1);
+            BN_free(Factor2);
+            BN_free(Product);
+
+        }
+        else if (uOp == CCP_V5_ENGINE_ECC_OP_ADD_FIELD)
+        {
+            BIGNUM * Summand1 = BN_lebin2bn(EccData.Op.FieldAddition.Summand1.bytes,
+                                          sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Summand2 = BN_lebin2bn(EccData.Op.FieldAddition.Summand2.bytes,
+                                          sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Sum = BN_new();
+            if (Summand1 && Summand2 && Sum
+                && BN_mod_add(Sum, Summand1, Summand2, Prime, BnCtx))
+            {
+                rc = pspDevCcpReqEccReturnNumber(&XferCtx, Sum);
+            }
+
+            BN_free(Summand1);
+            BN_free(Summand2);
+            BN_free(Sum);
+
+        }
+        else if (uOp == CCP_V5_ENGINE_ECC_OP_INV_FIELD)
+        {
+            BIGNUM * Number = BN_lebin2bn(EccData.Op.FieldAddition.Summand1.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            if (Number)
+            {
+                BIGNUM * Inverse = BN_mod_inverse(NULL, Number, Prime, BnCtx);
+                if (Inverse)
+                {
+                    rc = pspDevCcpReqEccReturnNumber(&XferCtx, Inverse);
+
+                    BN_free(Inverse);
+                }
+
+                BN_free(Number);
+            }
+
+        }
+        else if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_CURVE)
+        {
+            BIGNUM * PointX = BN_lebin2bn(EccData.Op.CurveMultiplication.Point.x.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * PointY = BN_lebin2bn(EccData.Op.CurveMultiplication.Point.y.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor = BN_lebin2bn(EccData.Op.CurveMultiplication.Factor.bytes,
+                                        sizeof(CCP5ECC_NUMBER), NULL);
+            EC_GROUP * Curve = pspDevCcpEccGetGroup(BnCtx, Prime,
+                                                    &EccData.Op.CurveMultiplication.Coefficient);
+            /* These can take NULL as an argument. */
+            EC_POINT * Point = EC_POINT_new(Curve);
+            EC_POINT * Result = EC_POINT_new(Curve);
+
+            if (PointX && PointY && Factor
+                && Curve && Point && Result
+                && EC_POINT_set_affine_coordinates(Curve, Point, PointX, PointY, BnCtx)
+                && EC_POINT_mul(Curve, Result, NULL, Point, Factor, BnCtx))
+            {
+                rc = pspDevCcpReqEccReturnPoint(&XferCtx, BnCtx, Curve, Result);
+            }
+
+            EC_POINT_free(Point);
+            EC_POINT_free(Result);
+            EC_GROUP_free(Curve);
+            BN_free(PointX);
+            BN_free(PointY);
+            BN_free(Factor);
+
+        }
+        else if (uOp == CCP_V5_ENGINE_ECC_OP_MUL_ADD_CURVE)
+        {
+            BIGNUM * Point1X = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Point1.x.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point1Y = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Point1.y.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor1 = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Factor1.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point2X = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Point2.x.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Point2Y = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Point2.y.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            BIGNUM * Factor2 = BN_lebin2bn(EccData.Op.CurveMultiplicationAddition.Factor2.bytes,
+                                         sizeof(CCP5ECC_NUMBER), NULL);
+            EC_GROUP * Curve = pspDevCcpEccGetGroup(BnCtx, Prime,
+                                                    &EccData.Op.CurveMultiplicationAddition.Coefficient);
+            /* These can take NULL as an argument. */
+            EC_POINT * Point1 = EC_POINT_new(Curve);
+            EC_POINT * Point2 = EC_POINT_new(Curve);
+            EC_POINT * Result = EC_POINT_new(Curve);
+
+            if (Point1X && Point1Y && Factor1
+                && Point2X && Point2Y && Factor2
+                && Curve && Point1 && Point2 && Result
+                && EC_POINT_set_affine_coordinates(Curve, Point1, Point1X, Point1Y, BnCtx)
+                && EC_POINT_set_affine_coordinates(Curve, Point2, Point2X, Point2Y, BnCtx)
+                && EC_POINT_mul(Curve, Result, NULL, Point1, Factor1, BnCtx)
+                && EC_POINT_mul(Curve, Point1, NULL, Point2, Factor2, BnCtx)
+                && EC_POINT_add(Curve, Result, Result, Point1, BnCtx))
+            {
+                rc = pspDevCcpReqEccReturnPoint(&XferCtx, BnCtx, Curve, Result);
+            }
+
+            EC_POINT_free(Point1);
+            EC_POINT_free(Point2);
+            EC_POINT_free(Result);
+            EC_GROUP_free(Curve);
+            BN_free(Point1X);
+            BN_free(Point1Y);
+            BN_free(Factor1);
+            BN_free(Point2X);
+            BN_free(Point2Y);
+            BN_free(Factor2);
+
+        }
+    }
+
+    BN_free(Prime);
+    BN_CTX_free(BnCtx);
+
+    if (rc)
+    {
+        const char * err = ERR_error_string(ERR_get_error(), NULL);
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                "CCP: ECC ERROR: %s\n", err);
+    }
+
+    return rc;
+}
+
+
+/**
  * Processes the given request.
  *
  * @returns Status code.
@@ -1465,8 +1967,10 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
         }
         case CCP_V5_ENGINE_XTS_AES128:
         case CCP_V5_ENGINE_DES3:
-        case CCP_V5_ENGINE_ECC:
             /** @todo */
+            break;
+        case CCP_V5_ENGINE_ECC:
+            rc = pspDevCcpReqEccProcess(pThis, pReq, uFunction, fInit, fEom);
             break;
         default:
             rc = -1;
@@ -1487,76 +1991,77 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
  */
 static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32_t offRegQ, uint32_t *pu32Dst)
 {
+    /*
+     * This used to be in the write handler where it would make probably more sense
+     * but this caused a fatal stack overwrite during the last CCP request of the on chip bootloader
+     * to presumably overwrite some scratch buffer with data. The request is triggered by the
+     * function at address 0xffff48c8 in our on chip bootloader version from a 1st gen Epyc CPU.
+     *
+     * The request looks like the following:
+     * CCP Request 0x0003f900:
+     *     u32Dw0:             0x00500011 (Engine: PASSTHROUGH, ByteSwap: NOOP, Bitwise: NOOP, Reflect: 0)
+     *     cbSrc:              27160
+     *     u32AddrSrcLow:      0x00000000
+     *     u16AddrSrcHigh:     0x00000000
+     *     u16SrcMemType:      0x000001d2 (MemType: 2, LsbCtxId: 116, Fixed: 0)
+     *     u32AddrDstLow:      0x00038500
+     *     u16AddrDstHigh:     0x00000000
+     *     u16DstMemType:      0x00000002 (MemType: 2, Fixed: 0)
+     *     u32AddrKeyLow:      0x00000000
+     *     u16AddrKeyHigh:     0x00000000
+     *     u16KeyMemType:      0x00000000
+     *
+     * The CCP writes 27160 bytes starting at 0x38500 which spills into the stack of the on chip bootloader
+     * ranging from 0x3efff down to 0x3ef00. This will overwrite the stack return address of the on_chip_bl_ccp_start_cmd()
+     * function at 0xffff7878 with an invalid value causing a CPU exception.
+     *
+     * The only reason this doesn't blows up on real hardware is the asynchronous nature of the CCP. When the request is started
+     * the ARM core will execute the return instruction before the CCP can trash the stack frame and leave the dangerous zone.
+     * The code called afterwards to wait for the CCP to finish doesn't need any stack and everything else is preserved making
+     * the on chip bootloader survive and successfully call into the off chip bootloader. So the obvious fix with our synchronous
+     * CCP implementation is to defer the request until the bootloader polls the control register to wait for the CCP to halt again.
+     * Thanks AMD!
+     */
+    if (pQueue->u32RegCtrl & CCP_V5_Q_REG_CTRL_RUN) /* Running bit set? Process requests. */
+    {
+        /* Clear halt and running bit. */
+        pQueue->u32RegCtrl &= ~(CCP_V5_Q_REG_CTRL_RUN | CCP_V5_Q_REG_CTRL_HALT);
+
+        uint32_t u32ReqTail = pQueue->u32RegReqTail;
+        uint32_t u32ReqHead = pQueue->u32RegReqHead;
+
+        while (u32ReqTail < u32ReqHead)
+        {
+            CCP5REQ Req;
+
+            int rc = PSPEmuIoMgrPspAddrRead(pThis->pDev->hIoMgr, u32ReqTail, &Req, sizeof(Req));
+            if (!rc)
+            {
+                pspDevCcpDumpReq(&Req, u32ReqTail);
+                rc = pspDevCcpReqProcess(pThis, &Req);
+                if (!rc)
+                    pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_SUCCESS;
+                else
+                    pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR;
+            }
+            else
+            {
+                printf("CCP: Failed to read request from 0x%08x with rc=%d\n", u32ReqTail, rc);
+                pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR; /* Signal error. */
+                break;
+            }
+
+            u32ReqTail += sizeof(Req);
+        }
+
+        /* Set halt bit again. */
+        pQueue->u32RegReqTail = u32ReqTail;
+        pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
+    }
+
     switch (offRegQ)
     {
         case CCP_V5_Q_REG_CTRL:
-            /*
-             * This used to be in the write handler where it would make probably more sense
-             * but this caused a fatal stack overwrite during the last CCP request of the on chip bootloader
-             * to presumably overwrite some scratch buffer with data. The request is triggered by the
-             * function at address 0xffff48c8 in our on chip bootloader version from a 1st gen Epyc CPU.
-             *
-             * The request looks like the following:
-             * CCP Request 0x0003f900:
-             *     u32Dw0:             0x00500011 (Engine: PASSTHROUGH, ByteSwap: NOOP, Bitwise: NOOP, Reflect: 0)
-             *     cbSrc:              27160
-             *     u32AddrSrcLow:      0x00000000
-             *     u16AddrSrcHigh:     0x00000000
-             *     u16SrcMemType:      0x000001d2 (MemType: 2, LsbCtxId: 116, Fixed: 0)
-             *     u32AddrDstLow:      0x00038500
-             *     u16AddrDstHigh:     0x00000000
-             *     u16DstMemType:      0x00000002 (MemType: 2, Fixed: 0)
-             *     u32AddrKeyLow:      0x00000000
-             *     u16AddrKeyHigh:     0x00000000
-             *     u16KeyMemType:      0x00000000
-             *
-             * The CCP writes 27160 bytes starting at 0x38500 which spills into the stack of the on chip bootloader
-             * ranging from 0x3efff down to 0x3ef00. This will overwrite the stack return address of the on_chip_bl_ccp_start_cmd()
-             * function at 0xffff7878 with an invalid value causing a CPU exception.
-             *
-             * The only reason this doesn't blows up on real hardware is the asynchronous nature of the CCP. When the request is started
-             * the ARM core will execute the return instruction before the CCP can trash the stack frame and leave the dangerous zone.
-             * The code called afterwards to wait for the CCP to finish doesn't need any stack and everything else is preserved making
-             * the on chip bootloader survive and successfully call into the off chip bootloader. So the obvious fix with our synchronous
-             * CCP implementation is to defer the request until the bootloader polls the control register to wait for the CCP to halt again.
-             * Thanks AMD!
-             */
-            if (pQueue->u32RegCtrl & CCP_V5_Q_REG_CTRL_RUN) /* Running bit set? Process requests. */
-            {
-                /* Clear halt and running bit. */
-                pQueue->u32RegCtrl &= ~(CCP_V5_Q_REG_CTRL_RUN | CCP_V5_Q_REG_CTRL_HALT);
-
-                uint32_t u32ReqTail = pQueue->u32RegReqTail;
-                uint32_t u32ReqHead = pQueue->u32RegReqHead;
-
-                while (u32ReqTail < u32ReqHead)
-                {
-                    CCP5REQ Req;
-
-                    int rc = PSPEmuIoMgrPspAddrRead(pThis->pDev->hIoMgr, u32ReqTail, &Req, sizeof(Req));
-                    if (!rc)
-                    {
-                        pspDevCcpDumpReq(&Req, u32ReqTail);
-                        rc = pspDevCcpReqProcess(pThis, &Req);
-                        if (!rc)
-                            pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_SUCCESS;
-                        else
-                            pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR;
-                    }
-                    else
-                    {
-                        printf("CCP: Failed to read request from 0x%08x with rc=%d\n", u32ReqTail, rc);
-                        pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR; /* Signal error. */
-                        break;
-                    }
-
-                    u32ReqTail += sizeof(Req);
-                }
-
-                /* Set halt bit again. */
-                pQueue->u32RegReqTail = u32ReqTail;
-                pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
-            }
             *pu32Dst = pQueue->u32RegCtrl;
             break;
         case CCP_V5_Q_REG_HEAD:
@@ -1590,9 +2095,19 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
             break;
         case CCP_V5_Q_REG_HEAD:
             pQueue->u32RegReqHead = u32Val;
+            if (pQueue->u32RegReqTail + 0x20 <= pQueue->u32RegReqHead)
+            {
+                pQueue->u32RegCtrl &= ~CCP_V5_Q_REG_CTRL_HALT;
+                pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_RUN;
+            }
             break;
         case CCP_V5_Q_REG_TAIL:
             pQueue->u32RegReqTail = u32Val;
+            if (pQueue->u32RegReqTail + 0x20 <= pQueue->u32RegReqHead)
+            {
+                pQueue->u32RegCtrl &= ~CCP_V5_Q_REG_CTRL_HALT;
+                pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_RUN;
+            }
             break;
         case CCP_V5_Q_REG_STATUS:
             pQueue->u32RegSts = u32Val;
@@ -1618,10 +2133,12 @@ static void pspDevCcpMmioRead(PSPADDR offMmio, size_t cbRead, void *pvDst, void 
         uint32_t uQueue = offMmio / CCP_V5_Q_SIZE;
         uint32_t offRegQ = offMmio % CCP_V5_Q_SIZE;
 
-        if (uQueue > 0)
-            printf("%s: offMmio=%#x cbRead=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbRead, uQueue);
+        if (uQueue == 0)
+            pspDevCcpMmioQueueRegRead(pThis, &pThis->Queue1, offRegQ, (uint32_t *)pvDst);
+        else if (uQueue == 1)
+            pspDevCcpMmioQueueRegRead(pThis, &pThis->Queue2, offRegQ, (uint32_t *)pvDst);
         else
-            pspDevCcpMmioQueueRegRead(pThis, &pThis->Queue, offRegQ, (uint32_t *)pvDst);
+            printf("%s: offMmio=%#x cbRead=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbRead, uQueue);
     }
     else
     {
@@ -1647,10 +2164,12 @@ static void pspDevCcpMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVa
         uint32_t uQueue = offMmio / CCP_V5_Q_SIZE;
         uint32_t offRegQ = offMmio % CCP_V5_Q_SIZE;
 
-        if (uQueue > 0)
-            printf("%s: offMmio=%#x cbWrite=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbWrite, uQueue);
+        if (uQueue == 0)
+            pspDevCcpMmioQueueRegWrite(pThis, &pThis->Queue1, offRegQ, *(const uint32_t *)pvVal);
+        else if (uQueue == 1)
+            pspDevCcpMmioQueueRegWrite(pThis, &pThis->Queue2, offRegQ, *(const uint32_t *)pvVal);
         else
-            pspDevCcpMmioQueueRegWrite(pThis, &pThis->Queue, offRegQ, *(const uint32_t *)pvVal);
+            printf("%s: offMmio=%#x cbWrite=%zu uQueue=%u -> Invalid queue\n", __FUNCTION__, offMmio, cbWrite, uQueue);
     }
     else
     {
@@ -1688,12 +2207,14 @@ static int pspDevCcpInit(PPSPDEV pDev)
     PPSPDEVCCP pThis = (PPSPDEVCCP)&pDev->abInstance[0];
 
     pThis->pDev             = pDev;
-    pThis->Queue.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
-    pThis->Queue.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
+    pThis->Queue1.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
+    pThis->Queue1.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
+    pThis->Queue2.u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
+    pThis->Queue2.u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
     pThis->pOsslShaCtx      = NULL;
 
     /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + CCP_V5_Q_SIZE,
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + 2*CCP_V5_Q_SIZE,
                                      pspDevCcpMmioRead, pspDevCcpMmioWrite, pThis,
                                      "CCPv5 Global+Queue", &pThis->hMmio);
     /** @todo Not sure this really belongs to the CCP (could be some other hardware block) but
