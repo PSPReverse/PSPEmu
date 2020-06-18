@@ -67,7 +67,6 @@ static struct option g_aOptions[] =
     {"acpi-state",                   required_argument, 0, 'i'},
     {"uart-remote-addr",             required_argument, 0, 'u'},
     {"timer-real-time",              no_argument      , 0, 'r'},
-    {"em100-emu-port",               required_argument, 0, 'e'},
     {"spi-flash-trace",              required_argument, 0, 'F'},
     {"coverage-trace",               required_argument, 0, 'V'},
     {"sockets",                      required_argument, 0, 'S'},
@@ -464,7 +463,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:e:S:C:O:D:E:V:U:P:T:M:R:L:Y:IA", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -624,9 +623,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'r':
                 pCfg->fTimerRealtime = true;
-                break;
-            case 'e':
-                pCfg->uEm100FlashEmuPort = strtoul(optarg, NULL, 10);
                 break;
             case 'S':
                 pCfg->cSockets = strtoul(optarg, NULL, 10);
