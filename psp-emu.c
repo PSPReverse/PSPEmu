@@ -67,7 +67,6 @@ static struct option g_aOptions[] =
     {"acpi-state",                   required_argument, 0, 'i'},
     {"uart-remote-addr",             required_argument, 0, 'u'},
     {"timer-real-time",              no_argument      , 0, 'r'},
-    {"preload-app",                  required_argument, 0, 'j'},
     {"em100-emu-port",               required_argument, 0, 'e'},
     {"spi-flash-trace",              required_argument, 0, 'F'},
     {"coverage-trace",               required_argument, 0, 'V'},
@@ -115,10 +114,6 @@ static void pspEmuCfgFree(PPSPEMUCFG pCfg)
     if (   pCfg->pvBinLoad
         && pCfg->cbBinLoad)
         PSPEmuFlashFree(pCfg->pvBinLoad, pCfg->cbBinLoad);
-
-    if (   pCfg->pvAppPreload
-        && pCfg->cbAppPreload)
-        PSPEmuFlashFree(pCfg->pvAppPreload, pCfg->cbAppPreload);
 
     if (   pCfg->pvBootRomSvcPage
         && pCfg->cbBootRomSvcPage)
@@ -445,8 +440,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cbOnChipBl            = 0;
     pCfg->pvBinLoad             = NULL;
     pCfg->cbBinLoad             = 0;
-    pCfg->pvAppPreload          = NULL;
-    pCfg->cbAppPreload          = 0;
     pCfg->pvBootRomSvcPage      = NULL;
     pCfg->cbBootRomSvcPage      = 0;
     pCfg->pszPspProxyAddr       = NULL;
@@ -456,7 +449,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
     pCfg->pszUartRemoteAddr     = NULL;
-    pCfg->pszAppPreload         = NULL;
     pCfg->uEm100FlashEmuPort    = 0;
     pCfg->pszSpiFlashTrace      = NULL;
     pCfg->pszIoLog              = NULL;
@@ -473,7 +465,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:j:e:S:C:O:D:E:V:U:P:T:M:R:L:Y:IA", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:e:S:C:O:D:E:V:U:P:T:M:R:L:Y:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -500,7 +492,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --trace-svcs\n"
                        "    --uart-remote-addr [<port>|<address:port>]\n"
                        "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
-                       "    --preload-app <path/to/app/binary/with/hdr>\n"
                        "    --memory-create <addrspace>:<address>:<sz> Creates a memory region for the given address space address, can be given multiple times on the command line\n"
                        "    --memory-preload <addrspace>:<address>:<filename> Preloads a given address space address with data from the given file, can be given multiple times on the command line\n"
                        "    --em100-emu-port <port for the EM100 network emulation>\n"
@@ -635,9 +626,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'r':
                 pCfg->fTimerRealtime = true;
-                break;
-            case 'j':
-                pCfg->pszAppPreload = optarg;
                 break;
             case 'e':
                 pCfg->uEm100FlashEmuPort = strtoul(optarg, NULL, 10);
@@ -793,14 +781,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
         rc = PSPEmuFlashLoadFromFile(pCfg->pszPathBinLoad, &pCfg->pvBinLoad, &pCfg->cbBinLoad);
         if (rc)
             fprintf(stderr, "Loading the binary \"%s\" failed with %d\n", pCfg->pszPathBinLoad, rc);
-    }
-
-    if (   !rc
-        && pCfg->pszAppPreload)
-    {
-        rc = PSPEmuFlashLoadFromFile(pCfg->pszAppPreload, &pCfg->pvAppPreload, &pCfg->cbAppPreload);
-        if (rc)
-            fprintf(stderr, "Loading the app binary failed with %d\n", rc);
     }
 
     if (   !rc

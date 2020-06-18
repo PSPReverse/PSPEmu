@@ -694,11 +694,6 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrWrite, pCfg->pvBinLoad, pCfg->cbBinLoad);
     }
 
-    if (   !rc
-        && pCfg->pvAppPreload
-        && pCfg->cbAppPreload)
-        rc = PSPEmuCoreMemWrite(pThis->hPspCore, 0x15000, pCfg->pvAppPreload, pCfg->cbAppPreload);
-
     if (!rc)
         rc = pspEmuCcdMemRegionsTmpCreate(pThis, pCfg);
     if (!rc)
