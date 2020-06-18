@@ -2197,12 +2197,14 @@ static int pspDevCcpInit(PPSPDEV pDev)
 {
     PPSPDEVCCP pThis = (PPSPDEVCCP)&pDev->abInstance[0];
 
-    pThis->pDev             = pDev;
-    pThis->aQueues[0].u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
-    pThis->aQueues[0].u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
-    pThis->aQueues[1].u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
-    pThis->aQueues[1].u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
-    pThis->pOsslShaCtx      = NULL;
+    pThis->pDev        = pDev;
+    pThis->pOsslShaCtx = NULL;
+
+    for (unsigned i = 0; i < ELEMENTS(pThis->aQueues); i++)
+    {
+        pThis->aQueues[i].u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
+        pThis->aQueues[i].u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
+    }
 
     /* Register MMIO ranges. */
     int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + 2*CCP_V5_Q_SIZE,
