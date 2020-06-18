@@ -449,7 +449,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
     pCfg->pszUartRemoteAddr     = NULL;
-    pCfg->uEm100FlashEmuPort    = 0;
     pCfg->pszSpiFlashTrace      = NULL;
     pCfg->pszIoLog              = NULL;
     pCfg->pszIoLogReplay        = NULL;
@@ -494,7 +493,6 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
                        "    --memory-create <addrspace>:<address>:<sz> Creates a memory region for the given address space address, can be given multiple times on the command line\n"
                        "    --memory-preload <addrspace>:<address>:<filename> Preloads a given address space address with data from the given file, can be given multiple times on the command line\n"
-                       "    --em100-emu-port <port for the EM100 network emulation>\n"
                        "    --spi-flash-trace <path/to/psptrace/compatible/flash/trace>\n"
                        "    --coverage-trace <path/to/coverage/trace/file>\n"
                        "    --sockets <number of sockets to emulate>\n"

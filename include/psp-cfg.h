@@ -264,8 +264,6 @@ typedef struct PSPEMUCFG
     const char              *pszTraceLog;
     /** UART remtoe address. */
     const char              *pszUartRemoteAddr;
-    /** Flash EM100 emulator emulator port. */
-    uint16_t                uEm100FlashEmuPort;
     /** SPI flash trace file to write. */
     const char              *pszSpiFlashTrace;
     /** Pointer to the I/O log file to write. */
