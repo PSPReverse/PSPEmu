@@ -1415,7 +1415,7 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
                 rc = PSPEmuCoreTraceRegister(hPspCore,
                                              pThis->pCfg->PspAddrProxyTrustedOsHandover,
                                              pThis->pCfg->PspAddrProxyTrustedOsHandover,
-                                             PSPEMU_CORE_TRACE_F_EXEC,
+                                             PSPEMU_CORE_TRACE_F_EXEC, ARMASID_ANY,
                                              pspEmuProxyTrustedOsHandover, pThis);
 
             if (!rc)

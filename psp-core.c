@@ -88,6 +88,8 @@ typedef struct PSPCORETRACEHOOK
     PSPADDR                 PspAddrStart;
     /** End PSP address. */
     PSPADDR                 PspAddrEnd;
+    /** The ASID to trigger on. */
+    ARMASID                 idAsid;
     /** PSP core the hook belongs to. */
     PPSPCOREINT             pPspCore;
     /** The trace callback to execute. */
@@ -634,8 +636,12 @@ static inline bool pspEmuCoreCpIsSctrlMmuEnabled(PPSPCOREINT pThis)
 static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32_t cbInsn, void *pvUser)
 {
     PCPSPCORETRACEHOOK pHook = (PCPSPCORETRACEHOOK)pvUser;
+    PPSPCOREINT pThis = pHook->pPspCore;
+    PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
 
-    pHook->pfnTrace(pHook->pPspCore, (PSPADDR)uAddr, cbInsn, pHook->pvUser);
+    if (   pHook->idAsid == ARMASID_ANY
+        || pHook->idAsid == pCpBank->u32RegContextId)
+        pHook->pfnTrace(pThis, (PSPADDR)uAddr, cbInsn, pHook->pvUser);
 }
 
 
@@ -653,8 +659,12 @@ static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32
 static void pspEmuCoreUcHookMemWrapper(uc_engine *pUcEngine, uc_mem_type uMemType, uint64_t uAddr, int32_t cb, int64_t i64Val, void *pvUser)
 {
     PCPSPCORETRACEHOOK pHook = (PCPSPCORETRACEHOOK)pvUser;
+    PPSPCOREINT pThis = pHook->pPspCore;
+    PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
 
-    pHook->pfnTrace(pHook->pPspCore, (PSPADDR)uAddr, cb, pHook->pvUser);
+    if (   pHook->idAsid == ARMASID_ANY
+        || pHook->idAsid == pCpBank->u32RegContextId)
+        pHook->pfnTrace(pThis, (PSPADDR)uAddr, cb, pHook->pvUser);
 }
 
 
@@ -3156,7 +3166,7 @@ int PSPEmuCoreExecReset(PSPCORE hCore)
 }
 
 int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd,
-                            uint32_t fFlags, PFNPSPCORETRACE pfnTrace, void *pvUser)
+                            uint32_t fFlags, ARMASID idAsid, PFNPSPCORETRACE pfnTrace, void *pvUser)
 {
     PPSPCOREINT pThis = hCore;
     int rc = 0;
@@ -3173,6 +3183,7 @@ int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAd
     {
         pHook->PspAddrStart = uPspAddrStart;
         pHook->PspAddrEnd   = uPspAddrEnd;
+        pHook->idAsid       = idAsid;
         pHook->pPspCore     = pThis;
         pHook->pfnTrace     = pfnTrace;
         pHook->pvUser       = pvUser;

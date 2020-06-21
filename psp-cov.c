@@ -278,7 +278,7 @@ int PSPEmuCovCreate(PPSPCOV phCov, PSPCORE hPspCore, PSPADDR PspAddrBegin, PSPAD
             /* Register the handler with the core. */
             rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBegin, PspAddrEnd /*inclusive*/,
                                          PSPEMU_CORE_TRACE_F_EXEC | PSPEMU_CORE_TRACE_F_EXEC_BASIC_BLOCK,
-                                         pspEmuCovBbTrace, pThis);
+                                         ARMASID_ANY, pspEmuCovBbTrace, pThis);
             if (!rc)
             {
                 *phCov = pThis;

@@ -27,6 +27,12 @@
 #include <stdint.h>
 #include <stddef.h>
 
+/** An ARM ASID. */
+typedef uint32_t ARMASID;
+
+/** Any ASID. */
+#define ARMASID_ANY UINT32_MAX
+
 /** Opaque PSP emulation core handle. */
 typedef struct PSPCOREINT *PSPCORE;
 /** Pointer to a PSP emulation core handle. */
@@ -461,11 +467,12 @@ int PSPEmuCoreExecReset(PSPCORE hCore);
  * @param   uPspAddrStart           Start address of the region to trace.
  * @param   uPspAddrEnd             End address of the region to trace (inclusive).
  * @param   fFlags                  Flags controlling the trigger conditions, see PSPEMU_CORE_TRACE_F_XXX.
+ * @param   idAsid                  The ASID to trigger on, use ARMASID_ANY to not care about the ASID.
  * @param   pfnTrace                The trace callback to execute.
  * @param   pvUser                  Opaque user data passed to the trace callback.
  */
 int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd,
-                            uint32_t fFlags, PFNPSPCORETRACE pfnTrace, void *pvUser);
+                            uint32_t fFlags, ARMASID idAsid, PFNPSPCORETRACE pfnTrace, void *pvUser);
 
 /**
  * Deregisters a previously registered trace hook.

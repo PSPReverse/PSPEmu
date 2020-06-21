@@ -1310,7 +1310,7 @@ static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTM
         pTp->u.PspAddrTp = PspAddrBp;
 
         PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
-        rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBp, PspAddrBp, fTraceFlags, pspDbgTpBpHit, pTp);
+        rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBp, PspAddrBp, fTraceFlags, ARMASID_ANY, pspDbgTpBpHit, pTp);
         if (!rc)
             return GDBSTUB_INF_SUCCESS;
         else
@@ -1717,7 +1717,7 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
         pspDbgTpCreate(pThis, false /*fIoTp*/, 1 /*cHitsMax*/, &pTp);
         pTp->u.PspAddrTp = pThis->PspAddrRunUpTo;
         PSPEmuCoreTraceRegister(hPspCore, pThis->PspAddrRunUpTo, pThis->PspAddrRunUpTo,
-                                PSPEMU_CORE_TRACE_F_EXEC, pspDbgTpBpHit, pTp);
+                                PSPEMU_CORE_TRACE_F_EXEC, ARMASID_ANY, pspDbgTpBpHit, pTp);
         pThis->fCoreRunning = true;
         rc = PSPEmuCoreExecRun(hPspCore, pThis->fCoreExecRun, 0, PSPEMU_CORE_EXEC_INDEFINITE);
         pThis->fCoreRunning = false;
