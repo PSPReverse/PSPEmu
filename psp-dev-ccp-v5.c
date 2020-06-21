@@ -647,7 +647,7 @@ static void pspDevCcpReqDumpAesFunction(char *pszBuf, size_t cbBuf, uint32_t uFu
  * @param   pszEngine           The used engine string.
  */
 static void pspDevCcpReqDumpShaFunction(char *pszBuf, size_t cbBuf, uint32_t uFunc,
-                                        uint32_t u32Dw0Raw, const char *pszEngine)
+                                        uint32_t u32Dw0Raw, const char *pszEngine, bool fInit, bool fEom)
 {
     uint32_t uShaType = CCP_V5_ENGINE_SHA_TYPE_GET(uFunc);
     const char *pszShaType = "<INVALID>";
@@ -671,8 +671,8 @@ static void pspDevCcpReqDumpShaFunction(char *pszBuf, size_t cbBuf, uint32_t uFu
             break;
     }
 
-    snprintf(pszBuf, cbBuf, "u32Dw0:             0x%08x (Engine: %s, SHA type: %s)",
-                                                 u32Dw0Raw, pszEngine, pszShaType);
+    snprintf(pszBuf, cbBuf, "u32Dw0:             0x%08x (Engine: %s, Init: %u, Eom: %u, SHA type: %s)",
+                                                 u32Dw0Raw, pszEngine, fInit, fEom, pszShaType);
 }
 
 
@@ -785,13 +785,15 @@ static void pspDevCcpDumpReq(PCCCP5REQ pReq, PSPADDR PspAddrReq)
 {
     uint32_t uEngine   = CCP_V5_ENGINE_GET(pReq->u32Dw0);
     uint32_t uFunction = CCP_V5_ENGINE_FUNC_GET(pReq->u32Dw0);
+    bool     fInit     = CCP_V5_ENGINE_INIT_GET(pReq->u32Dw0);
+    bool     fEom      = CCP_V5_ENGINE_EOM_GET(pReq->u32Dw0);
     const char *pszEngine   = pspDevCcpReqEngineToStr(uEngine);
     char szDw0[512];
 
     if (uEngine == CCP_V5_ENGINE_AES)
         pspDevCcpReqDumpAesFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else if (uEngine == CCP_V5_ENGINE_SHA)
-        pspDevCcpReqDumpShaFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
+        pspDevCcpReqDumpShaFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine, fInit, fEom);
     else if (uEngine == CCP_V5_ENGINE_PASSTHRU)
         pspDevCcpReqDumpPassthruFunction(&szDw0[0], sizeof(szDw0), uFunction, pReq->u32Dw0, pszEngine);
     else if (uEngine == CCP_V5_ENGINE_RSA)
@@ -1109,6 +1111,7 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
              * The storage buffer contains the initial sha256 state, which we will ignore
              * because that is already part of the openssl context.
              */
+#if 0
             if (fInit)
             {
                 pThis->pOsslShaCtx = EVP_MD_CTX_new();
@@ -1117,6 +1120,15 @@ static int pspDevCcpReqShaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 else if (EVP_DigestInit_ex(pThis->pOsslShaCtx, pOsslEvpSha, NULL) != 1)
                     rc = -1;
             }
+#else
+            if (!pThis->pOsslShaCtx)
+            {
+                pThis->pOsslShaCtx = EVP_MD_CTX_new();
+                if (   !pThis->pOsslShaCtx
+                    || EVP_DigestInit_ex(pThis->pOsslShaCtx, pOsslEvpSha, NULL) != 1)
+                rc = -1;
+            }
+#endif
 
             while (   !rc
                    && cbLeft)
@@ -1960,13 +1972,14 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
             rc = pspDevCcpReqRsaProcess(pThis, pReq, uFunction, fInit, fEom);
             break;
         }
+        case CCP_V5_ENGINE_ECC:
+        {
+            rc = pspDevCcpReqEccProcess(pThis, pReq, uFunction, fInit, fEom);
+            break;
+        }
         case CCP_V5_ENGINE_XTS_AES128:
         case CCP_V5_ENGINE_DES3:
             /** @todo */
-            break;
-        case CCP_V5_ENGINE_ECC:
-            rc = pspDevCcpReqEccProcess(pThis, pReq, uFunction, fInit, fEom);
-            break;
         default:
             rc = -1;
     }
@@ -1986,6 +1999,25 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
  */
 static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32_t offRegQ, uint32_t *pu32Dst)
 {
+    switch (offRegQ)
+    {
+        case CCP_V5_Q_REG_CTRL:
+            *pu32Dst = pQueue->u32RegCtrl;
+            break;
+        case CCP_V5_Q_REG_HEAD:
+            *pu32Dst = pQueue->u32RegReqHead;
+            break;
+        case CCP_V5_Q_REG_TAIL:
+            *pu32Dst = pQueue->u32RegReqTail;
+            break;
+        case CCP_V5_Q_REG_STATUS:
+            *pu32Dst = pQueue->u32RegSts;
+            break;
+        default:
+            *pu32Dst = 0;
+            break;
+    }
+
     /*
      * This used to be in the write handler where it would make probably more sense
      * but this caused a fatal stack overwrite during the last CCP request of the on chip bootloader
@@ -2020,7 +2052,7 @@ static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32
     if (pQueue->u32RegCtrl & CCP_V5_Q_REG_CTRL_RUN) /* Running bit set? Process requests. */
     {
         /* Clear halt and running bit. */
-        pQueue->u32RegCtrl &= ~(CCP_V5_Q_REG_CTRL_RUN | CCP_V5_Q_REG_CTRL_HALT);
+        pQueue->u32RegCtrl &= ~(CCP_V5_Q_REG_CTRL_HALT);
 
         uint32_t u32ReqTail = pQueue->u32RegReqTail;
         uint32_t u32ReqHead = pQueue->u32RegReqHead;
@@ -2053,22 +2085,6 @@ static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32
         pQueue->u32RegReqTail = u32ReqTail;
         pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
     }
-
-    switch (offRegQ)
-    {
-        case CCP_V5_Q_REG_CTRL:
-            *pu32Dst = pQueue->u32RegCtrl;
-            break;
-        case CCP_V5_Q_REG_HEAD:
-            *pu32Dst = pQueue->u32RegReqHead;
-            break;
-        case CCP_V5_Q_REG_TAIL:
-            *pu32Dst = pQueue->u32RegReqTail;
-            break;
-        case CCP_V5_Q_REG_STATUS:
-            *pu32Dst = pQueue->u32RegSts;
-            break;
-    }
 }
 
 
@@ -2090,19 +2106,9 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
             break;
         case CCP_V5_Q_REG_HEAD:
             pQueue->u32RegReqHead = u32Val;
-            if (pQueue->u32RegReqTail + 0x20 <= pQueue->u32RegReqHead)
-            {
-                pQueue->u32RegCtrl &= ~CCP_V5_Q_REG_CTRL_HALT;
-                pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_RUN;
-            }
             break;
         case CCP_V5_Q_REG_TAIL:
             pQueue->u32RegReqTail = u32Val;
-            if (pQueue->u32RegReqTail + 0x20 <= pQueue->u32RegReqHead)
-            {
-                pQueue->u32RegCtrl &= ~CCP_V5_Q_REG_CTRL_HALT;
-                pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_RUN;
-            }
             break;
         case CCP_V5_Q_REG_STATUS:
             pQueue->u32RegSts = u32Val;
@@ -2136,6 +2142,7 @@ static void pspDevCcpMmioRead(PSPADDR offMmio, size_t cbRead, void *pvDst, void 
     else
     {
         /** @todo Global register access. */
+        memset(pvDst, 0, cbRead);
     }
 }
 
@@ -2207,7 +2214,7 @@ static int pspDevCcpInit(PPSPDEV pDev)
     }
 
     /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + 2*CCP_V5_Q_SIZE,
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, CCP_V5_MMIO_ADDRESS, CCP_V5_Q_OFFSET + ELEMENTS(pThis->aQueues) * CCP_V5_Q_SIZE,
                                      pspDevCcpMmioRead, pspDevCcpMmioWrite, pThis,
                                      "CCPv5 Global+Queue", &pThis->hMmio);
     /** @todo Not sure this really belongs to the CCP (could be some other hardware block) but
