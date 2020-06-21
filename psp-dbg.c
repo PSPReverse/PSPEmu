@@ -700,14 +700,7 @@ static int gdbStubCmdIoBpDel(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const
         PPSPDBGTP pIoTp = pspDbgTpFindById(pThis, idTp);
         if (   pIoTp
             && pIoTp->fIoTp)
-        {
-            int rc = PSPEmuIoMgrTpDeregister(pIoTp->u.hIoTp);
-            if (!rc)
-                pspDbgTpDestroy(pIoTp);
-            else
-                pHlp->pfnPrintf(pHlp, "Trace point with id %u couldn't get deregistered from the underlying I/O manager which is really weird\n",
-                                idTp);
-        }
+            pspDbgTpDestroy(pIoTp);
         else
             pHlp->pfnPrintf(pHlp, "Trace point with id %u doesn't exist or is not an I/O tracepoint."
                                   " Use the standard GDB delete command for normal breakpoints to prevent GDB from getting out of sync\n",
