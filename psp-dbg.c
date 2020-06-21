@@ -568,6 +568,61 @@ static int gdbStubCmdRestart(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const
 /**
  * @copydoc{GDBSTUBCMD,pfnCmd}
  */
+static int gdbStubCmdBpAsid(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
+    /* Parse all arguments. */
+    int rcGdbStub = GDBSTUB_INF_SUCCESS;
+    const char *pszAddr = pszArgs;
+    const char *pszAsid = pszAddr ? strchr(pszAddr, ' ') : NULL;
+
+    if (   pszAddr
+        && pszAsid)
+    {
+        /* Get past the space. */
+        pszAsid++;
+
+        char *pszAddrEnd = NULL;
+        uint64_t u64Addr = strtoull(pszAddr, &pszAddrEnd, 0 /*base*/);
+        if (   pszAddrEnd != pszAsid
+            && *pszAddrEnd == ' ')
+        {
+            uint64_t u64Asid = strtoull(pszAsid, NULL, 0 /*base*/);
+
+            PSPADDR PspAddrBp = (PSPADDR)u64Addr;
+            PPSPDBGTP pTp = NULL;
+            int rc = pspDbgTpCreate(pThis, false /*fIoTp*/, 0 /*cHitsMax*/, &pTp);
+            if (!rc)
+            {
+                pTp->u.PspAddrTp = PspAddrBp;
+
+                PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
+                rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBp, PspAddrBp, PSPEMU_CORE_TRACE_F_EXEC,
+                                             (ARMASID)u64Asid, pspDbgTpBpHit, pTp);
+                if (!rc)
+                    return GDBSTUB_INF_SUCCESS;
+                else
+                    rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
+
+                pspDbgTpDestroy(pTp);
+            }
+            else
+                rcGdbStub = GDBSTUB_ERR_NO_MEMORY;
+        }
+        else
+            rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+    }
+    else
+        rcGdbStub = GDBSTUB_ERR_INVALID_PARAMETER;
+
+    return rcGdbStub;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
 static int gdbStubCmdIoBp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
@@ -1093,6 +1148,7 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "help",         "This help text",                                                                                  gdbStubCmdHelp                 },
     { "restart",      "Restarts the whole emulation",                                                                    gdbStubCmdRestart              },
     { "reset",        "Restarts the whole emulation",                                                                    gdbStubCmdRestart              }, /* Alias for restart */
+    { "bpasid",       "Sets a breakpoint for a specific ASID, arguments: <address> <asid>",                              gdbStubCmdBpAsid               },
     { "iobp",         "Sets an I/O breakpoint, arguments: mmio|smn|x86 <address> <sz (1,2,4 or 0)> r|w|rw before|after", gdbStubCmdIoBp                 },
     { "iobpdel",      "Deletes an I/O breakpoint, arguments: <id>",                                                      gdbStubCmdIoBpDel              },
     { "pcset",        "Sets the PC when GDB is too stupid to do it",                                                     gdbStubCmdIoSetPc              },
