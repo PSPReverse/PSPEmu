@@ -1903,7 +1903,8 @@ static int pspEmuCoreMmuPAddrQueryFromVAddr(PPSPCOREINT pThis, PSPVADDR PspVAddr
  * @param   pcbRegion               Where to store the size of the resolved contiguous virtual memory region on success.
  */
 static int pspEmuCoreMmuVAddrQueryFromPAddr(PPSPCOREINT pThis, PSPPADDR PspPAddr, size_t cbPhysRegion,
-                                            PSPVADDR *pPspVAddr, size_t *pcbRegion)
+                                            PSPVADDR *pPspVAddr, size_t *pcbRegion,
+                                            uint32_t *pidxL1, uint32_t *pidxL2)
 {
     PSPPADDR PspPAddrPg = PspPAddr & ~(PSP_PAGE_SIZE - 1);
     PSPPADDR offPg = PspPAddr - PspPAddrPg;
@@ -1912,13 +1913,13 @@ static int pspEmuCoreMmuVAddrQueryFromPAddr(PPSPCOREINT pThis, PSPPADDR PspPAddr
     int rc = pspEmuCoreMmuPgTblQueryRoot(pThis, &PhysAddrPgTbl);
     if (!rc)
     {
-        uint32_t au32Tbl[4096];
+        uint32_t au32Tbl[32];
 
         rc = PSPEmuCoreMemRead(pThis, PhysAddrPgTbl, &au32Tbl[0], sizeof(au32Tbl));
         if (!rc)
         {
             /* Scan the page tables for the physical address. */
-            for (uint32_t i = 0; i < ELEMENTS(au32Tbl) && !rc; i++)
+            for (uint32_t i = *pidxL1; i < ELEMENTS(au32Tbl) && !rc; i++)
             {
                 if ((au32Tbl[i] & 0x3) == 0x1)
                 {
@@ -1928,7 +1929,7 @@ static int pspEmuCoreMmuVAddrQueryFromPAddr(PPSPCOREINT pThis, PSPPADDR PspPAddr
                     rc = PSPEmuCoreMemRead(pThis, PhysAddrL2, &au32TblL2[0], sizeof(au32TblL2));
                     if (!rc)
                     {
-                        for (uint32_t idxL2 = 0; idxL2 < ELEMENTS(au32TblL2) && !rc; idxL2++)
+                        for (uint32_t idxL2 = *pidxL2; idxL2 < ELEMENTS(au32TblL2) && !rc; idxL2++)
                         {
                             PSPPADDR PhysStart = pspEmuCoreMmuPgTblL2GetPhysAddrFromDesc(au32TblL2[idxL2], idxL2);
                             if (PhysStart == 0xffffffff)
@@ -1955,9 +1956,13 @@ static int pspEmuCoreMmuVAddrQueryFromPAddr(PPSPCOREINT pThis, PSPPADDR PspPAddr
 
                                 *pPspVAddr = PspVAddrStart | offPg;
                                 *pcbRegion = MIN(cbPhysRegion, cbVRegion);
+                                *pidxL1 = i;
+                                *pidxL2 = idxL2;
                                 return 0;
                             }
                         }
+
+                        *pidxL2 = 0;
                     }
                 }
                 else if (   (au32Tbl[i] & 0x2) == 0x2
@@ -1970,12 +1975,15 @@ static int pspEmuCoreMmuVAddrQueryFromPAddr(PPSPCOREINT pThis, PSPPADDR PspPAddr
                     if (   PspPAddrPg >= PhysStartSection
                         && PspPAddrPg < PhysStartSection + cbSection)
                     {
-                        *pPspVAddr = i * _1M + (PspPAddrPg - PhysStartSection);
+                        *pPspVAddr = (i * _1M + (PspPAddrPg - PhysStartSection)) | offPg;
                         *pcbRegion = MIN(cbPhysRegion, cbSection);
-                        /** @todo check next sections. */
+                        *pidxL1 = i + 1;
+                        *pidxL2 = 0;
                         return 0;
                     }
                 }
+                else if ((au32Tbl[i] & 0x3) != 0x0)
+                    printf("No support for super sections right now %#x!\n", au32Tbl[i]);
             }
 
             if (!rc)
@@ -2064,6 +2072,7 @@ static void pspEmuCoreMmuPgTblWrite(struct uc_struct* pUcEngine, uc_mem_type enm
     PCPSPCOREPGTBLTRACK pPgTblTrack = (PCPSPCOREPGTBLTRACK)pvUser;
     PPSPCOREINT pThis = pPgTblTrack->pThis;
 
+    printf("Page table write at address %#llx with value %#llx (cb=%u)\n", uAddr, iVal, cb);
     PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "Page table write at address %#llx with value %#llx (cb=%u)\n", uAddr, iVal, cb);
 
     /* As the page tables have changed we have to clear all mappings and start all over. */
@@ -2195,44 +2204,58 @@ static int pspEmuCoreMmuMap(PPSPCOREINT pThis, PSPVADDR PspVAddr, bool *pfHandle
  */
 static int pspEmuCoreMmuPgTblTrackingCreate(PPSPCOREINT pThis, PSPPADDR PspPAddrPgTbl, size_t cbPgTbl, bool fL2PgTbl)
 {
-    PSPVADDR PspVAddrPgTbl;
-    size_t cbVPgTbl;
-    int rc = pspEmuCoreMmuVAddrQueryFromPAddr(pThis, PspPAddrPgTbl, cbPgTbl,
-                                              &PspVAddrPgTbl, &cbVPgTbl);
-    if (STS_SUCCESS(rc))
-    {
-        if (cbVPgTbl >= cbPgTbl)
-        {
-            PPSPCOREPGTBLTRACK pPgTblTrack = (PPSPCOREPGTBLTRACK)calloc(1, sizeof(*pPgTblTrack));
-            if (pPgTblTrack)
-            {
-                pPgTblTrack->pNext    = NULL;
-                pPgTblTrack->pThis    = pThis;
-                pPgTblTrack->fL2PgTbl = fL2PgTbl;
-                pPgTblTrack->PhysAddrPgTblStart = PspPAddrPgTbl;
-                pPgTblTrack->PspAddrVPgTbl      = PspVAddrPgTbl;
-                pPgTblTrack->cbPgTbl            = cbPgTbl;
+    PSPVADDR PspVAddrPgTbl = 0;
+    size_t cbVPgTbl = 0;
+    uint32_t idxL1 = 0;
+    uint32_t idxL2 = 0;
+    int rc = STS_INF_SUCCESS;
 
-                uc_err rcUc = uc_hook_add(pThis->pUcEngine, &pPgTblTrack->hUcHookWrites, UC_HOOK_MEM_WRITE, (void *)(uintptr_t)pspEmuCoreMmuPgTblWrite,
-                                          pPgTblTrack, pPgTblTrack->PspAddrVPgTbl, pPgTblTrack->PspAddrVPgTbl + cbPgTbl - 1);
-                if (rcUc == UC_ERR_OK)
+    do
+    {
+        rc = pspEmuCoreMmuVAddrQueryFromPAddr(pThis, PspPAddrPgTbl, cbPgTbl,
+                                              &PspVAddrPgTbl, &cbVPgTbl,
+                                              &idxL1, &idxL2);
+
+        printf("pspEmuCoreMmuPgTblTrackingCreate: PspPAddrPgTbl=%#x cbPgTbl=%zu PspVAddrPgTbl=%#x cbVPgTbl=%zu\n",
+                                                  PspPAddrPgTbl, cbPgTbl, PspVAddrPgTbl, cbVPgTbl);
+        if (STS_SUCCESS(rc))
+        {
+            if (cbVPgTbl >= cbPgTbl)
+            {
+                PPSPCOREPGTBLTRACK pPgTblTrack = (PPSPCOREPGTBLTRACK)calloc(1, sizeof(*pPgTblTrack));
+                if (pPgTblTrack)
                 {
-                    pPgTblTrack->pNext = pThis->pMmuPgTblTrackingHead;
-                    pThis->pMmuPgTblTrackingHead = pPgTblTrack;
+                    pPgTblTrack->pNext    = NULL;
+                    pPgTblTrack->pThis    = pThis;
+                    pPgTblTrack->fL2PgTbl = fL2PgTbl;
+                    pPgTblTrack->PhysAddrPgTblStart = PspPAddrPgTbl;
+                    pPgTblTrack->PspAddrVPgTbl      = PspVAddrPgTbl;
+                    pPgTblTrack->cbPgTbl            = cbPgTbl;
+
+                    uc_err rcUc = uc_hook_add(pThis->pUcEngine, &pPgTblTrack->hUcHookWrites, UC_HOOK_MEM_WRITE, (void *)(uintptr_t)pspEmuCoreMmuPgTblWrite,
+                                              pPgTblTrack, pPgTblTrack->PspAddrVPgTbl, pPgTblTrack->PspAddrVPgTbl + cbPgTbl - 1);
+                    if (rcUc == UC_ERR_OK)
+                    {
+                        pPgTblTrack->pNext = pThis->pMmuPgTblTrackingHead;
+                        pThis->pMmuPgTblTrackingHead = pPgTblTrack;
+                    }
+                    else
+                        rc = pspEmuCoreErrConvertFromUcErr(rcUc);
                 }
                 else
-                    rc = pspEmuCoreErrConvertFromUcErr(rcUc);
+                    rc = STS_ERR_NO_MEMORY;
             }
             else
-                rc = STS_ERR_NO_MEMORY;
+            {
+                printf("We don't allow individual page tables spanning multiple pages for now...\n");
+                rc = STS_ERR_INVALID_PARAMETER;
+            }
         }
         else
-        {
-            printf("We don't allow individual page tables spanning multiple pages for now...\n");
-            rc = STS_ERR_INVALID_PARAMETER;
-        }
-    }
+            printf("pspEmuCoreMmuPgTblTrackingCreate: rc=%d\n", rc);
+    } while (STS_SUCCESS(rc));
 
+    rc = 0;
     return rc;
 }
 
