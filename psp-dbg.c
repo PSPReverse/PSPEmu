@@ -930,6 +930,66 @@ static int gdbStubCmdCovTraceDel(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, c
 /**
  * @copydoc{GDBSTUBCMD,pfnCmd}
  */
+static int gdbStubCmdIrqSet(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD  hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+    PSPCORE hPspCore = NULL;
+
+    int rc = PSPEmuCcdQueryCore(hCcd, &hPspCore);
+    if (rc)
+        return pspEmuDbgErrConvertToGdbStubErr(rc);
+
+    /* Parse all arguments. */
+    if (pszArgs)
+    {
+        if (!strcmp(pszArgs, "on"))
+            rc = PSPEmuCoreIrqSet(hPspCore, true /*fAssert*/);
+        else if (!strcmp(pszArgs, "off"))
+            rc = PSPEmuCoreIrqSet(hPspCore, false /*fAssert*/);
+        else
+            pHlp->pfnPrintf(pHlp, "Argument must be either \"on\" or \"off\", given:\n", pszArgs);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly one argument: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
+static int gdbStubCmdFiqSet(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+    PSPCCD  hCcd = pspEmuDbgGetCcdFromSelectedCcd(pThis);
+    PSPCORE hPspCore = NULL;
+
+    int rc = PSPEmuCcdQueryCore(hCcd, &hPspCore);
+    if (rc)
+        return pspEmuDbgErrConvertToGdbStubErr(rc);
+
+    /* Parse all arguments. */
+    if (pszArgs)
+    {
+        if (!strcmp(pszArgs, "on"))
+            rc = PSPEmuCoreFiqSet(hPspCore, true /*fAssert*/);
+        else if (!strcmp(pszArgs, "off"))
+            rc = PSPEmuCoreFiqSet(hPspCore, false /*fAssert*/);
+        else
+            pHlp->pfnPrintf(pHlp, "Argument must be either \"on\" or \"off\", given:\n", pszArgs);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Command requires exactly one argument: \"%s\"\n", pszArgs);
+
+    return GDBSTUB_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{GDBSTUBCMD,pfnCmd}
+ */
 static int gdbStubCmdQueryPAddrFromVAddr(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
@@ -1155,6 +1215,8 @@ static const GDBSTUBCMD g_aGdbCmds[] =
     { "covtrace",     "Enable a new coverage trace, arguments: <begin> <end>",                                           gdbStubCmdCovTrace             },
     { "covtracedump", "Dumps a coverage trace to the given file, arguments: <id> <filename>",                            gdbStubCmdCovTraceDump         },
     { "covtracedel",  "Delete a coverage tracer, arguments: <id>",                                                       gdbStubCmdCovTraceDel          },
+    { "irqset",       "Sets the IRQ line of the PSP, arguments: on|off",                                                 gdbStubCmdIrqSet               },
+    { "fiqset",       "Sets the IRQ line of the PSP, arguments: on|off",                                                 gdbStubCmdFiqSet               },
     { "va2pa",        "Resolves the given virtual address to a physical one",                                            gdbStubCmdQueryPAddrFromVAddr  },
     { "tracemarker",  "Dumps the marker given as a string to the trace log",                                             gdbStubCmdTraceMarker          },
     { "corestate",    "Dumps the core state to the trace log",                                                           gdbStubCmdDumpCoreState        },
