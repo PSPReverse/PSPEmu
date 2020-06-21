@@ -520,6 +520,24 @@ int PSPEmuCoreMmioDeregister(PSPCORE hCore, PSPADDR uPspAddrMmioStart, size_t cb
 int PSPEmuCoreWfiSet(PSPCORE hCore, PFNPSPCOREWFI pfnWfiReached, void *pvUser);
 
 /**
+ * Signals an IRQ line assert/de-assert change.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   fAssert                 Flag whether the IRQ line is asserted or not.
+ */
+int PSPEmuCoreIrqSet(PSPCORE hCore, bool fAssert);
+
+/**
+ * Signals an FIQ line assert/de-assert change.
+ *
+ * @returns Status code.
+ * @param   hCore                   The PSP core handle.
+ * @param   fAssert                 Flag whether the FIQ line is asserted or not.
+ */
+int PSPEmuCoreFiqSet(PSPCORE hCore, bool fAssert);
+
+/**
  * Dumps the emulation core state to stdout.
  *
  * @returns nothing.

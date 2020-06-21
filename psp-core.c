@@ -1114,16 +1114,19 @@ static void pspEmuCoreCpsrChangeWrapper(struct uc_struct *pUcEngine, uint64_t uA
         pThis->enmCoreMode = enmCoreMode;
     }
 
-    if (   pThis->pfnWfiReached
-        && (u32Val & (BIT(7) | BIT(6))) != 0xc0)
+    if ((u32Val & (BIT(7) | BIT(6))) != 0xc0)
     {
         bool fIrq = pThis->fIrq;
         bool fFirq = pThis->fFiq;
-        int rc = pThis->pfnWfiReached(pThis, (PSPADDR)uAddrPc, PSPEMU_CORE_WFI_CHECK, &fIrq, &fFirq, pThis->pvWfiUser);
-        if (STS_SUCCESS(rc))
+
+        if (pThis->pfnWfiReached)
         {
-            pThis->fIrq = fIrq;
-            pThis->fFiq = fFirq;
+            int rc = pThis->pfnWfiReached(pThis, (PSPADDR)uAddrPc, PSPEMU_CORE_WFI_CHECK, &fIrq, &fFirq, pThis->pvWfiUser);
+            if (STS_SUCCESS(rc))
+            {
+                pThis->fIrq = fIrq;
+                pThis->fFiq = fFirq;
+            }
         }
 
         if (pThis->fIrq || pThis->fFiq)
@@ -3332,6 +3335,22 @@ int PSPEmuCoreWfiSet(PSPCORE hCore, PFNPSPCOREWFI pfnWfiReached, void *pvUser)
         rc = -1;
 
     return rc;
+}
+
+int PSPEmuCoreIrqSet(PSPCORE hCore, bool fAssert)
+{
+    PPSPCOREINT pThis = hCore;
+
+    pThis->fIrq = fAssert;
+    return STS_INF_SUCCESS;
+}
+
+int PSPEmuCoreFiqSet(PSPCORE hCore, bool fAssert)
+{
+    PPSPCOREINT pThis = hCore;
+
+    pThis->fFiq = fAssert;
+    return STS_INF_SUCCESS;
 }
 
 void PSPEmuCoreStateDump(PSPCORE hCore, uint32_t fFlags, uint32_t cInsns)
