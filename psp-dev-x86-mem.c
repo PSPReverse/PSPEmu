@@ -46,7 +46,7 @@ static int pspDevX86MemInit(PPSPDEV pDev)
     pThis->pDev = pDev;
 
     /* Register secure DRAM ranges. */
-    int rc = PSPEmuIoMgrX86MemRegister(pDev->hIoMgr, 0xfffdfb000000, 16 * _1M, true /*fCanExec*/,
+    int rc = PSPEmuIoMgrX86MemRegister(pDev->hIoMgr, 0xfffdf8000000, 64 * _1M, true /*fCanExec*/,
                                        NULL /*pfnFetch*/, NULL,
                                        "SecureDram", &pThis->hMemSecureDram);
     return rc;
