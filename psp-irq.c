@@ -85,7 +85,8 @@ static void pspIrqMmioRead(PSPADDR offMmio, size_t cbRead, void *pvDst, void *pv
         case PSP_IRQ_REG_ACK_PRIO2_OFF:
         case PSP_IRQ_REG_ACK_PRIO3_OFF:
         {
-            /** @todo Are these write only? Ignore for now. */
+            uint32_t idPrio = (offMmio - PSP_IRQ_REG_ACK_PRIO0_OFF) / sizeof(uint32_t);
+            *pu32Dst = pThis->abmGrpDev[idPrio];
             break;
         }
         case PSP_IRQ_REG_PEN_OFF:
