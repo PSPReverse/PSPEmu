@@ -32,6 +32,7 @@
 #include <psp-ccd.h>
 #include <psp-flash.h>
 #include <psp-iom.h>
+#include <psp-irq.h>
 #include <psp-devs.h>
 #include <psp-cfg.h>
 #include <psp-svc.h>
@@ -67,6 +68,8 @@ typedef struct PSPCCDINT
     PSPCORE                     hPspCore;
     /** The I/O manager handling I/O accesses. */
     PSPIOM                      hIoMgr;
+    /** The interrupt controller state. */
+    PSPIRQ                      hIrq;
     /** Emulated supervisor mode state for app emulation mode. */
     PSPSVC                      hSvc;
     /** The trace log handle. */
@@ -890,29 +893,35 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                 rc = PSPEmuIoMgrTraceAllAccessesSet(pThis->hIoMgr, pCfg->fIomLogAllAccesses);
                 if (!rc)
                 {
-                    /* Create all the devices. */
-                    if (pCfg->papszDevs)
-                        rc = pspEmuCcdDevicesInstantiate(pThis, pCfg->papszDevs, pCfg);
-                    else
-                        rc = pspEmuCcdDevicesInstantiateDefault(pThis, pCfg);
-                    if (!rc)
+                    rc = PSPIrqCreate(&pThis->hIrq, pThis->hPspCore, pThis->hIoMgr);
+                    if (STS_SUCCESS(rc))
                     {
-                        /* Initialize the memory content for the PSP. */
-                        rc = pspEmuCcdMemoryInit(pThis, pCfg);
-                        if (   !rc
-                            && pThis->fRegSmnHandlers)
-                            rc = pspEmuCcdMmioSmnInit(pThis);
-                        if (!rc)
-                            rc = pspEmuCcdExecEnvInit(pThis, pCfg);
-                        if (!rc)
-                            rc = pspEmuCcdTraceInit(pThis, pCfg);
+                        /* Create all the devices. */
+                        if (pCfg->papszDevs)
+                            rc = pspEmuCcdDevicesInstantiate(pThis, pCfg->papszDevs, pCfg);
+                        else
+                            rc = pspEmuCcdDevicesInstantiateDefault(pThis, pCfg);
                         if (!rc)
                         {
-                            *phCcd = pThis;
-                            return 0;
+                            /* Initialize the memory content for the PSP. */
+                            rc = pspEmuCcdMemoryInit(pThis, pCfg);
+                            if (   !rc
+                                && pThis->fRegSmnHandlers)
+                                rc = pspEmuCcdMmioSmnInit(pThis);
+                            if (!rc)
+                                rc = pspEmuCcdExecEnvInit(pThis, pCfg);
+                            if (!rc)
+                                rc = pspEmuCcdTraceInit(pThis, pCfg);
+                            if (!rc)
+                            {
+                                *phCcd = pThis;
+                                return STS_INF_SUCCESS;
+                            }
+
+                            pspEmuCcdDevicesDestroy(pThis);
                         }
 
-                        pspEmuCcdDevicesDestroy(pThis);
+                        PSPIrqDestroy(pThis->hIrq);
                     }
 
                 }
@@ -987,6 +996,7 @@ void PSPEmuCcdDestroy(PSPCCD hCcd)
     pspEmuCcdDevicesDestroy(pThis);
 
     /* Destroy the I/O manager and then the emulation core and last this structure. */
+    PSPIrqDestroy(pThis->hIrq);
     PSPEmuIoMgrDestroy(pThis->hIoMgr);
     PSPEmuCoreDestroy(pThis->hPspCore);
     if (pThis->pvSram)

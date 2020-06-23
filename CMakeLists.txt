@@ -25,6 +25,7 @@ add_executable(PSPEmu
                       psp-iom.c
                       psp-iolog.c
                       psp-iolog-replay.c
+                      psp-irq.c
                       psp-trace.c
                       psp-cov.c
                       psp-proxy.c
