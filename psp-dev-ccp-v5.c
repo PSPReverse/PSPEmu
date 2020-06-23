@@ -82,6 +82,10 @@ typedef struct CCPQUEUE
     uint32_t                        u32RegReqHead;
     /** Request status register. */
     uint32_t                        u32RegSts;
+    /** Interrupt enable register. */
+    uint32_t                        u32RegIen;
+    /** Interrupt status register. */
+    uint32_t                        u32RegIsts;
 } CCPQUEUE;
 /** Pointer to a single CCP queue. */
 typedef CCPQUEUE *PCCPQUEUE;
@@ -2013,6 +2017,12 @@ static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32
         case CCP_V5_Q_REG_STATUS:
             *pu32Dst = pQueue->u32RegSts;
             break;
+        case CCP_V5_Q_REG_IEN:
+            *pu32Dst = pQueue->u32RegIen;
+            break;
+        case CCP_V5_Q_REG_ISTS:
+            *pu32Dst = pQueue->u32RegIsts;
+            break;
         default:
             *pu32Dst = 0;
             break;
@@ -2067,14 +2077,22 @@ static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32
                 pspDevCcpDumpReq(&Req, u32ReqTail);
                 rc = pspDevCcpReqProcess(pThis, &Req);
                 if (!rc)
+                {
                     pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_SUCCESS;
+                    pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_COMPLETION;
+                }
                 else
+                {
                     pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR;
+                    pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_ERROR;
+                    break;
+                }
             }
             else
             {
                 printf("CCP: Failed to read request from 0x%08x with rc=%d\n", u32ReqTail, rc);
                 pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR; /* Signal error. */
+                pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_ERROR;
                 break;
             }
 
@@ -2084,6 +2102,13 @@ static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32
         /* Set halt bit again. */
         pQueue->u32RegReqTail = u32ReqTail;
         pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
+        pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_Q_STOP;
+        if (u32ReqTail == u32ReqHead)
+            pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_Q_EMPTY;
+
+        /* Issue an interrupt request if there is something pending. */
+        if (pQueue->u32RegIen & pQueue->u32RegIsts)
+            pThis->pDev->pDevIf->pfnIrqSet(pThis->pDev->pDevIf, 0 /*idPrio*/, 15 /*idDev*/, true /*fAssert*/);
     }
 }
 
@@ -2113,6 +2138,19 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
         case CCP_V5_Q_REG_STATUS:
             pQueue->u32RegSts = u32Val;
             break;
+        case CCP_V5_Q_REG_IEN:
+            pQueue->u32RegIen = u32Val;
+            break;
+        case CCP_V5_Q_REG_ISTS:
+        {
+            /* Set bits clear the corresponding interrupt. */
+            pQueue->u32RegIsts &= ~u32Val;
+
+            /* Reset the interrupt line if there is nothing pending anymore. */
+            if (!(pQueue->u32RegIen & pQueue->u32RegIsts))
+                pThis->pDev->pDevIf->pfnIrqSet(pThis->pDev->pDevIf, 0 /*idPrio*/, 15 /*idDev*/, false /*fAssert*/);
+            break;
+        }
     }
 }
 
@@ -2211,6 +2249,8 @@ static int pspDevCcpInit(PPSPDEV pDev)
     {
         pThis->aQueues[i].u32RegCtrl = CCP_V5_Q_REG_CTRL_HALT; /* Halt bit set. */
         pThis->aQueues[i].u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
+        pThis->aQueues[i].u32RegIen  = 0;
+        pThis->aQueues[i].u32RegIsts = 0;
     }
 
     /* Register MMIO ranges. */
