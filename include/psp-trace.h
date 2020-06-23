@@ -101,6 +101,8 @@ typedef enum PSPTRACEEVTORIGIN
     PSPTRACEEVTORIGIN_DBG,
     /** PSP core related. */
     PSPTRACEEVTORIGIN_CORE,
+    /** Interrupt controller related. */
+    PSPTRACEEVTORIGIN_IRQ,
     /** Last valid origin. */
     PSPTRACEEVTORIGIN_LAST = PSPTRACEEVTORIGIN_CORE,
     /** 32bit hack. */

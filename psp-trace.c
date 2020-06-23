@@ -257,6 +257,7 @@ static const char *pspEmuTraceGetEvtOriginStr(PSPTRACEEVTORIGIN enmOrigin)
         case PSPTRACEEVTORIGIN_PROXY:       return "PROXY";
         case PSPTRACEEVTORIGIN_DBG:         return "DBG";
         case PSPTRACEEVTORIGIN_CORE:        return "CORE";
+        case PSPTRACEEVTORIGIN_IRQ:         return "IRQ";
     }
 
     return "<UNKNOWN>";
