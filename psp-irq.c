@@ -180,7 +180,7 @@ int PSPIrqCreate(PPSPIRQ phIrq, PSPCORE hPspCore, PSPIOM hIoMgr)
         pThis->hPspCore = hPspCore;
         pThis->hIoMgr   = hIoMgr;
 
-        rc = PSPEmuIoMgrMmioRegister(hIoMgr, 0x030103b0, PSP_IRQ_MMIO_SZ,
+        rc = PSPEmuIoMgrMmioRegister(hIoMgr, PSP_IRQ_MMIO_ADDR_BASE, PSP_IRQ_MMIO_SZ,
                                      pspIrqMmioRead, pspIrqMmioWrite, pThis,
                                      "IRQ Ctrl", &pThis->hMmio);
         if (STS_SUCCESS(rc))
