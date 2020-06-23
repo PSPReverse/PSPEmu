@@ -27,13 +27,14 @@
 #include <psp-dev.h>
 
 
-int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PCPSPEMUCFG pCfg, PPSPDEV *ppDev)
+int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PCPSPDEVIF pDevIf, PCPSPEMUCFG pCfg, PPSPDEV *ppDev)
 {
     int rc = 0;
     PPSPDEV pDev = (PPSPDEV)calloc(1, sizeof(*pDev) + pDevReg->cbInstance);
     if (pDev)
     {
         pDev->pReg      = pDevReg;
+        pDev->pDevIf    = pDevIf;
         pDev->hIoMgr    = hIoMgr;
         pDev->pCfg      = pCfg;
 

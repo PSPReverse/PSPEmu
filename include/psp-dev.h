@@ -32,6 +32,32 @@ typedef const struct PSPDEVREG *PCPSPDEVREG;
 /** Pointer to a PSP device registration record. */
 typedef struct PSPDEVREG *PPSPDEVREG;
 
+
+/** Pointer to a const device interface callback table. */
+typedef const struct PSPDEVIF *PCPSPDEVIF;
+
+/**
+ * Device interface callback table.
+ */
+typedef struct PSPDEVIF
+{
+
+    /**
+     * Sets an interrupt request.
+     *
+     * @returns Status code.
+     * @param   pDevIf              Pointer to this table.
+     * @param   idPrio              The priority group of the device.
+     * @param   idIrq               The interrupt ID of the device.
+     * @param   fAssert             Flag whether to assert or de-assert the interrupt line.
+     */
+    int (*pfnIrqSet)(PCPSPDEVIF pDevIf, uint32_t idPrio, uint8_t idIrq, bool fAssert);
+
+} PSPDEVIF;
+/** Pointer to a device interface callback table. */
+typedef PSPDEVIF *PPSPDEVIF;
+
+
 /**
  * PSP device instance.
  */
@@ -41,6 +67,8 @@ typedef struct PSPDEV
     struct PSPDEV          *pNext;
     /** Pointer to the device registration record. */
     PCPSPDEVREG            pReg;
+    /** Pointer to the device interface callback to use. */
+    PCPSPDEVIF             pDevIf;
     /** The I/O manager the device is attached to. */
     PSPIOM                 hIoMgr;
     /** The global config structure. */
@@ -95,10 +123,11 @@ typedef struct PSPDEVREG
  * @returns Status code.
  * @param   hIoMgr                  The I/O manager handle this device will be attached to.
  * @param   pDevReg                 The device template to use.
+ * @param   pDevIf                  The device interface callback table to use.
  * @param   pCfg                    The config to use for the device.
  * @param   ppDev                   Where to store the device on success.
  */
-int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PCPSPEMUCFG pCfg, PPSPDEV *ppDev);
+int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PCPSPDEVIF pDevIf, PCPSPEMUCFG pCfg, PPSPDEV *ppDev);
 
 
 /**

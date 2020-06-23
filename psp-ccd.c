@@ -62,6 +62,8 @@ typedef PSPCCDMEMREGION *PPSPCCDMEMREGION;
  */
 typedef struct PSPCCDINT
 {
+    /** The device interface to use for instantiated devices. */
+    PSPDEVIF                    DevIf;
     /** The config assigned to this CCD. */
     PCPSPEMUCFG                 pCfg;
     /** The PSP core executing the code. */
@@ -385,6 +387,17 @@ static void pspEmuCcdIoLogX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86
 
 
 /**
+ * @copydoc{PSPDEVIF::pfnIrqSet, Device IRQ callback handler}
+ */
+static int pspCcdIrqSet(PCPSPDEVIF pDevIf, uint32_t idPrio, uint8_t idIrq, bool fAssert)
+{
+    PPSPCCDINT pThis = (PPSPCCDINT)pDevIf;
+
+    return PSPIrqSet(pThis->hIrq, idPrio, idIrq, fAssert);
+}
+
+
+/**
  * Returns the device registration record with the given name or NULL if not found.
  *
  * @returns Pointer to the devcice registration record or NULL if not found.
@@ -419,7 +432,7 @@ static int pspEmuCcdDeviceInstantiate(PPSPCCDINT pThis, PCPSPDEVREG pDevReg, PCP
     else
     {
         PPSPDEV pDev = NULL;
-        rc = PSPEmuDevCreate(pThis->hIoMgr, pDevReg, pCfg, &pDev);
+        rc = PSPEmuDevCreate(pThis->hIoMgr, pDevReg, &pThis->DevIf, pCfg, &pDev);
         if (!rc)
         {
             pDev->pNext = pThis->pDevsHead;
@@ -877,6 +890,7 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
     PPSPCCDINT pThis = (PPSPCCDINT)calloc(1, sizeof(*pThis));
     if (pThis)
     {
+        pThis->DevIf.pfnIrqSet    = pspCcdIrqSet;
         pThis->pCfg               = pCfg;
         pThis->idSocket           = idSocket;
         pThis->idCcd              = idCcd;
