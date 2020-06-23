@@ -2108,7 +2108,7 @@ static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32
 
         /* Issue an interrupt request if there is something pending. */
         if (pQueue->u32RegIen & pQueue->u32RegIsts)
-            pThis->pDev->pDevIf->pfnIrqSet(pThis->pDev->pDevIf, 0 /*idPrio*/, 15 /*idDev*/, true /*fAssert*/);
+            pThis->pDev->pDevIf->pfnIrqSet(pThis->pDev->pDevIf, 0 /*idPrio*/, 0x15 /*idDev*/, true /*fAssert*/);
     }
 }
 
@@ -2148,7 +2148,7 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
 
             /* Reset the interrupt line if there is nothing pending anymore. */
             if (!(pQueue->u32RegIen & pQueue->u32RegIsts))
-                pThis->pDev->pDevIf->pfnIrqSet(pThis->pDev->pDevIf, 0 /*idPrio*/, 15 /*idDev*/, false /*fAssert*/);
+                pThis->pDev->pDevIf->pfnIrqSet(pThis->pDev->pDevIf, 0 /*idPrio*/, 0x15 /*idDev*/, false /*fAssert*/);
             break;
         }
     }
