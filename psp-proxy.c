@@ -791,7 +791,7 @@ static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFla
         return STS_INF_SUCCESS;
     }
 
-    int rc = 0;
+    int rc = STS_INF_SUCCESS;
     do
     {
         rc = PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 10 * 1000);
@@ -801,13 +801,13 @@ static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFla
             PSPEmuCoreFiqSet(hCore, *pfFirq);
             break;
         }
-        else if (rc == STS_ERR_PSP_PROXY_TIMEOUT)
+        else if (rc == STS_ERR_PSP_PROXY_WFI_NO_CHANGE)
         {
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
                                     "pspEmuProxyWfiReached() Waiting for Interrupt for CCD %u...\n", idCcd);
-            rc = 0;
+            rc = STS_INF_SUCCESS;
         }
-    } while (!rc);
+    } while (STS_SUCCESS(rc));
 
     return rc;
 }
