@@ -27,7 +27,8 @@
 #include <psp-dev.h>
 
 extern const PSPDEVREG g_DevRegCcpV5;
-extern const PSPDEVREG g_DevRegTimer;
+extern const PSPDEVREG g_DevRegTimer1;
+extern const PSPDEVREG g_DevRegTimer2;
 extern const PSPDEVREG g_DevRegFuse;
 extern const PSPDEVREG g_DevRegFlash;
 extern const PSPDEVREG g_DevRegSmu;

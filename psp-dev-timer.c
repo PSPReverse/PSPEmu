@@ -1,5 +1,5 @@
 /** @file
- * PSP Emulator - Timer device starting at 0x03010424.
+ * PSP Emulator - Timer device starting at 0x03010400 and 0x03010424.
  */
 
 /*
@@ -29,9 +29,9 @@
 
 
 /**
- * Sub timer structure.
+ * Timer device instance data.
  */
-typedef struct PSPDEVSUBTIMER
+typedef struct PSPDEVTIMER
 {
     /** Flag whether to run in realtime. */
     bool                            fRealtime;
@@ -41,21 +41,6 @@ typedef struct PSPDEVSUBTIMER
     uint32_t                        regCtrl;
     /** The counter running at 100MHz. */
     uint32_t                        regCnt100MHz;
-} PSPDEVSUBTIMER;
-/** Pointer to a sub timer. */
-typedef PSPDEVSUBTIMER *PPSPDEVSUBTIMER;
-
-
-/**
- * Timer device instance data.
- */
-typedef struct PSPDEVTIMER
-{
-    /* Two sub timers:
-     *     - 0x03010400
-     *     - 0x03010424
-     */
-    PSPDEVSUBTIMER                  aSubTimers[2];
     /** MMIO region handle. */
     PSPIOMREGIONHANDLE              hMmio;
 } PSPDEVTIMER;
@@ -90,35 +75,30 @@ static void pspDevTimerMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, voi
     }
 
     uint32_t *pu32Ret = (uint32_t *)pvVal;
-    PPSPDEVSUBTIMER pSubTimer = offMmio < 0x24 ? &pThis->aSubTimers[0] : &pThis->aSubTimers[1];
-
-    if (offMmio >= 0x24)
-        offMmio -= 0x24;
-
     switch (offMmio)
     {
         case 0: /* Control register */
         {
-            *pu32Ret = pSubTimer->regCtrl;
+            *pu32Ret = pThis->regCtrl;
             break;
         }
         case 32: /* 100MHz counter. */
         {
-            if (!pSubTimer->fRealtime)
+            if (!pThis->fRealtime)
             {
-                *pu32Ret = pSubTimer->regCnt100MHz;
-                if (pSubTimer->regCtrl & 0x1)
-                    pSubTimer->regCnt100MHz++;
+                *pu32Ret = pThis->regCnt100MHz;
+                if (pThis->regCtrl & 0x1)
+                    pThis->regCnt100MHz++;
             }
             else
             {
-                if (pSubTimer->regCtrl & 0x1)
+                if (pThis->regCtrl & 0x1)
                 {
                     uint64_t tsNow = pspDevTimerRealtimeSample();
-                    uint64_t tsElapsed = tsNow - pSubTimer->tsLast;
-                    pSubTimer->regCnt100MHz += (uint32_t)(tsElapsed / 10); /* 10ns intervals. */
-                    *pu32Ret = pSubTimer->regCnt100MHz;
-                    pSubTimer->tsLast = tsNow;
+                    uint64_t tsElapsed = tsNow - pThis->tsLast;
+                    pThis->regCnt100MHz += (uint32_t)(tsElapsed / 10); /* 10ns intervals. */
+                    *pu32Ret = pThis->regCnt100MHz;
+                    pThis->tsLast = tsNow;
                 }
             }
             break;
@@ -145,31 +125,26 @@ static void pspDevTimerMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pv
         u32Val = *(uint32_t *)pvVal;
     else
         u32Val = *(uint8_t *)pvVal;
-    PPSPDEVSUBTIMER pSubTimer = offMmio < 0x24 ? &pThis->aSubTimers[0] : &pThis->aSubTimers[1];
-
-    if (offMmio >= 0x24)
-        offMmio -= 0x24;
-
     switch (offMmio)
     {
         case 0: /* Control register */
         {
             /* Read the time once if in realtime mode and the timer got enabled. */
-            if (   pSubTimer->fRealtime
+            if (   pThis->fRealtime
                 && (u32Val & 0x1)
-                && !(pSubTimer->regCtrl & 0x1))
-                pSubTimer->tsLast = pspDevTimerRealtimeSample();
-            pSubTimer->regCtrl = u32Val;
+                && !(pThis->regCtrl & 0x1))
+                pThis->tsLast = pspDevTimerRealtimeSample();
+            pThis->regCtrl = u32Val;
             break;
         }
         case 1: /* XXX For single byte access by the on chip bl... */
         {
-            pSubTimer->regCtrl |= u32Val << 8;
+            pThis->regCtrl |= u32Val << 8;
             break;
         }
         case 32: /* 100MHz counter. */
         {
-            pSubTimer->regCnt100MHz = u32Val;
+            pThis->regCnt100MHz = u32Val;
             break;
         }
         default:
@@ -183,20 +158,19 @@ static int pspDevTimerInit(PPSPDEV pDev)
 {
     PPSPDEVTIMER pThis = (PPSPDEVTIMER)&pDev->abInstance[0];
 
-    for (uint32_t i = 0; i < ELEMENTS(pThis->aSubTimers); i++)
-    {
-        PPSPDEVSUBTIMER pSubTimer = &pThis->aSubTimers[i];
-
-        pSubTimer->fRealtime    = pDev->pCfg->fTimerRealtime;
-        pSubTimer->tsLast       = pspDevTimerRealtimeSample();
-        pSubTimer->regCtrl      = 0;
-        pSubTimer->regCnt100MHz = 0;
-    }
+    pThis->fRealtime    = pDev->pCfg->fTimerRealtime;
+    pThis->tsLast       = pspDevTimerRealtimeSample();
+    pThis->regCtrl      = 0;
+    pThis->regCnt100MHz = 0;
 
     /* Register MMIO ranges. */
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x03010400, 2*36,
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr,
+                                       pDev->pReg == &g_DevRegTimer1
+                                     ? 0x03010400
+                                     : 0x03010424,
+                                     sizeof(uint32_t) * 9,
                                      pspDevTimerMmioRead, pspDevTimerMmioWrite, pThis,
-                                     "Timer", &pThis->hMmio);
+                                     pDev->pReg->pszName, &pThis->hMmio);
     return rc;
 }
 
@@ -209,10 +183,30 @@ static void pspDevTimerDestruct(PPSPDEV pDev)
 /**
  * Device registration structure.
  */
-const PSPDEVREG g_DevRegTimer =
+const PSPDEVREG g_DevRegTimer1 =
 {
     /** pszName */
-    "timer",
+    "timer1",
+    /** pszDesc */
+    "Timer device starting at 0x03010400",
+    /** cbInstance */
+    sizeof(PSPDEVTIMER),
+    /** pfnInit */
+    pspDevTimerInit,
+    /** pfnDestruct */
+    pspDevTimerDestruct,
+    /** pfnReset */
+    NULL
+};
+
+
+/**
+ * Device registration structure.
+ */
+const PSPDEVREG g_DevRegTimer2 =
+{
+    /** pszName */
+    "timer2",
     /** pszDesc */
     "Timer device starting at 0x03010424",
     /** cbInstance */

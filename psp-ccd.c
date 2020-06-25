@@ -202,7 +202,8 @@ const PSPDEVREG g_DevRegCcd =
 static PCPSPDEVREG g_apDevs[] =
 {
     &g_DevRegCcpV5,
-    &g_DevRegTimer,
+    &g_DevRegTimer1,
+    &g_DevRegTimer2,
     &g_DevRegFuse,
     &g_DevRegFlash,
     &g_DevRegSmu,
