@@ -118,7 +118,7 @@ typedef struct PSPTRACEEVTSVMC
     /** The SVC/SMC number. */
     uint32_t                        idxSvmc;
     /** Arguments for entry, return value for exit event. */
-    uint32_t                        au32ArgsRet[4];
+    uint32_t                        au32ArgsRet[5];
     /** Message logged - vairable in size. */
     char                            szMsg[1];
 } PSPTRACEEVTSVMC;
@@ -590,11 +590,12 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
             cchLeft -= rcStr;
 
             if (pSvmc->fEntry)
-                rcStr = snprintf(pszCur, cchLeft, "%#.8x %#.8x %#.8x %#.8x",
+                rcStr = snprintf(pszCur, cchLeft, "%#.8x %#.8x %#.8x %#.8x LR=%#08x",
                                  pSvmc->au32ArgsRet[0],
                                  pSvmc->au32ArgsRet[1],
                                  pSvmc->au32ArgsRet[2],
-                                 pSvmc->au32ArgsRet[3]);
+                                 pSvmc->au32ArgsRet[3],
+                                 pSvmc->au32ArgsRet[4]);
             else
                 rcStr = snprintf(pszCur, cchLeft, "%#.8x",
                                  pSvmc->au32ArgsRet[0]);
@@ -771,7 +772,8 @@ static int pspEmuTraceEvtAddSvmc(PSPTRACE hTrace, PSPTRACEEVTCONTENTTYPE enmCont
                 PSPCOREREG_R0,
                 PSPCOREREG_R1,
                 PSPCOREREG_R2,
-                PSPCOREREG_R3
+                PSPCOREREG_R3,
+                PSPCOREREG_LR
             };
 
             PSPEmuCoreQueryRegBatch(pThis->hPspCore, &s_aSvmcRegQuery[0], ELEMENTS(s_aSvmcRegQuery), &pSvmc->au32ArgsRet[0]);
