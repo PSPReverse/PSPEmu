@@ -52,6 +52,8 @@ typedef struct PSPIRQINT
     uint32_t                    cGrpPending;
     /** The individual groups. */
     uint32_t                    abmGrpDev[4];
+    /** Hidden individual groups to trigger an IRQ only on a rising edge. */
+    uint32_t                    abmGrpDevLast[4];
 } PSPIRQINT;
 /** Pointer to the internal interrupt controller instance data. */
 typedef PSPIRQINT *PPSPIRQINT;
@@ -161,7 +163,10 @@ static void pspIrqMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pvVal, 
                 pThis->cGrpPending--;
 
             if (!pThis->cGrpPending) /* Reset the interrupt line. */
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_IRQ, "De-Asserting IRQ\n");
                 PSPEmuCoreIrqSet(pThis->hPspCore, false /*fAssert*/);
+            }
             break;
         }
         case PSP_IRQ_REG_PEN_OFF:
@@ -215,7 +220,10 @@ void PSPIrqReset(PSPIRQ hIrq)
 
     pThis->cGrpPending = 0;
     for (uint32_t i = 0; i < ELEMENTS(pThis->abmGrpDev); i++)
+    {
         pThis->abmGrpDev[i] = 0;
+        pThis->abmGrpDevLast[i] = 0;
+    }
 }
 
 
@@ -230,17 +238,23 @@ int PSPIrqSet(PSPIRQ hIrq, uint32_t uPrioGrp, uint8_t uIrq, bool fAssert)
          * For now we assume that interrupts are triggered on the rising edge as this
          * makes the most sense with how the interrupt handlers we've seen process interrupts so far.
          */
-        bool fAsserted = !!(pThis->abmGrpDev[uPrioGrp] & BIT(uIrq));
-        if (   !fAsserted
+        if (   !(pThis->abmGrpDevLast[uPrioGrp] & BIT(uIrq))
             && fAssert)
         {
             if (!pThis->abmGrpDev[uPrioGrp])
                 pThis->cGrpPending++;
 
+            pThis->abmGrpDevLast[uPrioGrp] |= BIT(uIrq);
             pThis->abmGrpDev[uPrioGrp] |= BIT(uIrq);
             if (pThis->cGrpPending == 1)
+            {
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_IRQ,
+                                        "Asserting IRQ caused by idPrio=%u idDev=%u\n", uPrioGrp, uIrq);
                 PSPEmuCoreIrqSet(pThis->hPspCore, true /*fAssert*/);
+            }
         }
+        else if (!fAssert)
+            pThis->abmGrpDevLast[uPrioGrp] &= ~BIT(uIrq);
 
         return STS_INF_SUCCESS;
     }
