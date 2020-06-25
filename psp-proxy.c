@@ -780,15 +780,28 @@ static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFla
     uint32_t idCcd = 0; /** @todo Multiple CCD support. */
 
     if (fFlags & PSPEMU_CORE_WFI_CHECK) /* Do a non blocking check. */
-        return PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 0);
+    {
+        int rc = PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 0);
+        if (STS_SUCCESS(rc))
+        {
+            PSPEmuCoreIrqSet(hCore, *pfIrq);
+            PSPEmuCoreFiqSet(hCore, *pfFirq);
+        }
+
+        return STS_INF_SUCCESS;
+    }
 
     int rc = 0;
     do
     {
         rc = PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 10 * 1000);
         if (!rc)
+        {
+            PSPEmuCoreIrqSet(hCore, *pfIrq);
+            PSPEmuCoreFiqSet(hCore, *pfFirq);
             break;
-        else if (rc == -2)
+        }
+        else if (rc == STS_ERR_PSP_PROXY_TIMEOUT)
         {
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
                                     "pspEmuProxyWfiReached() Waiting for Interrupt for CCD %u...\n", idCcd);
