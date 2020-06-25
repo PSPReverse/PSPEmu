@@ -1161,6 +1161,146 @@ static const PSPPROXYIOIF g_PspProxyIoIf =
 /**
  * @copydoc{DBGHLPCMD,pfnCmd}
  */
+static int pspProxyDbgCmdMmioRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
+
+    const char *pszAddr = pszArgs;
+    const char *pszSz   = pszArgs ? strchr(pszAddr, ' ') : NULL;
+
+    if (   pszAddr
+        && pszSz)
+    {
+        /* Get past the space. */
+        pszSz++;
+
+        char *pszAddrEnd = NULL;
+        PSPPADDR MmioAddr = strtoul(pszAddr, &pszAddrEnd, 0 /*base*/);
+        if (   pszAddrEnd != pszAddr
+            && *pszAddrEnd == ' ')
+        {
+            if (   pszSz[1] == '\0'
+                && (   pszSz[0] == '1'
+                    || pszSz[0] == '2'
+                    || pszSz[0] == '4'))
+            {
+                size_t cbRead = (size_t)(pszSz[0] - '0');
+                PSPDATUM Datum;
+                int rc = PSPProxyCtxPspMmioRead(pThis->hPspProxyCtx, MmioAddr, cbRead, &Datum.ab[0]);
+                if (STS_SUCCESS(rc))
+                {
+                    uint32_t u32Val;
+
+                    switch (cbRead)
+                    {
+                        case 1:
+                            u32Val = Datum.u8;
+                            break;
+                        case 2:
+                            u32Val = Datum.u16;
+                            break;
+                        case 4:
+                            u32Val = Datum.u32;
+                            break;
+                        default:
+                            pHlp->pfnPrintf(pHlp, "Something is really buggy here cbRead=%zu!\n", cbRead);
+                    }
+
+                    pHlp->pfnPrintf(pHlp, "MMIO %#x %zu: %#x\n", MmioAddr, cbRead, u32Val);
+                }
+                else
+                    pHlp->pfnPrintf(pHlp, "Reading %zu bytes from MMIO address %#x failed with %d\n", cbRead, MmioAddr, rc);
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Size parameter is invalid, must be 1, 2 or 4\n");
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Address parameter is invalid\n");
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly two: <addr> <sz>\n");
+
+    return STS_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
+static int pspProxyDbgCmdMmioWrite(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
+
+    const char *pszAddr = pszArgs;
+    const char *pszSz   = pszArgs ? strchr(pszAddr,   ' ') : NULL;
+    const char *pszVal  = pszSz   ? strchr(pszSz + 1, ' ') : NULL;
+
+    if (   pszAddr
+        && pszSz
+        && pszVal)
+    {
+        /* Get past the space. */
+        pszSz++;
+        pszVal++;
+
+        char *pszTmpEnd = NULL;
+        PSPPADDR MmioAddr = strtoul(pszAddr, &pszTmpEnd, 0 /*base*/);
+        if (   pszTmpEnd != pszAddr
+            && *pszTmpEnd == ' ')
+        {
+            if (   pszSz[1] == ' '
+                && (   pszSz[0] == '1'
+                    || pszSz[0] == '2'
+                    || pszSz[0] == '4'))
+            {
+                size_t cbWrite = (size_t)(pszSz[0] - '0');
+                uint32_t u32Val = strtoul(pszVal, &pszTmpEnd, 0 /*base*/);;
+
+                if (   pszTmpEnd != pszVal
+                    && *pszTmpEnd == '\0')
+                {
+                    PSPDATUM Datum;
+
+                    switch (cbWrite)
+                    {
+                        case 1:
+                            Datum.u8 = (uint8_t)u32Val;
+                            break;
+                        case 2:
+                            Datum.u16 = (uint16_t)u32Val;
+                            break;
+                        case 4:
+                            Datum.u32 = (uint32_t)u32Val;
+                            break;
+                        default:
+                            pHlp->pfnPrintf(pHlp, "Something is really buggy here cbWrite=%zu!\n", cbWrite);
+                    }
+
+                    int rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, MmioAddr, cbWrite, &Datum.ab[0]);
+                    if (STS_SUCCESS(rc))
+                        pHlp->pfnPrintf(pHlp, "MMIO %#x %zu: %#x\n", MmioAddr, cbWrite, u32Val);
+                    else
+                        pHlp->pfnPrintf(pHlp, "Writing %zu bytes to MMIO address %#x failed with %d\n", cbWrite, MmioAddr, rc);
+                }
+                else
+                    pHlp->pfnPrintf(pHlp, "Value parameter is invalid: %s\n", pszVal);
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Size parameter is invalid, must be 1, 2 or 4\n");
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Address parameter is invalid\n");
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly two: <addr> <sz>\n");
+
+    return STS_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
 static int pspProxyDbgCmdSmnRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
@@ -1218,7 +1358,81 @@ static int pspProxyDbgCmdSmnRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const c
             pHlp->pfnPrintf(pHlp, "Address parameter is invalid\n");
     }
     else
-        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly two: <addr> <sz>\n");
+        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly three: <addr> <sz> <val>\n");
+
+    return STS_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
+static int pspProxyDbgCmdSmnWrite(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
+
+    const char *pszAddr = pszArgs;
+    const char *pszSz   = pszArgs ? strchr(pszAddr,   ' ') : NULL;
+    const char *pszVal  = pszSz   ? strchr(pszSz + 1, ' ') : NULL;
+
+    if (   pszAddr
+        && pszSz
+        && pszVal)
+    {
+        /* Get past the space. */
+        pszSz++;
+        pszVal++;
+
+        char *pszTmpEnd = NULL;
+        SMNADDR SmnAddr = strtoul(pszAddr, &pszTmpEnd, 0 /*base*/);
+        if (   pszTmpEnd != pszAddr
+            && *pszTmpEnd == ' ')
+        {
+            if (   pszSz[1] == ' '
+                && (   pszSz[0] == '1'
+                    || pszSz[0] == '2'
+                    || pszSz[0] == '4'))
+            {
+                size_t cbWrite = (size_t)(pszSz[0] - '0');
+                uint32_t u32Val = strtoul(pszVal, &pszTmpEnd, 0 /*base*/);;
+
+                if (   pszTmpEnd != pszVal
+                    && *pszTmpEnd == '\0')
+                {
+                    PSPDATUM Datum;
+
+                    switch (cbWrite)
+                    {
+                        case 1:
+                            Datum.u8 = (uint8_t)u32Val;
+                            break;
+                        case 2:
+                            Datum.u16 = (uint16_t)u32Val;
+                            break;
+                        case 4:
+                            Datum.u32 = (uint32_t)u32Val;
+                            break;
+                        default:
+                            pHlp->pfnPrintf(pHlp, "Something is really buggy here cbWrite=%zu!\n", cbWrite);
+                    }
+
+                    int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, SmnAddr, cbWrite, &Datum.ab[0]);
+                    if (STS_SUCCESS(rc))
+                        pHlp->pfnPrintf(pHlp, "SMN %#x %zu: %#x\n", SmnAddr, cbWrite, u32Val);
+                    else
+                        pHlp->pfnPrintf(pHlp, "Writing %zu bytes to SMN address %#x failed with %d\n", cbWrite, SmnAddr, rc);
+                }
+                else
+                    pHlp->pfnPrintf(pHlp, "Value parameter is invalid: %s\n", pszVal);
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Size parameter is invalid, must be 1, 2 or 4\n");
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Address parameter is invalid\n");
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly three: <addr> <sz> <val>\n");
 
     return STS_INF_SUCCESS;
 }
@@ -1318,7 +1532,10 @@ static int pspProxyDbgCmdX86MmioRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, con
  */
 static const DBGHLPCMD g_aProxyDbgCmds[] =
 {
+    { "proxy.MmioRead",         "Reads a value from the given MMIO address, arguments: <addr> <sz>",                   pspProxyDbgCmdMmioRead    },
+    { "proxy.MmioWrite",        "Writes a value to the given MMIO address, arguments: <addr> <sz> <val>",              pspProxyDbgCmdMmioWrite   },
     { "proxy.SmnRead",          "Reads a value from the given SMN address, arguments: <addr> <sz>",                    pspProxyDbgCmdSmnRead     },
+    { "proxy.SmnWrite",         "Writes a value to the given SMN address, arguments: <addr> <sz> <val>",               pspProxyDbgCmdSmnWrite    },
     { "proxy.X86MemRead",       "Reads a value from the given x86 as a normal memory address, arguments: <addr> <sz>", pspProxyDbgCmdX86MemRead  },
     { "proxy.X86MmioRead",      "Reads a value from the given x86 as MMIO address, arguments: <addr> <sz>",            pspProxyDbgCmdX86MmioRead },
 };
