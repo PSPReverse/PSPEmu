@@ -907,7 +907,9 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                 rc = PSPEmuIoMgrTraceAllAccessesSet(pThis->hIoMgr, pCfg->fIomLogAllAccesses);
                 if (!rc)
                 {
-                    rc = PSPIrqCreate(&pThis->hIrq, pThis->hPspCore, pThis->hIoMgr);
+                     /** @todo Make IRQ controller handle passthrough as well (think of mixing real and emulated devices). */
+                    if (!pCfg->pszPspProxyAddr)
+                        rc = PSPIrqCreate(&pThis->hIrq, pThis->hPspCore, pThis->hIoMgr);
                     if (STS_SUCCESS(rc))
                     {
                         /* Create all the devices. */
@@ -935,7 +937,8 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                             pspEmuCcdDevicesDestroy(pThis);
                         }
 
-                        PSPIrqDestroy(pThis->hIrq);
+                        if (pThis->hIrq)
+                            PSPIrqDestroy(pThis->hIrq);
                     }
 
                 }
@@ -1009,8 +1012,13 @@ void PSPEmuCcdDestroy(PSPCCD hCcd)
 
     pspEmuCcdDevicesDestroy(pThis);
 
+    if (pThis->hIrq)
+    {
+        PSPIrqDestroy(pThis->hIrq);
+        pThis->hIrq = NULL;
+    }
+
     /* Destroy the I/O manager and then the emulation core and last this structure. */
-    PSPIrqDestroy(pThis->hIrq);
     PSPEmuIoMgrDestroy(pThis->hIoMgr);
     PSPEmuCoreDestroy(pThis->hPspCore);
     if (pThis->pvSram)
