@@ -1417,7 +1417,8 @@ static bool pspEmuCoreInsnIsWfi(PPSPCOREINT pThis, PSPVADDR PspAddrPc, bool fThu
         uint32_t u32Insn = 0;
         int rc = PSPEmuCoreMemReadVirt(pThis, PspAddrPc - 4, &u32Insn, sizeof(u32Insn));
         if (   STS_SUCCESS(rc)
-            && (u32Insn & 0x0fffffff) == 0x0320f003)
+            && (   (u32Insn & 0x0fffffff) == 0x0320f003)
+                || (u32Insn & 0x0fffffff) == 0x0320f002) /* WFE, treated the same here for now */
             return true;
     }
 
