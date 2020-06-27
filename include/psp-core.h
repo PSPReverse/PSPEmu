@@ -257,6 +257,8 @@ typedef struct PSPCORESTATE
     PSPCOREMODE                 enmCoreMode;
     /** The current PC value. */
     PSPVADDR                    PspAddrPc;
+    /** The current LR value. */
+    PSPVADDR                    PspAddrLr;
     /** Flag whether we are in secure world. */
     bool                        fSecureWorld;
     /** Flag whether the MMU is enabled for the current world. */

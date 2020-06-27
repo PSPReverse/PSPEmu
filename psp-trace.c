@@ -436,8 +436,9 @@ static const char *pspEmuTraceEvtDumpPrefixCreate(PPSPTRACEINT pThis, char *pszB
     /* The PC if we don't have a full CPU context. */
     if (!(fFlags & PSPEMU_TRACE_F_FULL_CORE_CTX))
     {
-        rcStr = snprintf(pszCur, cchLeft, "0x%08x[%5s,%s,%s,%s,%s,0x%08x] ",
+        rcStr = snprintf(pszCur, cchLeft, "0x%08x[0x%08x][%5s,%s,%s,%s,%s,0x%08x] ",
                          pEvt->CoreState.PspAddrPc,
+                         pEvt->CoreState.PspAddrLr,
                          PSPEmuCoreModeToStr(pEvt->CoreState.enmCoreMode),
                          pEvt->CoreState.fSecureWorld ? " S" : "NS",
                          pEvt->CoreState.fMmuEnabled  ? " M" : "NM",

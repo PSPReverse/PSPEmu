@@ -3329,12 +3329,16 @@ int PSPEmuCoreQueryState(PSPCORE hCore, PPSPCORESTATE pState)
         rc = PSPEmuCoreQueryReg(pThis, PSPCOREREG_PC, &pState->PspAddrPc);
         if (STS_SUCCESS(rc))
         {
-            uint32_t u32RegCpsr;
-            rc = PSPEmuCoreQueryReg(pThis, PSPCOREREG_CPSR, &u32RegCpsr);
+            rc = PSPEmuCoreQueryReg(pThis, PSPCOREREG_LR, &pState->PspAddrLr);
             if (STS_SUCCESS(rc))
             {
-                pState->fIrqMasked = !!(u32RegCpsr & BIT(7));
-                pState->fFiqMasked = !!(u32RegCpsr & BIT(6));
+                uint32_t u32RegCpsr;
+                rc = PSPEmuCoreQueryReg(pThis, PSPCOREREG_CPSR, &u32RegCpsr);
+                if (STS_SUCCESS(rc))
+                {
+                    pState->fIrqMasked = !!(u32RegCpsr & BIT(7));
+                    pState->fFiqMasked = !!(u32RegCpsr & BIT(6));
+                }
             }
         }
     }
