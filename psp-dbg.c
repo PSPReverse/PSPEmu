@@ -1706,7 +1706,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
     PollFd.revents = 0;
 
     while (   pThis->fCoreRunning
-           && !rc)
+           && STS_SUCCESS(rc))
     {
         PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
 
@@ -1719,7 +1719,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
          *      through the code when the debugger is enabled.
          */
         rc = PSPEmuCoreExecRun(hPspCore, pThis->fCoreExecRun, pThis->cInsnsStep != 0 ? pThis->cInsnsStep : 1, PSPEMU_CORE_EXEC_INDEFINITE);
-        if (!rc)
+        if (STS_SUCCESS(rc) || rc == PSPEMU_INF_CORE_INSN_WFI_REACHED)
         {
             int rcPsx = poll(&PollFd, 1, 0);
             if (rcPsx == 1)
@@ -1731,7 +1731,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
                     rc = -1;
             }
             if (rcPsx == -1)
-                rc = -1;
+                rc = STS_ERR_GENERAL_ERROR;
         }
         else
             PSPEmuCoreStateDump(hPspCore, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
