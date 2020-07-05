@@ -1233,8 +1233,29 @@ static const GDBSTUBCMD g_aGdbCmds[] =
  */
 static int gdbStubCmdHelp(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
+    PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
+
     for (uint32_t i = 0; i < ELEMENTS(g_aGdbCmds) - 1; i++)
         pHlp->pfnPrintf(pHlp, "%s\t\t\t%s\n", g_aGdbCmds[i].pszCmd, g_aGdbCmds[i].pszDesc);
+
+    /* Now the dynamically registered commands. */
+    uint32_t cCmds = PSPEmuDbgHlpCmdGetCount(pThis->hDbgHlp);
+    PDBGHLPCMD paDbgHlp = calloc(cCmds, sizeof(*paDbgHlp));
+    if (paDbgHlp)
+    {
+        int rc = PSPEmuDbgHlpCmdQueryDesc(pThis->hDbgHlp, &paDbgHlp[0], cCmds, NULL /*pcCmds*/);
+        if (STS_SUCCESS(rc))
+        {
+            for (uint32_t i = 0; i < cCmds; i++)
+                pHlp->pfnPrintf(pHlp, "%s\t\t\t%s\n", paDbgHlp[i].pszCmd, paDbgHlp[i].pszDesc);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Querying the dynamically registered commands failed with %d\n", rc);
+
+        free(paDbgHlp);
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Failed to allocate memory for %u dynamically registered commands\n", cCmds);
 
     return GDBSTUB_INF_SUCCESS;
 }

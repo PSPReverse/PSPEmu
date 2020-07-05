@@ -55,6 +55,8 @@ typedef struct PSPDBGHLPINT
 {
     /** Reference count. */
     volatile uint32_t           cRefs;
+    /** Overall number of commands registered. */
+    uint32_t                    cCmds;
     /** Head to the list of registered commands. */
     PPSPDBGHLPCMDREC            pCmdsHead;
 } PSPDBGHLPINT;
@@ -120,6 +122,7 @@ int PSPEmuDbgHlpCreate(PPSPDBGHLP phDbgHlp)
     if (pThis)
     {
         pThis->cRefs     = 1;
+        pThis->cCmds     = 0;
         pThis->pCmdsHead = NULL;
         *phDbgHlp = pThis;
     }
@@ -174,6 +177,7 @@ int PSPEmuDbgHlpCmdRegister(PSPDBGHLP hDbgHlp, PCDBGHLPCMD paCmds, uint32_t cCmd
         pCmdRec->pvUser = pvUser;
         pCmdRec->pNext  = pThis->pCmdsHead;
         pThis->pCmdsHead = pCmdRec;
+        pThis->cCmds     += cCmds;
     }
     else
         rc = STS_ERR_NO_MEMORY;
@@ -198,5 +202,35 @@ int PSPEmuDbgHlpCmdExec(PSPDBGHLP hDbgHlp, const char *pszCmd, const char *pszAr
         rc = pCmd->pfnCmd(pThis, pOutHlp, pszArgs, pvCmdUser);
 
     return rc;
+}
+
+
+uint32_t PSPEmuDbgHlpCmdGetCount(PSPDBGHLP hDbgHlp)
+{
+    PPSPDBGHLPINT pThis = hDbgHlp;
+
+    return pThis->cCmds;
+}
+
+
+int PSPEmuDbgHlpCmdQueryDesc(PSPDBGHLP hDbgHlp, PDBGHLPCMD paCmds, uint32_t cCmds, uint32_t *pcCmds)
+{
+    PPSPDBGHLPINT pThis = hDbgHlp;
+
+    if (!paCmds || !cCmds)
+        return STS_ERR_INVALID_PARAMETER;
+
+    if (pcCmds)
+        *pcCmds = MIN(pThis->cCmds, cCmds);
+
+    PPSPDBGHLPCMDREC pRecCur = pThis->pCmdsHead;
+    while (pRecCur)
+    {
+        size_t cThisCopy = MIN(cCmds, pRecCur->cCmds);
+        memcpy(&paCmds[0], &pRecCur->paCmds[0], cThisCopy * sizeof(*paCmds));
+        pRecCur = pRecCur->pNext;
+    }
+
+    return STS_INF_SUCCESS;
 }
 

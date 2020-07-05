@@ -140,4 +140,25 @@ int PSPEmuDbgHlpCmdDeregister(PSPDBGHLP hDbgHlp, PCDBGHLPCMD paCmds);
  */
 int PSPEmuDbgHlpCmdExec(PSPDBGHLP hDbgHlp, const char *pszCmd, const char *pszArgs, PCPSPDBGOUTHLP pOutHlp);
 
+
+/**
+ * Returns the number of commands registered with the given debug helper module.
+ *
+ * @returns Number of commands.
+ * @param   hDbgHlp                 The debug helper module handle.
+ */
+uint32_t PSPEmuDbgHlpCmdGetCount(PSPDBGHLP hDbgHlp);
+
+
+/**
+ * Queries the descriptors of the registered commands for the given debug helper module.
+ *
+ * @returns Status code.
+ * @param   hDbgHlp                 The debug helper module handle.
+ * @param   paCmds                  Where to store the command descriptors.
+ * @param   cCmds                   Number of entries available in the descriptor array.
+ * @param   pcCmds                  Where to store the amount of command descriptors returned on success.
+ */
+int PSPEmuDbgHlpCmdQueryDesc(PSPDBGHLP hDbgHlp, PDBGHLPCMD paCmds, uint32_t cCmds, uint32_t *pcCmds);
+
 #endif /* !INCLUDED_psp_dbg_hlp_h */
