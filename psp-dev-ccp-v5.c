@@ -86,6 +86,8 @@ typedef struct CCPQUEUE
     uint32_t                        u32RegIen;
     /** Interrupt status register. */
     uint32_t                        u32RegIsts;
+    /** Flag whether the queue was enabled by setting the run bit. */
+    bool                            fEnabled;
 } CCPQUEUE;
 /** Pointer to a single CCP queue. */
 typedef CCPQUEUE *PCCPQUEUE;
@@ -1998,6 +2000,71 @@ static int pspDevCcpReqProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq)
 
 
 /**
+ * Executes the given queue if it is enabled.
+ *
+ * @returns nothing.
+ * @param   pThis               The CCP device instance data.
+ * @param   pQueue              The queue to run.
+ */
+static void pspDevCcpQueueRunMaybe(PPSPDEVCCP pThis, PCCPQUEUE pQueue)
+{
+    if (pQueue->fEnabled)
+    {
+        /* Clear halt and running bit. */
+        pQueue->u32RegCtrl &= ~CCP_V5_Q_REG_CTRL_HALT;
+
+        uint32_t       u32ReqTail = pQueue->u32RegReqTail;
+        const uint32_t u32ReqHead = pQueue->u32RegReqHead;
+        const size_t   cbQueue    = CCP_V5_Q_REG_CTRL_Q_SZ_GET_SIZE(pQueue->u32RegCtrl);
+
+        while (u32ReqTail != u32ReqHead)
+        {
+            CCP5REQ Req;
+
+            u32ReqTail &= ~(cbQueue - 1); /* Size is a power of two. */
+            int rc = PSPEmuIoMgrPspAddrRead(pThis->pDev->hIoMgr, u32ReqTail, &Req, sizeof(Req));
+            if (!rc)
+            {
+                pspDevCcpDumpReq(&Req, u32ReqTail);
+                rc = pspDevCcpReqProcess(pThis, &Req);
+                if (!rc)
+                {
+                    pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_SUCCESS;
+                    pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_COMPLETION;
+                }
+                else
+                {
+                    pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR;
+                    pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_ERROR;
+                    break;
+                }
+            }
+            else
+            {
+                printf("CCP: Failed to read request from 0x%08x with rc=%d\n", u32ReqTail, rc);
+                pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR; /* Signal error. */
+                pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_ERROR;
+                break;
+            }
+
+            u32ReqTail += sizeof(Req);
+        }
+
+        /* Set halt bit again. */
+        pQueue->u32RegReqTail = u32ReqTail;
+        pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
+        pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_Q_STOP;
+        if (u32ReqTail == u32ReqHead)
+            pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_Q_EMPTY;
+
+        /* Issue an interrupt request if there is something pending. */
+        if (pQueue->u32RegIen & pQueue->u32RegIsts)
+            pThis->pDev->pDevIf->pfnIrqSet(pThis->pDev->pDevIf, 0 /*idPrio*/, 0x15 /*idDev*/, true /*fAssert*/);
+    }
+}
+
+
+/**
  * Handles register read from a specific queue.
  *
  * @returns nothing.
@@ -2064,57 +2131,7 @@ static void pspDevCcpMmioQueueRegRead(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint32
      * CCP implementation is to defer the request until the bootloader polls the control register to wait for the CCP to halt again.
      * Thanks AMD!
      */
-    if (pQueue->u32RegCtrl & CCP_V5_Q_REG_CTRL_RUN) /* Running bit set? Process requests. */
-    {
-        /* Clear halt and running bit. */
-        pQueue->u32RegCtrl &= ~(CCP_V5_Q_REG_CTRL_HALT);
-
-        uint32_t u32ReqTail = pQueue->u32RegReqTail;
-        uint32_t u32ReqHead = pQueue->u32RegReqHead;
-
-        while (u32ReqTail < u32ReqHead)
-        {
-            CCP5REQ Req;
-
-            int rc = PSPEmuIoMgrPspAddrRead(pThis->pDev->hIoMgr, u32ReqTail, &Req, sizeof(Req));
-            if (!rc)
-            {
-                pspDevCcpDumpReq(&Req, u32ReqTail);
-                rc = pspDevCcpReqProcess(pThis, &Req);
-                if (!rc)
-                {
-                    pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_SUCCESS;
-                    pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_COMPLETION;
-                }
-                else
-                {
-                    pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR;
-                    pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_ERROR;
-                    break;
-                }
-            }
-            else
-            {
-                printf("CCP: Failed to read request from 0x%08x with rc=%d\n", u32ReqTail, rc);
-                pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR; /* Signal error. */
-                pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_ERROR;
-                break;
-            }
-
-            u32ReqTail += sizeof(Req);
-        }
-
-        /* Set halt bit again. */
-        pQueue->u32RegReqTail = u32ReqTail;
-        pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
-        pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_Q_STOP;
-        if (u32ReqTail == u32ReqHead)
-            pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_Q_EMPTY;
-
-        /* Issue an interrupt request if there is something pending. */
-        if (pQueue->u32RegIen & pQueue->u32RegIsts)
-            pThis->pDev->pDevIf->pfnIrqSet(pThis->pDev->pDevIf, 0 /*idPrio*/, 0x15 /*idDev*/, true /*fAssert*/);
-    }
+    pspDevCcpQueueRunMaybe(pThis, pQueue);
 }
 
 
@@ -2132,7 +2149,14 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
     switch (offRegQ)
     {
         case CCP_V5_Q_REG_CTRL:
-            pQueue->u32RegCtrl = u32Val;
+            if (   (u32Val & CCP_V5_Q_REG_CTRL_RUN)
+                && !pQueue->fEnabled)
+                pQueue->fEnabled = true;
+            else if (   !(u32Val & CCP_V5_Q_REG_CTRL_RUN)
+                     && pQueue->fEnabled)
+                pQueue->fEnabled = false;
+
+            pQueue->u32RegCtrl = u32Val & ~CCP_V5_Q_REG_CTRL_RUN; /* The run bit seems to be always cleared. */
             break;
         case CCP_V5_Q_REG_HEAD:
             pQueue->u32RegReqHead = u32Val;
@@ -2157,6 +2181,14 @@ static void pspDevCcpMmioQueueRegWrite(PPSPDEVCCP pThis, PCCPQUEUE pQueue, uint3
             break;
         }
     }
+
+    /*
+     * Execute queue requests if there is at least a single interrupt enabled.
+     * We don't execute requests here unconditionally due to the comment in
+     * pspDevCcpMmioQueueRegRead().
+     */
+    if (pQueue->u32RegIen)
+        pspDevCcpQueueRunMaybe(pThis, pQueue);
 }
 
 
@@ -2256,6 +2288,7 @@ static int pspDevCcpInit(PPSPDEV pDev)
         pThis->aQueues[i].u32RegSts  = CCP_V5_Q_REG_STATUS_SUCCESS;
         pThis->aQueues[i].u32RegIen  = 0;
         pThis->aQueues[i].u32RegIsts = 0;
+        pThis->aQueues[i].fEnabled   = false;
     }
 
     /* Register MMIO ranges. */
