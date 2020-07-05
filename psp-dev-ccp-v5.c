@@ -1263,9 +1263,14 @@ static int pspDevCcpReqAesProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
 
     /* If the request uses a protected LSB and CCP passthrough is available we use the real CCP. */
     if (   CCP_V5_MEM_TYPE_GET(pReq->u16KeyMemType) == CCP_V5_MEM_TYPE_SB
-        && CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow) < 0xa0
-        && pThis->pDev->pCfg->pCcpProxyIf)
-        return pspDevCcpReqAesPassthrough(pThis, pReq, uMode == CCP_V5_ENGINE_AES_MODE_CBC ? true : false /*fUseIv*/);
+        && CCP_ADDR_CREATE_FROM_HI_LO(pReq->u16AddrKeyHigh, pReq->u32AddrKeyLow) < 0xa0)
+    {
+        if (pThis->pDev->pCfg->pCcpProxyIf)
+            return pspDevCcpReqAesPassthrough(pThis, pReq, uMode == CCP_V5_ENGINE_AES_MODE_CBC ? true : false /*fUseIv*/);
+        else /* No key in the protected LSB means that the output is useless, leave an error. */
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_CCP,
+                                    "CCP: Request accesses protected LSB for which there is no key set, decrypted output is useless and the emulation will fail\n");
+    }
 
     if (   uSz == 0
         && (   uMode == CCP_V5_ENGINE_AES_MODE_ECB
