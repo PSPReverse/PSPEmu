@@ -200,6 +200,8 @@ typedef struct PSPPROXYINT
  */
 static const PSPMMIOBLACKLISTDESC g_aMmioBlacklistedZenOnChip[] =
 {
+    { 0x320001c, 4, true,  false, 0 },
+    { 0x3a0001c, 4, true,  false, 0 },
     { 0xfffffff, 4, false, false, 0 } /* Dummy which never triggers. */
 };
 
@@ -213,6 +215,28 @@ static const PSPSMNBLACKLISTDESC g_aSmnBlacklistedZenOffChip[] =
     { 0x02dc4003, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
     { 0x02dc401e, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
     { 0x02dc401f, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
+#if 0
+    /*
+     * The following monitor commands release the x86 cores on an Ryzen 1700x (1 CCD, 2CCX, 8 cores):
+     *
+     *     monitor proxy.SmnWrite 0x18002ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18022ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18042ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18062ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18402ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18422ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18442ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18462ff0 4 0x80000000
+     */
+    { 0x18002ff0, 0, true, true, 0 }, /* Releases x86 core. */
+    { 0x18022ff0, 0, true, true, 0 }, /* Releases x86 core. */
+    { 0x18042ff0, 0, true, true, 0 }, /* Releases x86 core. */
+    { 0x18062ff0, 0, true, true, 0 }, /* Releases x86 core. */
+    { 0x18402ff0, 0, true, true, 0 }, /* Releases x86 core. */
+    { 0x18422ff0, 0, true, true, 0 }, /* Releases x86 core. */
+    { 0x18442ff0, 0, true, true, 0 }, /* Releases x86 core. */
+    { 0x18462ff0, 0, true, true, 0 }, /* Releases x86 core. */
+#endif
 };
 
 
