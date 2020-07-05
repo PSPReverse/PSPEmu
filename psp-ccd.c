@@ -619,39 +619,21 @@ static int pspEmuCcdMemPreload(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 
 
 /**
- * Initializes the SRAM memory content of the given CCD PSP.
+ * Resets all memory content of the given CCD PSP to the initial state.
  *
  * @returns Status code.
  * @param   pThis                   The CCD instance to initialize the memory of.
  * @param   pCfg                    The global config.
  */
-static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
+static int pspEmuCcdMemReset(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 {
-    int rc = 0;
+    int rc = STS_INF_SUCCESS;
 
-    pThis->cbSram = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K;
-    pThis->pvSram = calloc(1, pThis->cbSram);
-    if (!pThis->pvSram)
-        return -1;
-
-    /* Set the on chip bootloader if configured. */
-    if (pCfg->enmMode == PSPEMUMODE_SYSTEM_ON_CHIP_BL)
-        rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0xffff0000, pCfg->cbOnChipBl,
-                                    PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ,
-                                    pCfg->pvOnChipBl);
-
-    /* Map the SRAM. */
-    if (!rc)
-        rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x0, pThis->cbSram,
-                                    PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ | PSPEMU_CORE_MEM_REGION_PROT_F_WRITE,
-                                    pThis->pvSram);
-
-    if (   !rc
-        && pCfg->pvBootRomSvcPage
+    if (   pCfg->pvBootRomSvcPage
         && pCfg->cbBootRomSvcPage)
     {
         if (pCfg->cbBootRomSvcPage != _4K)
-            return -1;
+            return STS_ERR_INVALID_PARAMETER;
 
         PSPADDR PspAddrBrsp = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x4f000 : 0x3f000;
         if (pCfg->fBootRomSvcPageModify)
@@ -684,7 +666,7 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
             rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrBrsp, pCfg->pvBootRomSvcPage, pCfg->cbBootRomSvcPage);
     }
 
-    if (   !rc
+    if (   STS_SUCCESS(rc)
         && pCfg->pvBinLoad
         && pCfg->cbBinLoad)
     {
@@ -711,10 +693,44 @@ static int pspEmuCcdMemoryInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrWrite, pCfg->pvBinLoad, pCfg->cbBinLoad);
     }
 
-    if (!rc)
-        rc = pspEmuCcdMemRegionsTmpCreate(pThis, pCfg);
-    if (!rc)
+    if (STS_SUCCESS(rc))
         rc = pspEmuCcdMemPreload(pThis, pCfg);
+
+    return rc;
+}
+
+
+/**
+ * Initializes the SRAM memory content of the given CCD PSP.
+ *
+ * @returns Status code.
+ * @param   pThis                   The CCD instance to initialize the memory of.
+ * @param   pCfg                    The global config.
+ */
+static int pspEmuCcdMemInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
+{
+    int rc = STS_INF_SUCCESS;
+
+    pThis->cbSram = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K;
+    pThis->pvSram = calloc(1, pThis->cbSram);
+    if (!pThis->pvSram)
+        return STS_ERR_NO_MEMORY;
+
+    /* Set the on chip bootloader if configured. */
+    if (pCfg->enmMode == PSPEMUMODE_SYSTEM_ON_CHIP_BL)
+        rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0xffff0000, pCfg->cbOnChipBl,
+                                    PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ,
+                                    pCfg->pvOnChipBl);
+
+    /* Map the SRAM. */
+    if (STS_SUCCESS(rc))
+        rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, 0x0, pThis->cbSram,
+                                    PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ | PSPEMU_CORE_MEM_REGION_PROT_F_WRITE,
+                                    pThis->pvSram);
+    if (STS_SUCCESS(rc))
+        rc = pspEmuCcdMemRegionsTmpCreate(pThis, pCfg);
+    if (STS_SUCCESS(rc))
+        rc = pspEmuCcdMemReset(pThis, pCfg);
 
     return rc;
 }
@@ -921,7 +937,7 @@ int PSPEmuCcdCreate(PPSPCCD phCcd, uint32_t idSocket, uint32_t idCcd, PCPSPEMUCF
                         if (!rc)
                         {
                             /* Initialize the memory content for the PSP. */
-                            rc = pspEmuCcdMemoryInit(pThis, pCfg);
+                            rc = pspEmuCcdMemInit(pThis, pCfg);
                             if (   !rc
                                 && pThis->fRegSmnHandlers)
                                 rc = pspEmuCcdMmioSmnInit(pThis);
@@ -1054,7 +1070,7 @@ int PSPEmuCcdReset(PSPCCD hCcd)
     if (!rc)
         rc = PSPEmuCoreExecReset(pThis->hPspCore);
     if (!rc)
-        rc = pspEmuCcdMemoryInit(pThis, pThis->pCfg);
+        rc = pspEmuCcdMemReset(pThis, pThis->pCfg);
     if (!rc)
         rc = pspEmuCcdExecEnvInit(pThis, pThis->pCfg);
 

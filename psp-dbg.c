@@ -561,7 +561,7 @@ static int gdbStubCmdRestart(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const
         pHlp->pfnPrintf(pHlp, "Reset of CCD %u successful\n", pThis->idxCcd);
     else
         pHlp->pfnPrintf(pHlp, "Reset of CCD %u failed with %d\n", pThis->idxCcd, rc);
-    return pspEmuDbgErrConvertToGdbStubErr(rc);
+    return GDBSTUB_INF_SUCCESS;
 }
 
 
