@@ -902,9 +902,9 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, P
             char *pszStart = &szTmp[0];
 
             /* Skip any newlines at the end. */
-            while (   (   szTmp[rcStr - 1] == '\n'
-                       || szTmp[rcStr - 1] == '\r')
-                   && rcStr)
+            while (   rcStr
+                   && (   szTmp[rcStr - 1] == '\n'
+                       || szTmp[rcStr - 1] == '\r'))
             {
                 szTmp[rcStr - 1] = '\0';
                 rcStr--;
