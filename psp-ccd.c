@@ -284,7 +284,7 @@ static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags,
     if (!rc)
     {
         char achStr[512];
-        PSPEmuCoreMemRead(hCore, PspAddrStr, &achStr[0], 512);
+        PSPEmuCoreMemReadVirt(hCore, PspAddrStr, &achStr[0], 512);
         achStr[512 - 1] = '\0'; /* Ensure termination. */
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SVC, &achStr[0]);
     }
