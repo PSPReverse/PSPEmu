@@ -2724,7 +2724,7 @@ int PSPEmuCoreMemWriteVirt(PSPCORE hCore, PSPVADDR AddrPspVWrite, const void *pv
         rc = PSPEmuCoreMemWrite(hCore, AddrPspVWrite, pvData, cbData);
     else
     {
-        uint8_t *pbSrc = (uint8_t *)pvData;
+        const uint8_t *pbSrc = (const uint8_t *)pvData;
         while (   cbData
                && STS_SUCCESS(rc))
         {
@@ -2734,7 +2734,7 @@ int PSPEmuCoreMemWriteVirt(PSPCORE hCore, PSPVADDR AddrPspVWrite, const void *pv
             if (STS_SUCCESS(rc))
             {
                 cbThisWrite = MIN(cbThisWrite, cbData);
-                rc = PSPEmuCoreMemRead(hCore, PspPAddr, pbSrc, cbThisWrite);
+                rc = PSPEmuCoreMemWrite(hCore, PspPAddr, pbSrc, cbThisWrite);
 
                 pbSrc         += cbThisWrite;
                 cbData        -= cbThisWrite;
