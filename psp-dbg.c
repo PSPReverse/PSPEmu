@@ -1740,7 +1740,7 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
          *      through the code when the debugger is enabled.
          */
         rc = PSPEmuCoreExecRun(hPspCore, pThis->fCoreExecRun, pThis->cInsnsStep != 0 ? pThis->cInsnsStep : 1, PSPEMU_CORE_EXEC_INDEFINITE);
-        if (STS_SUCCESS(rc) || rc == PSPEMU_INF_CORE_INSN_WFI_REACHED)
+        if (STS_SUCCESS(rc) || rc == STS_INF_PSP_EMU_CORE_INSN_WFI_REACHED)
         {
             int rcPsx = poll(&PollFd, 1, 0);
             if (rcPsx == 1)

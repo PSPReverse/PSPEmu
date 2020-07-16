@@ -1090,7 +1090,7 @@ int PSPEmuCcdRun(PSPCCD hCcd)
                                ? PSPEMU_CORE_EXEC_F_DUMP_CORE_STATE
                                : PSPEMU_CORE_EXEC_F_DEFAULT,
                                0, PSPEMU_CORE_EXEC_INDEFINITE);
-    if (rc == PSPEMU_INF_CORE_INSN_WFI_REACHED)
+    if (rc == STS_INF_PSP_EMU_CORE_INSN_WFI_REACHED)
         printf("WFI instruction reached and no WFI handler is set, exiting...\n");
     PSPEmuCoreStateDump(pThis->hPspCore, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
     return rc;

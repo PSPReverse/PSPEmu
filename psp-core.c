@@ -2989,7 +2989,7 @@ int PSPEmuCoreExecRun(PSPCORE hCore, uint32_t fFlags, uint32_t cInsnExec, uint32
                     }
                     else
                     {
-                        rc = PSPEMU_INF_CORE_INSN_WFI_REACHED;
+                        rc = STS_INF_PSP_EMU_CORE_INSN_WFI_REACHED;
                         break;
                     }
                 }

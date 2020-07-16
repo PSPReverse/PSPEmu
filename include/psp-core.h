@@ -36,9 +36,6 @@ typedef struct PSPCOREINT *PSPCORE;
 /** Pointer to a PSP emulation core handle. */
 typedef PSPCORE *PPSPCORE;
 
-/** @todo Move into status code header. */
-/** PSPEmuCoreExecRun() returned because there was a WFI instruction. */
-#define PSPEMU_INF_CORE_INSN_WFI_REACHED (1000)
 
 /** Trace hook handler. */
 typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser);
