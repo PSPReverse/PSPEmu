@@ -175,6 +175,10 @@ typedef struct PSPPROXYCCD
     uint32_t                    offData;
     /** The buffered data. */
     uint8_t                     abWrData[_4K];
+    /** Number of I/O tracepoint handles in the array below. */
+    uint32_t                    cIoTpWt;
+    /** Array of I/O tracepoint handles for possible write through memory regions - variable in size. */
+    PSPIOMTP                    ahIoTpWt[1];
 } PSPPROXYCCD;
 /** Pointer to a CCD registration record. */
 typedef PSPPROXYCCD *PPSPPROXYCCD;
@@ -1173,6 +1177,134 @@ static int pspEmuProxyCcpAesDo(PCCCPPROXY pCcpProxyIf, uint32_t u32Dw0, size_t c
 }
 
 
+/**
+ * MMIO tracepoint callback for writing to the I/O log.
+ */
+static void pspProxyMemWtPspTrace(PSPADDR offMmioAbs, const char *pszDevId, PSPADDR offMmioDev, size_t cbAccess,
+                                  const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    (void)pszDevId;
+    (void)offMmioDev;
+
+    PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
+    PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    /* This doesn't go through the blacklist checking as we assume the user knows what he did when creating the write through regions... */
+    int rc = STS_INF_SUCCESS;
+    if (   cbAccess == 1
+        || cbAccess == 2
+        || cbAccess == 4) /* Even it is not MMIO writing memory that way doesn't hurt and every other access must be memory like. */
+        rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, offMmioAbs, cbAccess, pvVal);
+    else
+        rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, offMmioAbs, pvVal, cbAccess);
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyMemWtPspTrace() failed with %d", rc);
+}
+
+
+/**
+ * SMN tracepoint callback for writing to the I/O log.
+ */
+static void pspProxyMemWtSmnTrace(SMNADDR offSmnAbs, const char *pszDevId, SMNADDR offSmnDev, size_t cbAccess,
+                                  const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    (void)pszDevId;
+    (void)offSmnDev;
+
+    PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
+    PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    /* This doesn't go through the blacklist checking as we assume the user knows what he did when creating the write through regions... */
+    int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmnAbs, cbAccess, pvVal);
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyMemWtSmnTrace() failed with %d", rc);
+}
+
+
+/**
+ * X86 tracepoint callback for writing to the I/O log.
+ */
+static void pspProxyMemWtX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86PADDR offX86Dev, size_t cbAccess,
+                                  const void *pvVal, uint32_t fFlags, void *pvUser)
+{
+    (void)pszDevId;
+    (void)offX86Dev;
+
+    PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
+    PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    /* This doesn't go through the blacklist checking as we assume the user knows what he did when creating the write through regions... */
+    int rc = STS_INF_SUCCESS;
+    if (   cbAccess == 1
+        || cbAccess == 2
+        || cbAccess == 4) /* Even it is not MMIO writing memory that way doesn't hurt and every other access must be memory like. */
+        rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, offX86Abs, cbAccess, pvVal);
+    else
+        rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, offX86Abs, pvVal, cbAccess);
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyMemWtX86Trace() failed with %d", rc);
+}
+
+
+/**
+ * Registers configured write through regions with the given I/O manager.
+ *
+ * @returns Status code.
+ * @param   pCcdRec                 The CCD record the I/O manager belongs to.
+ * @param   hIoMgr                  The I/O manager handle to register the regions with.
+ * @param   paProxyMemWt            The array of write through regions to configure.
+ * @param   cProxyMemWt             Number of write through regions to configure.
+ */
+static int pspProxyCcdMemWriteThroughRegister(PPSPPROXYCCD pCcdRec, PSPIOM hIoMgr, PCPSPEMUCFGPROXYMEMWT paProxyMemWt, uint32_t cProxyMemWt)
+{
+    int rc = STS_INF_SUCCESS;
+
+    pCcdRec->cIoTpWt = cProxyMemWt;
+
+    for (uint32_t i = 0; (i < cProxyMemWt) && STS_SUCCESS(rc); i++)
+    {
+         uint32_t fTpFlags = PSPEMU_IOM_TRACE_F_WRITE | PSPEMU_IOM_TRACE_F_AFTER;
+        PCPSPEMUCFGPROXYMEMWT pMemWt = &paProxyMemWt[i];
+
+        switch (pMemWt->enmAddrSpace)
+        {
+            case PSPADDRSPACE_PSP:
+            case PSPADDRSPACE_PSP_MEM:
+            case PSPADDRSPACE_PSP_MMIO:
+            {
+                /** @todo SRAM tracepoints could kill the proxy stub on the real PSP so we don't do them for now
+                 * (they will not trigger). */
+                rc = PSPEmuIoMgrMmioTraceRegister(hIoMgr, pMemWt->u.PspAddr, pMemWt->u.PspAddr + pMemWt->cbRegion - 1,
+                                                  0 /*cbAccess*/, fTpFlags, pspProxyMemWtPspTrace, pCcdRec,
+                                                  &pCcdRec->ahIoTpWt[i]);
+                break;
+            }
+            case PSPADDRSPACE_SMN:
+            {
+                rc = PSPEmuIoMgrSmnTraceRegister(hIoMgr, pMemWt->u.SmnAddr, pMemWt->u.SmnAddr + pMemWt->cbRegion - 1,
+                                                 0 /*cbAccess*/, fTpFlags, pspProxyMemWtSmnTrace, pCcdRec,
+                                                 &pCcdRec->ahIoTpWt[i]);
+                break;
+            }
+            case PSPADDRSPACE_X86:
+            case PSPADDRSPACE_X86_MEM:
+            case PSPADDRSPACE_X86_MMIO:
+            {
+                rc = PSPEmuIoMgrX86TraceRegister(hIoMgr, pMemWt->u.PhysX86Addr, pMemWt->u.PhysX86Addr + pMemWt->cbRegion - 1,
+                                                 0 /*cbAccess*/, fTpFlags, pspProxyMemWtX86Trace, pCcdRec,
+                                                 &pCcdRec->ahIoTpWt[i]);
+                break;
+            }
+        }
+    }
+
+    return rc;
+}
+
+
 static void pspEmuCcdProxyLogMsg(PSPPROXYCTX hCtx, void *pvUser, const char *pszMsg)
 {
     PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
@@ -1687,37 +1819,40 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
     PPSPPROXYINT pThis = hProxy;
 
     /** @todo Check for duplicates. */
-    int rc = 0;
-    PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)calloc(1, sizeof(*pCcdRec));
+    int rc = STS_INF_SUCCESS;
+    PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)calloc(1, sizeof(*pCcdRec) + pThis->pCfg->cProxyMemWt * sizeof(PSPIOMTP));
     if (pCcdRec)
     {
         PSPIOM hIoMgr;
         PSPCORE hPspCore;
         rc = PSPEmuCcdQueryIoMgr(hCcd, &hIoMgr);
-        if (!rc)
+        if (STS_SUCCESS(rc))
             rc = PSPEmuCcdQueryCore(hCcd, &hPspCore);
-        if (!rc)
+        if (STS_SUCCESS(rc))
         {
             /* Register the unassigned handlers for the various regions. */
             rc = PSPEmuIoMgrMmioUnassignedSet(hIoMgr, pspEmuProxyCcdPspMmioUnassignedRead, pspEmuProxyCcdPspMmioUnassignedWrite,
                                               "<PROXY>", pCcdRec);
-            if (!rc)
+            if (STS_SUCCESS(rc))
                 rc = PSPEmuIoMgrSmnUnassignedSet(hIoMgr, pspEmuProxyCcdPspSmnUnassignedRead, pspEmuProxyCcdPspSmnUnassignedWrite,
                                                  "<PROXY>", pCcdRec);
-            if (!rc)
+            if (STS_SUCCESS(rc))
                 rc = PSPEmuIoMgrX86UnassignedSet(hIoMgr, pspEmuProxyCcdX86UnassignedRead, pspEmuProxyCcdX86UnassignedWrite,
                                                  "<PROXY>", pCcdRec);
-            if (!rc)
+            if (STS_SUCCESS(rc))
                 rc = PSPEmuCoreWfiSet(hPspCore, pspEmuProxyWfiReached, pCcdRec);
-            if (   !rc
+            if (   STS_SUCCESS(rc)
                 && pThis->pCfg->PspAddrProxyTrustedOsHandover)
                 rc = PSPEmuCoreTraceRegister(hPspCore,
                                              pThis->pCfg->PspAddrProxyTrustedOsHandover,
                                              pThis->pCfg->PspAddrProxyTrustedOsHandover,
                                              PSPEMU_CORE_TRACE_F_EXEC, ARMASID_ANY,
                                              pspEmuProxyTrustedOsHandover, pThis);
+            if (   STS_SUCCESS(rc)
+                && pThis->pCfg->paProxyMemWt)
+                rc = pspProxyCcdMemWriteThroughRegister(pCcdRec, hIoMgr, pThis->pCfg->paProxyMemWt, pThis->pCfg->cProxyMemWt);
 
-            if (!rc)
+            if (STS_SUCCESS(rc))
             {
                 pCcdRec->pThis                  = pThis;
                 pCcdRec->hCcd                   = hCcd;
@@ -1728,14 +1863,14 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
                 pCcdRec->pNext                  = pThis->pCcdsHead;
 
                 pThis->pCcdsHead = pCcdRec;
-                return 0;
+                return STS_INF_SUCCESS;
             }
         }
 
         free(pCcdRec);
     }
     else
-        rc = -1;
+        rc = STS_ERR_NO_MEMORY;
 
     return rc;
 }
@@ -1744,7 +1879,7 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
 int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd)
 {
     /** @todo */
-    return -1;
+    return STS_ERR_GENERAL_ERROR;
 }
 
 

@@ -82,6 +82,7 @@ static struct option g_aOptions[] =
     {"proxy-ccp",                    no_argument,       0, 'X'},
     {"memory-preload",               required_argument, 0, 'M'},
     {"memory-create",                required_argument, 0, 'R'},
+    {"proxy-memory-wt",              required_argument, 0, 'W'},
     {"single-step-dump-core-state",  no_argument,       0, 'A'},
 
     {"help",                         no_argument,       0, 'H'},
@@ -128,8 +129,14 @@ static void pspEmuCfgFree(PPSPEMUCFG pCfg)
         free(pCfg->papszDevs);
     }
 
+    if (pCfg->paMemCreate)
+        free((void *)pCfg->paMemCreate);
+
     if (pCfg->paMemPreload)
         free((void *)pCfg->paMemPreload);
+
+    if (pCfg->paProxyMemWt)
+        free((void *)pCfg->paProxyMemWt);
 }
 
 
@@ -402,6 +409,116 @@ static int pspEmuCfgMemRegionParse(PPSPEMUCFG pCfg, const char *pszRegion)
 
 
 /**
+ * Parses a single given proxy memory region write through descriptor string and adds it to the given config.
+ *
+ * @returns Status code.
+ * @param   pCfg                    The config to add the descriptor to upon success.
+ * @param   pszRegion               The region descriptor string to parse.
+ */
+static int pspEmuCfgProxyMemRegionWtParse(PPSPEMUCFG pCfg, const char *pszRegion)
+{
+    int rc = STS_INF_SUCCESS;
+    PSPEMUCFGPROXYMEMWT MemRegion;
+    const char *pszCur = pszRegion;
+
+    char *pszSep = strchr(pszCur, ':');
+    if (pszSep)
+    {
+        if (!strncmp(pszCur, "psp", pszSep - pszCur))
+            MemRegion.enmAddrSpace = PSPADDRSPACE_PSP;
+        else if (!strncmp(pszCur, "psp-mem", pszSep - pszCur))
+            MemRegion.enmAddrSpace = PSPADDRSPACE_PSP_MEM;
+        else if (!strncmp(pszCur, "psp-mmio", pszSep - pszCur))
+            MemRegion.enmAddrSpace = PSPADDRSPACE_PSP_MMIO;
+        else if (!strncmp(pszCur, "smn", pszSep - pszCur))
+            MemRegion.enmAddrSpace = PSPADDRSPACE_SMN;
+        else if (!strncmp(pszCur, "x86", pszSep - pszCur))
+            MemRegion.enmAddrSpace = PSPADDRSPACE_X86;
+        else if (!strncmp(pszCur, "x86-mem", pszSep - pszCur))
+            MemRegion.enmAddrSpace = PSPADDRSPACE_X86_MEM;
+        else if (!strncmp(pszCur, "x86-mmio", pszSep - pszCur))
+            MemRegion.enmAddrSpace = PSPADDRSPACE_X86_MMIO;
+        else
+            rc = STS_ERR_INVALID_PARAMETER;
+
+        if (STS_SUCCESS(rc))
+        {
+            pszCur = pszSep + 1;
+            pszSep = strchr(pszCur, ':');
+
+            if (pszSep)
+            {
+                char *pszEndPtr;
+
+                errno = 0;
+                uint64_t uAddr = strtoull(pszCur, &pszEndPtr, 0);
+                if (   !errno
+                    && pszEndPtr == pszSep)
+                {
+                    switch (MemRegion.enmAddrSpace)
+                    {
+                        case PSPADDRSPACE_PSP:
+                        {
+                            if (uAddr == (PSPPADDR)uAddr)
+                                MemRegion.u.PspAddr = (PSPPADDR)uAddr;
+                            else
+                                rc = STS_ERR_BUFFER_OVERFLOW;
+                            break;
+                        }
+                        case PSPADDRSPACE_SMN:
+                        {
+                            if (uAddr == (SMNADDR)uAddr)
+                                MemRegion.u.SmnAddr = (SMNADDR)uAddr;
+                            else
+                                rc = STS_ERR_BUFFER_OVERFLOW;
+                            break;
+                        }
+                        case PSPADDRSPACE_X86:
+                        {
+                            MemRegion.u.PhysX86Addr = uAddr;
+                            break;
+                        }
+                        default:
+                            rc = STS_ERR_INVALID_PARAMETER;
+                    }
+
+                    if (STS_SUCCESS(rc))
+                    {
+                        MemRegion.cbRegion = strtoull(pszSep + 1, &pszEndPtr, 0);
+                        if (*pszEndPtr == '\0')
+                        {
+                            /* Add the descriptor the array. */
+                            uint32_t cProxyMemWtNew = pCfg->cProxyMemWt + 1;
+                            PCPSPEMUCFGPROXYMEMWT paMemWtNew = (PCPSPEMUCFGPROXYMEMWT)realloc((void *)pCfg->paMemCreate,
+                                                                                              cProxyMemWtNew * sizeof(MemRegion));
+                            if (paMemWtNew)
+                            {
+                                pCfg->paProxyMemWt = paMemWtNew;
+                                pCfg->cProxyMemWt  = cProxyMemWtNew;
+                                memcpy((void *)&pCfg->paProxyMemWt[cProxyMemWtNew - 1], &MemRegion, sizeof(MemRegion));
+                            }
+                            else
+                                rc = STS_ERR_NO_MEMORY;
+                        }
+                        else
+                            rc = STS_ERR_INVALID_PARAMETER;
+                    }
+                }
+                else
+                    rc = STS_ERR_INVALID_PARAMETER;
+            }
+            else
+                rc = STS_ERR_INVALID_PARAMETER;
+        }
+    }
+    else
+        rc = STS_ERR_INVALID_PARAMETER;
+
+    return rc;
+}
+
+
+/**
  * Parses the command line arguments and creates the emulator config.
  *
  * @returns Status code.
@@ -456,12 +573,14 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->cMemCreate            = 0;
     pCfg->paMemPreload          = NULL;
     pCfg->cMemPreload           = 0;
+    pCfg->paProxyMemWt          = NULL;
+    pCfg->cProxyMemWt           = 0;
     pCfg->papszDevs             = NULL;
     pCfg->pCcpProxyIf           = NULL;
     pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:IA", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:W:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -490,6 +609,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
                        "    --memory-create <addrspace>:<address>:<sz> Creates a memory region for the given address space address, can be given multiple times on the command line\n"
                        "    --memory-preload <addrspace>:<address>:<filename> Preloads a given address space address with data from the given file, can be given multiple times on the command line\n"
+                       "    --proxy-memory-wt <addrspace>:<address>:<sz> Write through the indicated memory region to the real HW in proxy mode even if it is occupied by an emulated region, can be given multiple times on the command line\n"
                        "    --spi-flash-trace <path/to/psptrace/compatible/flash/trace>\n"
                        "    --coverage-trace <path/to/coverage/trace/file>\n"
                        "    --sockets <number of sockets to emulate>\n"
@@ -677,6 +797,13 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             case 'R':
             {
                 int rc = pspEmuCfgMemRegionParse(pCfg, optarg);
+                if (STS_FAILURE(rc))
+                    return rc;
+                break;
+            }
+            case 'W':
+            {
+                int rc = pspEmuCfgProxyMemRegionWtParse(pCfg, optarg);
                 if (STS_FAILURE(rc))
                     return rc;
                 break;

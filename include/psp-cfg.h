@@ -188,6 +188,32 @@ typedef const PSPEMUCFGMEMPRELOAD *PCPSPEMUCFGMEMPRELOAD;
 
 
 /**
+ * Proxy memory range write through descriptor.
+ */
+typedef struct PSPEMUCFGPROXYMEMWT
+{
+    /** Address space to write through. */
+    PSPADDRSPACE            enmAddrSpace;
+    /** Size of the region to write through. */
+    size_t                  cbRegion;
+    /** Start address in the address space of the region to write through. */
+    union
+    {
+        /** Physical PSP address to write through. */
+        PSPPADDR            PspAddr;
+        /** SMN address to write through. */
+        SMNADDR             SmnAddr;
+        /** Physical x86 address to write through. */
+        X86PADDR            PhysX86Addr;
+    } u;
+} PSPEMUCFGPROXYMEMWT;
+/** Pointer to a memory range write through descriptor. */
+typedef PSPEMUCFGPROXYMEMWT *PPSPEMUCFGPROXYMEMWT;
+/** Pointer to a const memory range write through descriptor. */
+typedef const PSPEMUCFGPROXYMEMWT *PCPSPEMUCFGPROXYMEMWT;
+
+
+/**
  * PSP emulator config.
  */
 typedef struct PSPEMUCFG
@@ -282,6 +308,10 @@ typedef struct PSPEMUCFG
     PCPSPEMUCFGMEMPRELOAD   paMemPreload;
     /** Number of entries in the memory preload descriptor array. */
     uint32_t                cMemPreload;
+    /** Array of range descriptors for regions to write through in proxy mode. */
+    PCPSPEMUCFGPROXYMEMWT   paProxyMemWt;
+    /** Number of entries in the memory region write through descriptor array. */
+    uint32_t                cProxyMemWt;
     /** Pointer to an array of strings for devices which should be instantiated, temrinated by a NULL entry.
      *NULL means default with everything emulated. */
     const char              **papszDevs;
