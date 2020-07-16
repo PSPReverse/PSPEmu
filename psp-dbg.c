@@ -1509,7 +1509,7 @@ static int pspDbgGdbStubIfMonCmd(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, c
     }
 
     char szCmd[128]; /* Should be plenty. */
-    int rcGdbStub = GDBSTUB_ERR_BUFFER_OVERFLOW;
+    int rcGdbStub = GDBSTUB_INF_SUCCESS;
     if (cchCmd < sizeof(szCmd) - 1) /* One character for the terminator. */
     {
         memcpy(&szCmd[0], pszCmd, cchCmd);
@@ -1525,6 +1525,8 @@ static int pspDbgGdbStubIfMonCmd(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, c
         else
             rcGdbStub = pspEmuDbgErrConvertToGdbStubErr(rc);
     }
+    else
+        rcGdbStub = GDBSTUB_ERR_BUFFER_OVERFLOW;
 
     return rcGdbStub;
 }
