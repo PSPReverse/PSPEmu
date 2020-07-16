@@ -31,6 +31,7 @@
 #include <psp-proxy.h>
 #include <psp-trace.h>
 #include <psp-iom.h>
+#include <psp-flash.h>
 
 
 /**
@@ -1556,6 +1557,51 @@ static int pspProxyDbgCmdX86MemRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, cons
 /**
  * @copydoc{DBGHLPCMD,pfnCmd}
  */
+static int pspProxyDbgCmdX86MemWriteFile(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
+
+    const char *pszAddr = pszArgs;
+    const char *pszFile = pszArgs ? strchr(pszAddr, ' ') : NULL;
+
+    if (   pszAddr
+        && pszFile)
+    {
+        /* Get past the space. */
+        pszFile++;
+
+        char *pszAddrEnd = NULL;
+        X86PADDR PhysX86Addr = strtoull(pszAddr, &pszAddrEnd, 0 /*base*/);
+        if (   pszAddrEnd != pszAddr
+            && *pszAddrEnd == ' ')
+        {
+            void *pv = NULL;
+            size_t cb = 0;
+            int rc = PSPEmuFlashLoadFromFile(pszFile, &pv, &cb);
+            if (STS_SUCCESS(rc))
+            {
+                rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pv, cb);
+                if (STS_FAILURE(rc))
+                    pHlp->pfnPrintf(pHlp, "Writing file \"%s\" to memory at %#llx failed with %d\n", pszFile, PhysX86Addr, rc);
+
+                free(pv);
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Opening file \"%s\" failed with %d\n", pszFile, rc);
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Address parameter is invalid\n");
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly two: <addr> <file>\n");
+
+    return STS_INF_SUCCESS;
+}
+
+
+/**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
 static int pspProxyDbgCmdX86MmioRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     return pspProxyDbgX86ReadWorker(hDbgHlp, pHlp, pszArgs, pvUser, true /*fMmio*/);
@@ -1567,12 +1613,13 @@ static int pspProxyDbgCmdX86MmioRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, con
  */
 static const DBGHLPCMD g_aProxyDbgCmds[] =
 {
-    { "proxy.MmioRead",         "Reads a value from the given MMIO address, arguments: <addr> <sz>",                   pspProxyDbgCmdMmioRead    },
-    { "proxy.MmioWrite",        "Writes a value to the given MMIO address, arguments: <addr> <sz> <val>",              pspProxyDbgCmdMmioWrite   },
-    { "proxy.SmnRead",          "Reads a value from the given SMN address, arguments: <addr> <sz>",                    pspProxyDbgCmdSmnRead     },
-    { "proxy.SmnWrite",         "Writes a value to the given SMN address, arguments: <addr> <sz> <val>",               pspProxyDbgCmdSmnWrite    },
-    { "proxy.X86MemRead",       "Reads a value from the given x86 as a normal memory address, arguments: <addr> <sz>", pspProxyDbgCmdX86MemRead  },
-    { "proxy.X86MmioRead",      "Reads a value from the given x86 as MMIO address, arguments: <addr> <sz>",            pspProxyDbgCmdX86MmioRead },
+    { "proxy.MmioRead",         "Reads a value from the given MMIO address, arguments: <addr> <sz>",                     pspProxyDbgCmdMmioRead        },
+    { "proxy.MmioWrite",        "Writes a value to the given MMIO address, arguments: <addr> <sz> <val>",                pspProxyDbgCmdMmioWrite       },
+    { "proxy.SmnRead",          "Reads a value from the given SMN address, arguments: <addr> <sz>",                      pspProxyDbgCmdSmnRead         },
+    { "proxy.SmnWrite",         "Writes a value to the given SMN address, arguments: <addr> <sz> <val>",                 pspProxyDbgCmdSmnWrite        },
+    { "proxy.X86MemRead",       "Reads a value from the given x86 as a normal memory address, arguments: <addr> <sz>",   pspProxyDbgCmdX86MemRead      },
+    { "proxy.X86MemWriteFile",  "Writes data from the given file to the destination address, arguments: <addr> <file>",  pspProxyDbgCmdX86MemWriteFile },
+    { "proxy.X86MmioRead",      "Reads a value from the given x86 as MMIO address, arguments: <addr> <sz>",              pspProxyDbgCmdX86MmioRead     },
 };
 
 
