@@ -381,12 +381,13 @@ static void pspDbgTpHit(PSPCORE hCore, PPSPDBGTP pTp)
  * @returns Nothing.
  * @param   hCore                   The PSP core handle.
  * @param   hTp                     The trace point handle triggering.
+ * @param   fTpFlags                Flag indicating the access triggering the tracepoint, see PSPEMU_CORE_TRACE_F_XXX.
  * @param   uPspAddr                The PSP address where the callback hit.
  * @param   cbInsn                  Instruction size.
- * @param   u64Val                  Value for memory writes, ignored for breakpoints.
+ * @param   pvVal                   Pointer to the value being written for write memory trace hooks, undefined otherwise.
  * @param   pvUser                  Opaque user data.
  */
-static void pspDbgTpBpHit(PSPCORE hCore, PSPCORETP hTp, PSPADDR uPspAddr, uint32_t cbInsn, uint64_t u64Val, void *pvUser)
+static void pspDbgTpBpHit(PSPCORE hCore, PSPCORETP hTp, uint32_t fTpFlags, PSPADDR uPspAddr, uint32_t cbInsn, const void *pvVal, void *pvUser)
 {
     PPSPDBGTP pTp = (PPSPDBGTP)pvUser;
     pspDbgTpHit(hCore, pTp);

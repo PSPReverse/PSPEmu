@@ -49,15 +49,16 @@ typedef PSPCORETP *PPSPCORETP;
  * @returns nothing.
  * @param   hCore                   The core handle triggering the callback.
  * @param   hTp                     The trace point handle this callback is triggered on.
+ * @param   fTpFlags                Flag indicating the access triggering the tracepoint, see PSPEMU_CORE_TRACE_F_XXX.
  * @param   uPspAddr                The PSP address triggering (always virtual), for exec trace hooks
  *                                  this is the PC of the instruction. For memory accesses this denotes the
  *                                  memory address being accessed.
  * @param   cb                      The access size, for exec trace hooks this is the size of the instruction.
  *                                  For memory accesses this denotes the size of the memory access being made.
- * @param   u64Val                  The value being written for write memory trace hooks, undefined otherwise.
+ * @param   pvVal                   Pointer to the value being written for write memory trace hooks, undefined otherwise.
  * @param   pvUser                  Opaque user data passed during trace hook registration.
  */
-typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPCORETP hTp, PSPADDR uPspAddr, uint32_t cb, uint64_t u64Val, void *pvUser);
+typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPCORETP hTp, uint32_t fTpFlags, PSPADDR uPspAddr, uint32_t cb, const void *pvVal, void *pvUser);
 /** Trace hook handler pointer. */
 typedef FNPSPCORETRACE *PFNPSPCORETRACE;
 

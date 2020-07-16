@@ -676,7 +676,7 @@ static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32
 
     if (   pTp->idAsid == ARMASID_ANY
         || pTp->idAsid == pCpBank->u32RegContextId)
-        pTp->pfnTrace(pThis, pTp, (PSPADDR)uAddr, cbInsn, 0 /*u64Val*/, pTp->pvUser);
+        pTp->pfnTrace(pThis, pTp, PSPEMU_CORE_TRACE_F_EXEC, (PSPADDR)uAddr, cbInsn, NULL /*pvVal*/, pTp->pvUser);
 }
 
 
@@ -696,10 +696,49 @@ static void pspEmuCoreUcHookMemWrapper(uc_engine *pUcEngine, uc_mem_type uMemTyp
     PPSPCORETPINT pTp = (PPSPCORETPINT)pvUser;
     PPSPCOREINT pThis = pTp->pPspCore;
     PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
+    uint32_t fTpFlags = 0;
+
+    switch (uMemType)
+    {
+        case UC_MEM_READ:
+        case UC_MEM_READ_PROT:
+            fTpFlags |= PSPEMU_CORE_TRACE_F_READ;
+            break;
+        case UC_MEM_WRITE:
+        case UC_MEM_WRITE_PROT:
+            fTpFlags |= PSPEMU_CORE_TRACE_F_WRITE;
+            break;
+        default:
+            /** @todo Assert */
+            break;
+    }
 
     if (   pTp->idAsid == ARMASID_ANY
         || pTp->idAsid == pCpBank->u32RegContextId)
-        pTp->pfnTrace(pThis, pTp, (PSPADDR)uAddr, cb, (uint64_t)i64Val, pTp->pvUser);
+    {
+        PSPDATUM Datum;
+
+        switch (cb)
+        {
+            case 1:
+                Datum.u8 = (uint8_t)i64Val;
+                break;
+            case 2:
+                Datum.u16 = (uint16_t)i64Val;
+                break;
+            case 4:
+                Datum.u32 = (uint32_t)i64Val;
+                break;
+            case 8:
+                Datum.u64 = (uint64_t)i64Val;
+                break;
+            default:
+                /** @todo Assert */
+                break;
+        }
+
+        pTp->pfnTrace(pThis, pTp, fTpFlags, (PSPADDR)uAddr, cb, &Datum.ab[0], pTp->pvUser);
+    }
 }
 
 

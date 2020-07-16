@@ -189,12 +189,13 @@ static bool pspEmuCovBbRangeSet(PPSPCOVINT pThis, PSPADDR PspAddr, size_t cbBb)
  * @returns nothing.
  * @param   hCore                   The PSP core handle causing the call.
  * @param   hTp                     The trace point handle triggering.
+ * @param   fTpFlags                Flag indicating the access triggering the tracepoint, see PSPEMU_CORE_TRACE_F_XXX.
  * @param   PspAddr                 The PSP address.
  * @param   cbBb                    Size of the basic block.
- * @param   u64Val                  Ignored for exec trace hooks.
+ * @param   pvVal                   Pointer to the value being written for write memory trace hooks, undefined otherwise.
  * @param   pvUser                  Opaque user data passed during registration.
  */
-static void pspEmuCovBbTrace(PSPCORE hCore, PSPCORETP hTp, PSPADDR PspAddr, uint32_t cbBb, uint64_t u64Val, void *pvUser)
+static void pspEmuCovBbTrace(PSPCORE hCore, PSPCORETP hTp, uint32_t fTpFlags, PSPADDR PspAddr, uint32_t cbBb, const void *pvVal, void *pvUser)
 {
      PPSPCOVINT pThis = (PPSPCOVINT)pvUser;
 
