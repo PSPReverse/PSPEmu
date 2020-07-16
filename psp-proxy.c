@@ -160,6 +160,8 @@ typedef struct PSPPROXYCCD
     PPSPPROXYINT                pThis;
     /** The CCD handle. */
     PSPCCD                      hCcd;
+    /** The trace point handle for secure OS handover. */
+    PSPCORETP                   hTpSecureOsHandover;
     /** PSP Proxy start address. */
     PSPPROXYADDR                ProxyAddr;
     /** Access stride (should only ever be 1, 2 or 4 bytes really). */
@@ -846,12 +848,13 @@ static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFla
  *
  * @returns nothing.
  * @param   hCore                   The PSP core where the hook was registered.
+ * @param   hTp                     The trace point handle triggering.
  * @param   uPspAddr                The PC, should match the registration.
  * @param   cbInsn                  Size of the instruction in bytes.
  * @param   u64Val                  Ignored for exec trace hook.
  * @param   pvUser                  Opaque user data given during registration.
  */
-static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, uint64_t u64Val, void *pvUser)
+static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPCORETP hTp, PSPADDR uPspAddr, uint32_t cbInsn, uint64_t u64Val, void *pvUser)
 {
     PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
 
@@ -1842,13 +1845,16 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
                                                  "<PROXY>", pCcdRec);
             if (STS_SUCCESS(rc))
                 rc = PSPEmuCoreWfiSet(hPspCore, pspEmuProxyWfiReached, pCcdRec);
+
+            /** @todo Only for primary CCD? */
             if (   STS_SUCCESS(rc)
                 && pThis->pCfg->PspAddrProxyTrustedOsHandover)
                 rc = PSPEmuCoreTraceRegister(hPspCore,
                                              pThis->pCfg->PspAddrProxyTrustedOsHandover,
                                              pThis->pCfg->PspAddrProxyTrustedOsHandover,
                                              PSPEMU_CORE_TRACE_F_EXEC, ARMASID_ANY,
-                                             pspEmuProxyTrustedOsHandover, pThis);
+                                             pspEmuProxyTrustedOsHandover, pThis,
+                                             &pCcdRec->hTpSecureOsHandover);
             if (   STS_SUCCESS(rc)
                 && pThis->pCfg->paProxyMemWt)
                 rc = pspProxyCcdMemWriteThroughRegister(pCcdRec, hIoMgr, pThis->pCfg->paProxyMemWt, pThis->pCfg->cProxyMemWt);

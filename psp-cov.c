@@ -23,6 +23,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <common/status.h>
+
 #include <psp-cov.h>
 
 
@@ -69,6 +71,8 @@ typedef struct PSPCOVINT
     PSPADDR                         PspAddrBegin;
     /** End address for the coverage tracing. */
     PSPADDR                         PspAddrEnd;
+    /** The core trace point handle. */
+    PSPCORETP                       hCoreTp;
     /** Head of basic blocks. */
     PPSPCOVBB                       pBbsHead;
     /** Tail of the basic block list. */
@@ -184,12 +188,13 @@ static bool pspEmuCovBbRangeSet(PPSPCOVINT pThis, PSPADDR PspAddr, size_t cbBb)
  *
  * @returns nothing.
  * @param   hCore                   The PSP core handle causing the call.
+ * @param   hTp                     The trace point handle triggering.
  * @param   PspAddr                 The PSP address.
  * @param   cbBb                    Size of the basic block.
  * @param   u64Val                  Ignored for exec trace hooks.
  * @param   pvUser                  Opaque user data passed during registration.
  */
-static void pspEmuCovBbTrace(PSPCORE hCore, PSPADDR PspAddr, uint32_t cbBb, uint64_t u64Val, void *pvUser)
+static void pspEmuCovBbTrace(PSPCORE hCore, PSPCORETP hTp, PSPADDR PspAddr, uint32_t cbBb, uint64_t u64Val, void *pvUser)
 {
      PPSPCOVINT pThis = (PPSPCOVINT)pvUser;
 
@@ -255,7 +260,7 @@ static int pspEmuCovDrCovBbsDump(PPSPCOVINT pThis, FILE *pCov)
 
 int PSPEmuCovCreate(PPSPCOV phCov, PSPCORE hPspCore, PSPADDR PspAddrBegin, PSPADDR PspAddrEnd)
 {
-    int rc = 0;
+    int rc = STS_INF_SUCCESS;
     PPSPCOVINT pThis = (PPSPCOVINT)calloc(1, sizeof(*pThis));
 
     if (pThis)
@@ -279,22 +284,22 @@ int PSPEmuCovCreate(PPSPCOV phCov, PSPCORE hPspCore, PSPADDR PspAddrBegin, PSPAD
             /* Register the handler with the core. */
             rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBegin, PspAddrEnd /*inclusive*/,
                                          PSPEMU_CORE_TRACE_F_EXEC | PSPEMU_CORE_TRACE_F_EXEC_BASIC_BLOCK,
-                                         ARMASID_ANY, pspEmuCovBbTrace, pThis);
-            if (!rc)
+                                         ARMASID_ANY, pspEmuCovBbTrace, pThis, &pThis->hCoreTp);
+            if (STS_SUCCESS(rc))
             {
                 *phCov = pThis;
-                return 0;
+                return STS_INF_SUCCESS;
             }
 
             free(pThis->pbmHit);
         }
         else
-            rc = -1;
+            rc = STS_ERR_NO_MEMORY;
 
         free(pThis);
     }
     else
-        rc = -1;
+        rc = STS_ERR_NO_MEMORY;
 
     return rc;
 }
@@ -325,6 +330,7 @@ void PSPEmuCovDestroy(PSPCOV hCov)
 {
     PPSPCOVINT pThis = hCov;
 
+    PSPEmuCoreTraceDeregister(pThis->hCoreTp);
     PPSPCOVBB pBb = pThis->pBbsHead;
     while (pBb)
     {

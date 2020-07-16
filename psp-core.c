@@ -76,12 +76,12 @@ typedef const struct PSPCOREINT *PCPSPCOREINT;
 
 
 /**
- * A single trace hook.
+ * A single trace point instance.
  */
-typedef struct PSPCORETRACEHOOK
+typedef struct PSPCORETPINT
 {
     /** Next trace hook in the list. */
-    struct PSPCORETRACEHOOK *pNext;
+    struct PSPCORETPINT     *pNext;
     /** Start PSP address. */
     PSPADDR                 PspAddrStart;
     /** End PSP address. */
@@ -96,11 +96,11 @@ typedef struct PSPCORETRACEHOOK
     void                    *pvUser;
     /** The unicorn hook handle. */
     uc_hook                 hUcHook;
-} PSPCORETRACEHOOK;
+} PSPCORETPINT;
 /** Pointer to a trace hook. */
-typedef PSPCORETRACEHOOK *PPSPCORETRACEHOOK;
+typedef PSPCORETPINT *PPSPCORETPINT;
 /** Pointer to a const trace hook. */
-typedef const PSPCORETRACEHOOK *PCPSPCORETRACEHOOK;
+typedef const PSPCORETPINT *PCPSPCORETPINT;
 
 
 /**
@@ -273,8 +273,8 @@ typedef struct PSPCOREINT
     /** The current CPSR value. */
     uint32_t                u32RegCpsr;
 
-    /** Head of registered trace hooks. */
-    PPSPCORETRACEHOOK       pTraceHooksHead;
+    /** Head of registered trace points. */
+    PPSPCORETPINT           pTpHead;
     /** Head of memory regions. */
     PPSPCOREMEMREGION       pMemRegionsHead;
     /** Lowest memory address assigned to a region (for faster lookup). */
@@ -670,13 +670,13 @@ static void pspEmuCoreIrqCheckAndInject(PPSPCOREINT pThis, PSPVADDR PspAddrPc, b
  */
 static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32_t cbInsn, void *pvUser)
 {
-    PCPSPCORETRACEHOOK pHook = (PCPSPCORETRACEHOOK)pvUser;
-    PPSPCOREINT pThis = pHook->pPspCore;
+    PPSPCORETPINT pTp = (PPSPCORETPINT)pvUser;
+    PPSPCOREINT pThis = pTp->pPspCore;
     PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
 
-    if (   pHook->idAsid == ARMASID_ANY
-        || pHook->idAsid == pCpBank->u32RegContextId)
-        pHook->pfnTrace(pThis, (PSPADDR)uAddr, cbInsn, 0 /*u64Val*/, pHook->pvUser);
+    if (   pTp->idAsid == ARMASID_ANY
+        || pTp->idAsid == pCpBank->u32RegContextId)
+        pTp->pfnTrace(pThis, pTp, (PSPADDR)uAddr, cbInsn, 0 /*u64Val*/, pTp->pvUser);
 }
 
 
@@ -693,13 +693,13 @@ static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32
  */
 static void pspEmuCoreUcHookMemWrapper(uc_engine *pUcEngine, uc_mem_type uMemType, uint64_t uAddr, int32_t cb, int64_t i64Val, void *pvUser)
 {
-    PCPSPCORETRACEHOOK pHook = (PCPSPCORETRACEHOOK)pvUser;
-    PPSPCOREINT pThis = pHook->pPspCore;
+    PPSPCORETPINT pTp = (PPSPCORETPINT)pvUser;
+    PPSPCOREINT pThis = pTp->pPspCore;
     PPSPCORECPBANK pCpBank = pspEmuCoreCpGetBank(pThis);
 
-    if (   pHook->idAsid == ARMASID_ANY
-        || pHook->idAsid == pCpBank->u32RegContextId)
-        pHook->pfnTrace(pThis, (PSPADDR)uAddr, cb, (uint64_t)i64Val, pHook->pvUser);
+    if (   pTp->idAsid == ARMASID_ANY
+        || pTp->idAsid == pCpBank->u32RegContextId)
+        pTp->pfnTrace(pThis, pTp, (PSPADDR)uAddr, cb, (uint64_t)i64Val, pTp->pvUser);
 }
 
 
@@ -2526,7 +2526,7 @@ int PSPEmuCoreCreate(PPSPCORE phCore)
     {
         uc_err err;
 
-        pThis->pTraceHooksHead       = NULL;
+        pThis->pTpHead               = NULL;
         pThis->pMemRegionsHead       = NULL;
         pThis->pSvcReg               = NULL;
         pThis->pvSvcUser             = NULL;
@@ -2612,10 +2612,10 @@ void PSPEmuCoreDestroy(PSPCORE hCore)
     }
 
     /* Deregister all hooks. */
-    PPSPCORETRACEHOOK pTraceCur = pThis->pTraceHooksHead;
+    PPSPCORETPINT pTraceCur = pThis->pTpHead;
     while (pTraceCur)
     {
-        PPSPCORETRACEHOOK pFree = pTraceCur;
+        PPSPCORETPINT pFree = pTraceCur;
 
         pTraceCur = pTraceCur->pNext;
         uc_err rcUc = uc_hook_del(pThis->pUcEngine, pFree->hUcHook);
@@ -3064,10 +3064,11 @@ int PSPEmuCoreExecReset(PSPCORE hCore)
 }
 
 int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd,
-                            uint32_t fFlags, ARMASID idAsid, PFNPSPCORETRACE pfnTrace, void *pvUser)
+                            uint32_t fFlags, ARMASID idAsid, PFNPSPCORETRACE pfnTrace, void *pvUser,
+                            PPSPCORETP phTp)
 {
     PPSPCOREINT pThis = hCore;
-    int rc = 0;
+    int rc = STS_INF_SUCCESS;
 
     /* Exec and memory read/write hooks can't be mixed. */
     if (   (fFlags & PSPEMU_CORE_TRACE_F_EXEC)
@@ -3076,15 +3077,15 @@ int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAd
         return -1;
 
     /* Try to register a new hook. */
-    PPSPCORETRACEHOOK pHook = (PPSPCORETRACEHOOK)calloc(1, sizeof(*pHook));
-    if (pHook)
+    PPSPCORETPINT pTp = (PPSPCORETPINT)calloc(1, sizeof(*pTp));
+    if (pTp)
     {
-        pHook->PspAddrStart = uPspAddrStart;
-        pHook->PspAddrEnd   = uPspAddrEnd;
-        pHook->idAsid       = idAsid;
-        pHook->pPspCore     = pThis;
-        pHook->pfnTrace     = pfnTrace;
-        pHook->pvUser       = pvUser;
+        pTp->PspAddrStart = uPspAddrStart;
+        pTp->PspAddrEnd   = uPspAddrEnd;
+        pTp->idAsid       = idAsid;
+        pTp->pPspCore     = pThis;
+        pTp->pfnTrace     = pfnTrace;
+        pTp->pvUser       = pvUser;
 
         uc_hook_type fHook = 0;
         if (fFlags & PSPEMU_CORE_TRACE_F_EXEC)
@@ -3107,34 +3108,35 @@ int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAd
             fHook |= UC_HOOK_MEM_WRITE;
         }
 
-        uc_err rcUc = uc_hook_add(pThis->pUcEngine, &pHook->hUcHook, fHook,
-                                  pfnHook, pHook, uPspAddrStart, uPspAddrEnd);
+        uc_err rcUc = uc_hook_add(pThis->pUcEngine, &pTp->hUcHook, fHook,
+                                  pfnHook, pTp, uPspAddrStart, uPspAddrEnd);
         rc = pspEmuCoreErrConvertFromUcErr(rcUc);
-        if (!rc)
+        if (STS_SUCCESS(rc))
         {
-            pHook->pNext = pThis->pTraceHooksHead;
-            pThis->pTraceHooksHead = pHook;
+            pTp->pNext = pThis->pTpHead;
+            pThis->pTpHead = pTp;
+            *phTp = pTp;
         }
         else
-            free(pHook);
+            free(pTp);
     }
     else
-        rc = -1;
+        rc = STS_ERR_NO_MEMORY;
 
     return rc;
 }
 
-int PSPEmuCoreTraceDeregister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd)
+int PSPEmuCoreTraceDeregister(PSPCORETP hTp)
 {
-    PPSPCOREINT pThis = hCore;
-    int rc = 0;
+    PPSPCORETPINT pTp = hTp;
+    PPSPCOREINT pThis = pTp->pPspCore;
+    int rc = STS_INF_SUCCESS;
 
     /* Search for the right hook and deregister. */
-    PPSPCORETRACEHOOK pPrev = NULL;
-    PPSPCORETRACEHOOK pCur = pThis->pTraceHooksHead;
+    PPSPCORETPINT pPrev = NULL;
+    PPSPCORETPINT pCur = pThis->pTpHead;
     while (   pCur
-           && (   pCur->PspAddrStart != uPspAddrStart
-               || pCur->PspAddrEnd != uPspAddrEnd))
+           && pCur != pTp)
     {
         pPrev = pCur;
         pCur = pCur->pNext;
@@ -3145,14 +3147,14 @@ int PSPEmuCoreTraceDeregister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPsp
         if (pPrev)
             pPrev->pNext = pCur->pNext;
         else
-            pThis->pTraceHooksHead = pCur->pNext;
+            pThis->pTpHead = pCur->pNext;
 
         uc_err rcUc = uc_hook_del(pThis->pUcEngine, pCur->hUcHook);
         /** @todo assert(rcUc == UC_ERR_OK) */
         free(pCur);
     }
     else
-        rc = -1;
+        rc = STS_ERR_NOT_FOUND;
 
     return rc;
 }

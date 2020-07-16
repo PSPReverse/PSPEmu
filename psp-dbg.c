@@ -82,8 +82,14 @@ typedef struct PSPDBGTP
     /** Type dependent data. */
     union
     {
-        /** The tracepoint address. */
-        PSPADDR             PspAddrTp;
+        /** The core tracepoint handle. */
+        struct
+        {
+            /** The address so we can find it when being deregistered from GDB. */
+            PSPVADDR        PspAddrTp;
+            /** The core tracpoint handle. */
+            PSPCORETP       hTp;
+        } Core;
         /** The IOM tracepoint handle. */
         PSPIOMTP            hIoTp;
     } u;
@@ -288,7 +294,7 @@ static void pspDbgTpDestroy(PPSPDBGTP pTp)
     if (!pTp->fIoTp)
     {
         PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
-        PSPEmuCoreTraceDeregister(hPspCore, pTp->u.PspAddrTp, pTp->u.PspAddrTp);
+        PSPEmuCoreTraceDeregister(pTp->u.Core.hTp);
     }
     else
     {
@@ -374,12 +380,13 @@ static void pspDbgTpHit(PSPCORE hCore, PPSPDBGTP pTp)
  *
  * @returns Nothing.
  * @param   hCore                   The PSP core handle.
+ * @param   hTp                     The trace point handle triggering.
  * @param   uPspAddr                The PSP address where the callback hit.
  * @param   cbInsn                  Instruction size.
  * @param   u64Val                  Value for memory writes, ignored for breakpoints.
  * @param   pvUser                  Opaque user data.
  */
-static void pspDbgTpBpHit(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, uint64_t u64Val, void *pvUser)
+static void pspDbgTpBpHit(PSPCORE hCore, PSPCORETP hTp, PSPADDR uPspAddr, uint32_t cbInsn, uint64_t u64Val, void *pvUser)
 {
     PPSPDBGTP pTp = (PPSPDBGTP)pvUser;
     pspDbgTpHit(hCore, pTp);
@@ -594,11 +601,11 @@ static int gdbStubCmdBpAsid(GDBSTUBCTX hGdbStubCtx, PCGDBSTUBOUTHLP pHlp, const 
             int rc = pspDbgTpCreate(pThis, false /*fIoTp*/, 0 /*cHitsMax*/, &pTp);
             if (!rc)
             {
-                pTp->u.PspAddrTp = PspAddrBp;
+                pTp->u.Core.PspAddrTp = PspAddrBp;
 
                 PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
                 rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBp, PspAddrBp, PSPEMU_CORE_TRACE_F_EXEC,
-                                             (ARMASID)u64Asid, pspDbgTpBpHit, pTp);
+                                             (ARMASID)u64Asid, pspDbgTpBpHit, pTp, &pTp->u.Core.hTp);
                 if (!rc)
                     return GDBSTUB_INF_SUCCESS;
                 else
@@ -1445,10 +1452,11 @@ static int pspDbgGdbStubIfTgtTpSet(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTGTM
     int rc = pspDbgTpCreate(pThis, false /*fIoTp*/, 0 /*cHitsMax*/, &pTp);
     if (!rc)
     {
-        pTp->u.PspAddrTp = PspAddrBp;
+        pTp->u.Core.PspAddrTp = PspAddrBp;
 
         PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
-        rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBp, PspAddrBp, fTraceFlags, ARMASID_ANY, pspDbgTpBpHit, pTp);
+        rc = PSPEmuCoreTraceRegister(hPspCore, PspAddrBp, PspAddrBp, fTraceFlags, ARMASID_ANY,
+                                     pspDbgTpBpHit, pTp, &pTp->u.Core.hTp);
         if (!rc)
             return GDBSTUB_INF_SUCCESS;
         else
@@ -1475,7 +1483,7 @@ static int pspDbgGdbStubIfTgtTpClear(GDBSTUBCTX hGdbStubCtx, void *pvUser, GDBTG
     PPSPDBGTP pTpCur = pThis->pTpsHead;
     while (   pTpCur
            && (    pTpCur->fIoTp
-               ||  pTpCur->u.PspAddrTp != PspAddrBp))
+               ||  pTpCur->u.Core.PspAddrTp != PspAddrBp))
         pTpCur = pTpCur->pNext;
 
     int rcGdbStub = GDBSTUB_INF_SUCCESS;
@@ -1855,9 +1863,9 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
         PSPCORE hPspCore = pspEmuDbgGetPspCoreFromSelectedCcd(pThis);
         PPSPDBGTP pTp = NULL;
         pspDbgTpCreate(pThis, false /*fIoTp*/, 1 /*cHitsMax*/, &pTp);
-        pTp->u.PspAddrTp = pThis->PspAddrRunUpTo;
+        pTp->u.Core.PspAddrTp = pThis->PspAddrRunUpTo;
         PSPEmuCoreTraceRegister(hPspCore, pThis->PspAddrRunUpTo, pThis->PspAddrRunUpTo,
-                                PSPEMU_CORE_TRACE_F_EXEC, ARMASID_ANY, pspDbgTpBpHit, pTp);
+                                PSPEMU_CORE_TRACE_F_EXEC, ARMASID_ANY, pspDbgTpBpHit, pTp, &pTp->u.Core.hTp);
         pThis->fCoreRunning = true;
         rc = PSPEmuCoreExecRun(hPspCore, pThis->fCoreExecRun, 0, PSPEMU_CORE_EXEC_INDEFINITE);
         pThis->fCoreRunning = false;

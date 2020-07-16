@@ -37,11 +37,18 @@ typedef struct PSPCOREINT *PSPCORE;
 typedef PSPCORE *PPSPCORE;
 
 
+/** Opaque PSP trace point handle. */
+typedef struct PSPCORETPINT *PSPCORETP;
+/** Pointer to a PSP core trace point handle. */
+typedef PSPCORETP *PPSPCORETP;
+
+
 /**
  * Trace hook handler.
  *
  * @returns nothing.
  * @param   hCore                   The core handle triggering the callback.
+ * @param   hTp                     The trace point handle this callback is triggered on.
  * @param   uPspAddr                The PSP address triggering (always virtual), for exec trace hooks
  *                                  this is the PC of the instruction. For memory accesses this denotes the
  *                                  memory address being accessed.
@@ -50,7 +57,7 @@ typedef PSPCORE *PPSPCORE;
  * @param   u64Val                  The value being written for write memory trace hooks, undefined otherwise.
  * @param   pvUser                  Opaque user data passed during trace hook registration.
  */
-typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cb, uint64_t u64Val, void *pvUser);
+typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPCORETP hTp, PSPADDR uPspAddr, uint32_t cb, uint64_t u64Val, void *pvUser);
 /** Trace hook handler pointer. */
 typedef FNPSPCORETRACE *PFNPSPCORETRACE;
 
@@ -479,19 +486,19 @@ int PSPEmuCoreExecReset(PSPCORE hCore);
  * @param   idAsid                  The ASID to trigger on, use ARMASID_ANY to not care about the ASID.
  * @param   pfnTrace                The trace callback to execute.
  * @param   pvUser                  Opaque user data passed to the trace callback.
+ * @param   phTp                    Where to store the handle to trace point on success.
  */
 int PSPEmuCoreTraceRegister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd,
-                            uint32_t fFlags, ARMASID idAsid, PFNPSPCORETRACE pfnTrace, void *pvUser);
+                            uint32_t fFlags, ARMASID idAsid, PFNPSPCORETRACE pfnTrace, void *pvUser,
+                            PPSPCORETP phTp);
 
 /**
  * Deregisters a previously registered trace hook.
  *
  * @returns Status code.
- * @param   hCore                   The PSP core handle.
- * @param   uPspAddrStart           Start address of the region deregister the trace hook (must match the address during registration).
- * @param   uPspAddrEnd             End address of the region to deregister the trace hook (must match the address during registration).
+ * @param   hTp                     The trace point handle to deregister.
  */
-int PSPEmuCoreTraceDeregister(PSPCORE hCore, PSPADDR uPspAddrStart, PSPADDR uPspAddrEnd);
+int PSPEmuCoreTraceDeregister(PSPCORETP hTp);
 
 /**
  * Register a new MMIO region with the given read/write handlers.
