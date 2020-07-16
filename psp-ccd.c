@@ -287,6 +287,8 @@ static bool pspEmuSvcDbgLog(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags,
         PSPEmuCoreMemReadVirt(hCore, PspAddrStr, &achStr[0], 512);
         achStr[512 - 1] = '\0'; /* Ensure termination. */
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SVC, &achStr[0]);
+
+        printf("%s\n", &achStr[0]);
     }
 
     return true;
@@ -392,7 +394,10 @@ static int pspCcdIrqSet(PCPSPDEVIF pDevIf, uint32_t idPrio, uint8_t idIrq, bool 
 {
     PPSPCCDINT pThis = (PPSPCCDINT)pDevIf;
 
-    return PSPIrqSet(pThis->hIrq, idPrio, idIrq, fAssert);
+    if (pThis->hIrq)
+        return PSPIrqSet(pThis->hIrq, idPrio, idIrq, fAssert);
+
+    return STS_INF_SUCCESS;
 }
 
 
