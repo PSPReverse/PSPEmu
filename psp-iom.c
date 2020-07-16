@@ -269,6 +269,9 @@ typedef struct PSPIOMX86MAPCTRLSLOT
     PSPADDR                         PspAddrMemExecStart;
     /** Size of the executable memory region. */
     size_t                          cbMemExec;
+    /** The core tracepoint handle to be able to catch reads and writes for registered
+     * I/O trace points when a memory region is mapped executable. */
+    PSPCORETP                       hMemExecTpRw;
 
     /* Split MMIO region data if any (before and after executable region). */
     PSPIOMX86MMIOSPLIT              aSplitMmio[2];
@@ -1114,6 +1117,46 @@ static void pspEmuIomX86MapWriteSplit(PSPCORE hCore, PSPADDR uPspAddr, size_t cb
 }
 
 
+static void pspIoMgrMemExecRwTp(PSPCORE hCore, PSPCORETP hTp, uint32_t fTpFlags, PSPPADDR PspAddr, uint32_t cb, const void *pvVal, void *pvUser)
+{
+    PPSPIOMX86MAPCTRLSLOT pX86MapSlot = (PPSPIOMX86MAPCTRLSLOT)pvUser;
+    PPSPIOMINT pThis = (PPSPIOMINT)pX86MapSlot->pIoMgr;
+
+    X86PADDR PhysX86Addr = pX86MapSlot->PhysX86Base | PspAddr;
+    PPSPIOMREGIONHANDLEINT pRegion = pspEmuIomX86MapFindRegion(pThis, PhysX86Addr);
+
+    if (pRegion) /* Should always be the case. */
+    {
+        PSPTRACEEVTORIGIN enmEvtOrigin = PSPTRACEEVTORIGIN_X86;
+        if (pRegion)
+        {
+            if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MMIO)
+                enmEvtOrigin = PSPTRACEEVTORIGIN_X86_MMIO;
+            else if (pRegion->enmType == PSPIOMREGIONTYPE_X86_MEM)
+                enmEvtOrigin = PSPTRACEEVTORIGIN_X86_MEM;
+        }
+
+        if (fTpFlags & PSPEMU_CORE_TRACE_F_READ)
+        {
+            pspEmuIomTraceRegionRead(pThis, pRegion, enmEvtOrigin, PhysX86Addr, pvVal, cb);
+
+            pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cb, pvVal, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_BEFORE);
+            /** @todo: Distinguishing between before and after trace points not possible right now, so do both here. */
+            pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cb, pvVal, PSPEMU_IOM_TRACE_F_READ, PSPEMU_IOM_TRACE_F_AFTER);
+        }
+
+        if (fTpFlags & PSPEMU_CORE_TRACE_F_WRITE)
+        {
+            pspEmuIomTraceRegionWrite(pThis, pRegion, enmEvtOrigin, PhysX86Addr, pvVal, cb);
+
+            pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cb, pvVal, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_BEFORE);
+            /** @todo: Distinguishing between before and after trace points not possible right now, so do both here. */
+            pspEmuIomX86TpCall(pThis, PhysX86Addr, pRegion, cb, pvVal, PSPEMU_IOM_TRACE_F_WRITE, PSPEMU_IOM_TRACE_F_AFTER);
+        }
+    }
+}
+
+
 /**
  * Unmaps any directly mapped x86 memory regions.
  *
@@ -1126,6 +1169,10 @@ static void pspEmuIoMgrX86MapExecMemoryRegionsUnmap(PPSPIOMINT pThis, PPSPIOMX86
     if (pX86MapSlot->pX86MemExec)
     {
         int rc = PSPEmuCoreMemRegionRemove(pThis->hPspCore, pX86MapSlot->PspAddrMemExecStart, pX86MapSlot->cbMemExec);
+        /** @todo Assert rc */
+
+        /* Deregister the core read/write trace point for the memory region. */
+        rc = PSPEmuCoreTraceDeregister(pX86MapSlot->hMemExecTpRw);
         /** @todo Assert rc */
 
         /* Deregister the possibly split MMIO region. */
@@ -1144,6 +1191,7 @@ static void pspEmuIoMgrX86MapExecMemoryRegionsUnmap(PPSPIOMINT pThis, PPSPIOMX86
 
         /* Clear important members. */
         pX86MapSlot->pX86MemExec                    = NULL;
+        pX86MapSlot->hMemExecTpRw                   = NULL;
         pX86MapSlot->PspAddrMemExecStart            = 0;
         pX86MapSlot->cbMemExec                      = 0;
         pX86MapSlot->aSplitMmio[0].pX86MapSlot      = NULL;
@@ -1199,7 +1247,16 @@ static void pspEmuIoMgrX86MapExecMemoryRegionsMapMaybe(PPSPIOMINT pThis, PPSPIOM
             rc = PSPEmuCoreMemRegionAdd(pThis->hPspCore, pX86MapSlot->PspAddrMmioStart + offMemExec, cbMemExec,
                                         PSPEMU_CORE_MEM_REGION_PROT_F_EXEC | PSPEMU_CORE_MEM_REGION_PROT_F_READ | PSPEMU_CORE_MEM_REGION_PROT_F_WRITE,
                                         pX86MemExec->u.X86.u.Mem.pvMapping);
-            /** @todo Assert */
+            if (STS_SUCCESS(rc))
+            {
+                /* Register our read/write tracepoint for forwarding accesses to registered I/O trace points. */
+                rc = PSPEmuCoreTraceRegister(pThis->hPspCore, pX86MapSlot->PspAddrMmioStart + offMemExec,
+                                             pX86MapSlot->PspAddrMmioStart + offMemExec + cbMemExec - 1,
+                                             PSPEMU_CORE_TRACE_F_READ | PSPEMU_CORE_TRACE_F_WRITE, ARMASID_ANY,
+                                             pspIoMgrMemExecRwTp, pX86MapSlot,
+                                             &pX86MapSlot->hMemExecTpRw);
+                /** @todo Assert */
+            }
 
             /* Insert split MMIO region coming after the executable memory region. */
             if (offMemExec + cbMemExec < pX86MapSlot->cbMmio)
@@ -1819,6 +1876,7 @@ int PSPEmuIoMgrCreate(PPSPIOM phIoMgr, PSPCORE hPspCore)
                     pX86MapSlot->cbMmio            = 64 * _1M;
                     pX86MapSlot->PhysX86Base       = 0;
                     pX86MapSlot->pX86MemExec       = NULL;
+                    pX86MapSlot->hMemExecTpRw      = NULL;
                     pX86MapSlot->u32RegX86BaseAddr = 0;
                     pX86MapSlot->u32RegUnk1        = 0;
                     pX86MapSlot->u32RegUnk2        = 0;
