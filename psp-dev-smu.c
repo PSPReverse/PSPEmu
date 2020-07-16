@@ -165,7 +165,7 @@ static int pspDevSmuInit(PPSPDEV pDev)
 
     pThis->u32RegMsgSts = 0x1; /* Ready for message bit? */
 
-    SMNADDR SmnAddrSmu = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x03b10024 : 0x03b10034;
+    SMNADDR SmnAddrSmu = pDev->pCfg->pPspProfile->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x03b10024 : 0x03b10034;
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrSmu, 4,
                                     pspDevSmuRead, NULL, pThis,
                                     "SmuSts", &pThis->hSmn);

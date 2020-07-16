@@ -638,7 +638,7 @@ static int pspEmuCcdMemReset(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         if (pCfg->cbBootRomSvcPage != _4K)
             return STS_ERR_INVALID_PARAMETER;
 
-        PSPADDR PspAddrBrsp = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x4f000 : 0x3f000;
+        PSPADDR PspAddrBrsp = pCfg->pPspProfile->PspAddrBrsp;
         if (pCfg->fBootRomSvcPageModify)
         {
             PSPROMSVCPG Brsp;
@@ -714,7 +714,7 @@ static int pspEmuCcdMemInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 {
     int rc = STS_INF_SUCCESS;
 
-    pThis->cbSram = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 320 * _1K : _256K;
+    pThis->cbSram = pCfg->pPspProfile->cbSram;
     pThis->pvSram = calloc(1, pThis->cbSram);
     if (!pThis->pvSram)
         return STS_ERR_NO_MEMORY;
@@ -838,7 +838,7 @@ static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         {
             case PSPEMUMODE_APP:
                 PspAddrBegin = 0x15100;
-                PspAddrEnd   = pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x4f000 : 0x3f000;
+                PspAddrEnd   = pCfg->pPspProfile->PspAddrBrsp - 1;
                 break;
             case PSPEMUMODE_SYSTEM:
                 PspAddrBegin = 0x100;

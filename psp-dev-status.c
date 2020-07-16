@@ -180,14 +180,7 @@ static int pspDevStsInit(PPSPDEV pDev)
     pThis->offWrite    = 0;
 
     /* Register MMIO ranges. */
-    PSPADDR MmioAddrSts = 0x32000e8; /* Original Zen */
-    /* Why oh why? */
-    if (pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
-        MmioAddrSts = 0x32000d8;
-    else if (pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN_PLUS)
-        MmioAddrSts = 0x32000f0;
-
-    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, MmioAddrSts, 4,
+    int rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, pDev->pCfg->pPspProfile->PspAddrMmioSts, 4,
                                      pspDevStsMmioRead, pspDevStsMmioWrite, pThis,
                                      "PspSts", &pThis->hMmio);
     if (!rc)

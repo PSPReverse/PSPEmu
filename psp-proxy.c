@@ -1894,9 +1894,8 @@ int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd)
 bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
                                  PCPSPEMUCFG pCfg, void *pvReadVal)
 {
-    if (   (   enmStage == PSPPROXYBLSTAGE_ON_CHIP
-            || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
-        && pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN)
+    if (   enmStage == PSPPROXYBLSTAGE_ON_CHIP
+        || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
     {
         for (uint32_t i = 0; i < ELEMENTS(g_aMmioBlacklistedZenOnChip); i++)
         {
@@ -1930,9 +1929,8 @@ bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite,
 bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
                                 PCPSPEMUCFG pCfg, void *pvReadVal)
 {
-    if (   (   enmStage == PSPPROXYBLSTAGE_OFF_CHIP
-            || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
-        && pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN)
+    if (   enmStage == PSPPROXYBLSTAGE_OFF_CHIP
+        || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
     {
         for (uint32_t i = 0; i < ELEMENTS(g_aSmnBlacklistedZenOffChip); i++)
         {
@@ -1966,9 +1964,8 @@ bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPP
 bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
                                 PCPSPEMUCFG pCfg, void *pvReadVal)
 {
-    if (   (   enmStage == PSPPROXYBLSTAGE_OFF_CHIP
-            || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
-        && pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN)
+    if (   enmStage == PSPPROXYBLSTAGE_OFF_CHIP
+        || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
     {
         for (uint32_t i = 0; i < ELEMENTS(g_ax86BlacklistedZenOffChip); i++)
         {

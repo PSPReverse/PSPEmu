@@ -101,7 +101,7 @@ static int pspDevMmioFuseInit(PPSPDEV pDev)
                                     pspDevFuseSmnRead, NULL, pThis,
                                     "Fuse1", &pThis->hSmn);
     if (   !rc
-        && pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
+        && pDev->pCfg->pPspProfile->enmMicroArch == PSPEMUMICROARCH_ZEN2)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x3200050, 4,
                                      pspDevFuseKeySzMmioRead, NULL, pThis,
                                      "FuseKeySz", &pThis->hMmioKeySz);

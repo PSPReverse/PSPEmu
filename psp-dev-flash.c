@@ -160,7 +160,7 @@ static int pspDevFlashInit(PPSPDEV pDev)
     pThis->offAccLast = UINT32_MAX - 1;
     pThis->idPacket   = 0;
 
-    SMNADDR SmnAddrFlash = pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2 ? 0x44000000 : 0x0a000000;
+    SMNADDR SmnAddrFlash = pDev->pCfg->pPspProfile->SmnAddrFlashStart;
     int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrFlash, pDev->pCfg->cbFlashRom,
                                     pspDevFlashRead, pspDevFlashWrite, pThis,
                                     "SPI flash", &pThis->hSmn);

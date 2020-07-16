@@ -106,7 +106,7 @@ static int pspDevMmioUnkInit(PPSPDEV pDev)
                                      NULL /*pszDesc*/, &pThis->hMmio0x0301003c);
 
     if (   !rc
-        && pDev->pCfg->enmMicroArch == PSPEMUMICROARCH_ZEN2)
+        && pDev->pCfg->pPspProfile->enmMicroArch == PSPEMUMICROARCH_ZEN2)
         rc = PSPEmuIoMgrMmioRegister(pDev->hIoMgr, 0x030101c0, 4,
                                      pspDevUnkMmioRead0x030101c0, NULL, pThis,
                                      NULL /*pszDesc*/, &pThis->hMmio0x030101c0);

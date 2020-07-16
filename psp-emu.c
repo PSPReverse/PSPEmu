@@ -34,6 +34,7 @@
 #include <psp-dbg.h>
 #include <psp-flash.h>
 #include <psp-proxy.h>
+#include <psp-profile.h>
 #include <psp-iolog-replay.h>
 
 
@@ -58,8 +59,8 @@ static struct option g_aOptions[] =
     {"psp-dbg-mode",                 no_argument,       0, 'g'},
     {"psp-proxy-addr",               required_argument, 0, 'x'},
     {"trace-log",                    required_argument, 0, 't'},
-    {"micro-arch",                   required_argument, 0, 'a'},
-    {"cpu-segment",                  required_argument, 0, 'c'},
+    {"psp-profile",                  required_argument, 0, 'a'},
+    {"cpu-profile",                  required_argument, 0, 'c'},
     {"intercept-svc-6",              no_argument,       0, '6'},
     {"trace-svcs",                   no_argument,       0, 'v'},
     {"acpi-state",                   required_argument, 0, 'i'},
@@ -559,8 +560,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->pszPspProxyAddr       = NULL;
     pCfg->PspAddrProxyTrustedOsHandover = 0;
     pCfg->pszTraceLog           = NULL;
-    pCfg->enmMicroArch          = PSPEMUMICROARCH_INVALID;
-    pCfg->enmCpuSegment         = PSPEMUAMDCPUSEGMENT_INVALID;
+    pCfg->pCpuProfile           = NULL;
+    pCfg->pPspProfile           = NULL;
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
     pCfg->pszUartRemoteAddr     = NULL;
     pCfg->pszSpiFlashTrace      = NULL;
@@ -600,8 +601,8 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --load-psp-dir\n"
                        "    --psp-dbg-mode\n"
                        "    --trace-log <path/to/trace/log>\n"
-                       "    --micro-arch <zen|zen+|zen2>\n"
-                       "    --cpu-segment <ryzen|ryzen-pro|threadripper|epyc>\n"
+                       "    --psp-profile <id> The PSP profile to use\n"
+                       "    --cpu-profile <id> The CPU profile to use\n"
                        "    --acpi-state <s0|s1|s1|s2|s3|s4|s5>\n"
                        "    --intercept-svc-6\n"
                        "    --trace-svcs\n"
@@ -679,34 +680,25 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                 break;
             case 'a':
             {
-                if (!strcasecmp(optarg, "zen"))
-                    pCfg->enmMicroArch = PSPEMUMICROARCH_ZEN;
-                else if (!strcasecmp(optarg, "zen+"))
-                    pCfg->enmMicroArch = PSPEMUMICROARCH_ZEN_PLUS;
-                else if (!strcasecmp(optarg, "zen2"))
-                    pCfg->enmMicroArch = PSPEMUMICROARCH_ZEN2;
-                else
+                pCfg->pPspProfile = PSPProfilePspGetById(optarg);
+                if (!pCfg->pPspProfile)
                 {
-                    fprintf(stderr, "Unrecognised micro architecure: %s\n", optarg);
+                    fprintf(stderr, "The PSP profile \"%s\" could not be found\n", optarg);
                     return -1;
                 }
                 break;
             }
             case 'c':
             {
-                if (!strcasecmp(optarg, "ryzen"))
-                    pCfg->enmCpuSegment = PSPEMUAMDCPUSEGMENT_RYZEN;
-                else if (!strcasecmp(optarg, "ryzen-pro"))
-                    pCfg->enmCpuSegment = PSPEMUAMDCPUSEGMENT_RYZEN_PRO;
-                else if (!strcasecmp(optarg, "threadripper"))
-                    pCfg->enmCpuSegment = PSPEMUAMDCPUSEGMENT_THREADRIPPER;
-                else if (!strcasecmp(optarg, "epyc"))
-                    pCfg->enmCpuSegment = PSPEMUAMDCPUSEGMENT_EPYC;
-                else
+                pCfg->pCpuProfile = PSPProfileAmdCpuGetById(optarg);
+                if (!pCfg->pCpuProfile)
                 {
-                    fprintf(stderr, "Unrecognised CPU segment: %s\n", optarg);
+                    fprintf(stderr, "The CPU profile \"%s\" could not be found\n", optarg);
                     return -1;
                 }
+
+                if (!pCfg->pPspProfile) /* Can be overwritten with a dedicated PSP profile argument. */
+                    pCfg->pPspProfile = pCfg->pCpuProfile->pPspProfile;
                 break;
             }
             case 'i':

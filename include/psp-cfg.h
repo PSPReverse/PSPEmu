@@ -23,6 +23,8 @@
 #include <common/types.h>
 
 #include <psp-dbg-hlp.h>
+#include <psp-profile.h>
+
 
 /**
  * Emulation mode.
@@ -40,44 +42,6 @@ typedef enum PSPEMUMODE
     /** Run only a given trusted OS binary. */
     PSPEMUMODE_TRUSTED_OS
 } PSPEMUMODE;
-
-
-/**
- * Micro architecture the PSP emulated for.
- */
-typedef enum PSPEMUMICROARCH
-{
-    /** Invalid value. */
-    PSPEMUMICROARCH_INVALID = 0,
-    /** Original Zen. */
-    PSPEMUMICROARCH_ZEN,
-    /* Zen+ */
-    PSPEMUMICROARCH_ZEN_PLUS,
-    /* Zen2 */
-    PSPEMUMICROARCH_ZEN2,
-    /** 32bit hack. */
-    PSPEMUMICROARCH_32BIT_HACK = 0x7fffffff
-} PSPEMUMICROARCH;
-
-
-/**
- * AMD CPU segment.
- */
-typedef enum PSPEMUAMDCPUSEGMENT
-{
-    /** Invalid segment. */
-    PSPEMUAMDCPUSEGMENT_INVALID = 0,
-    /** Ryzen (Consumer). */
-    PSPEMUAMDCPUSEGMENT_RYZEN,
-    /** Ryzen Pro (Business). */
-    PSPEMUAMDCPUSEGMENT_RYZEN_PRO,
-    /** Threadripper (HEDT). */
-    PSPEMUAMDCPUSEGMENT_THREADRIPPER,
-    /** Epyc (Server). */
-    PSPEMUAMDCPUSEGMENT_EPYC,
-    /** 32bit hack. */
-    PSPEMUAMDCPUSEGMENT_32BIT_HACK = 0x7fffffff
-} PSPEMUAMDCPUSEGMENT;
 
 
 /**
@@ -220,10 +184,10 @@ typedef struct PSPEMUCFG
 {
     /** Emulation mode. */
     PSPEMUMODE              enmMode;
-    /** The micro architecture we are emulating. */
-    PSPEMUMICROARCH         enmMicroArch;
-    /** The CPU segment we are emulating. */
-    PSPEMUAMDCPUSEGMENT     enmCpuSegment;
+    /** The resolved CPU profile. */
+    PCPSPAMDCPUPROFILE      pCpuProfile;
+    /** The resolved PSP profile. */
+    PCPSPPROFILE            pPspProfile;
     /** ACPI system state the emulator starts from. */
     PSPEMUACPISTATE         enmAcpiState;
     /** The flash ROM path. */
