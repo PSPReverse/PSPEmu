@@ -186,9 +186,10 @@ static bool pspEmuCovBbRangeSet(PPSPCOVINT pThis, PSPADDR PspAddr, size_t cbBb)
  * @param   hCore                   The PSP core handle causing the call.
  * @param   PspAddr                 The PSP address.
  * @param   cbBb                    Size of the basic block.
+ * @param   u64Val                  Ignored for exec trace hooks.
  * @param   pvUser                  Opaque user data passed during registration.
  */
-static void pspEmuCovBbTrace(PSPCORE hCore, PSPADDR PspAddr, uint32_t cbBb, void *pvUser)
+static void pspEmuCovBbTrace(PSPCORE hCore, PSPADDR PspAddr, uint32_t cbBb, uint64_t u64Val, void *pvUser)
 {
      PPSPCOVINT pThis = (PPSPCOVINT)pvUser;
 

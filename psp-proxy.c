@@ -848,9 +848,10 @@ static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFla
  * @param   hCore                   The PSP core where the hook was registered.
  * @param   uPspAddr                The PC, should match the registration.
  * @param   cbInsn                  Size of the instruction in bytes.
+ * @param   u64Val                  Ignored for exec trace hook.
  * @param   pvUser                  Opaque user data given during registration.
  */
-static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
+static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, uint64_t u64Val, void *pvUser)
 {
     PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
 

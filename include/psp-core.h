@@ -37,8 +37,20 @@ typedef struct PSPCOREINT *PSPCORE;
 typedef PSPCORE *PPSPCORE;
 
 
-/** Trace hook handler. */
-typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser);
+/**
+ * Trace hook handler.
+ *
+ * @returns nothing.
+ * @param   hCore                   The core handle triggering the callback.
+ * @param   uPspAddr                The PSP address triggering (always virtual), for exec trace hooks
+ *                                  this is the PC of the instruction. For memory accesses this denotes the
+ *                                  memory address being accessed.
+ * @param   cb                      The access size, for exec trace hooks this is the size of the instruction.
+ *                                  For memory accesses this denotes the size of the memory access being made.
+ * @param   u64Val                  The value being written for write memory trace hooks, undefined otherwise.
+ * @param   pvUser                  Opaque user data passed during trace hook registration.
+ */
+typedef void (FNPSPCORETRACE)(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cb, uint64_t u64Val, void *pvUser);
 /** Trace hook handler pointer. */
 typedef FNPSPCORETRACE *PFNPSPCORETRACE;
 

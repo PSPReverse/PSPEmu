@@ -376,9 +376,10 @@ static void pspDbgTpHit(PSPCORE hCore, PPSPDBGTP pTp)
  * @param   hCore                   The PSP core handle.
  * @param   uPspAddr                The PSP address where the callback hit.
  * @param   cbInsn                  Instruction size.
+ * @param   u64Val                  Value for memory writes, ignored for breakpoints.
  * @param   pvUser                  Opaque user data.
  */
-static void pspDbgTpBpHit(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, void *pvUser)
+static void pspDbgTpBpHit(PSPCORE hCore, PSPADDR uPspAddr, uint32_t cbInsn, uint64_t u64Val, void *pvUser)
 {
     PPSPDBGTP pTp = (PPSPDBGTP)pvUser;
     pspDbgTpHit(hCore, pTp);

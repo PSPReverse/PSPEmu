@@ -676,7 +676,7 @@ static void pspEmuCoreUcHookWrapper(uc_engine *pUcEngine, uint64_t uAddr, uint32
 
     if (   pHook->idAsid == ARMASID_ANY
         || pHook->idAsid == pCpBank->u32RegContextId)
-        pHook->pfnTrace(pThis, (PSPADDR)uAddr, cbInsn, pHook->pvUser);
+        pHook->pfnTrace(pThis, (PSPADDR)uAddr, cbInsn, 0 /*u64Val*/, pHook->pvUser);
 }
 
 
@@ -699,7 +699,7 @@ static void pspEmuCoreUcHookMemWrapper(uc_engine *pUcEngine, uc_mem_type uMemTyp
 
     if (   pHook->idAsid == ARMASID_ANY
         || pHook->idAsid == pCpBank->u32RegContextId)
-        pHook->pfnTrace(pThis, (PSPADDR)uAddr, cb, pHook->pvUser);
+        pHook->pfnTrace(pThis, (PSPADDR)uAddr, cb, (uint64_t)i64Val, pHook->pvUser);
 }
 
 
