@@ -994,9 +994,9 @@ static int pspEmuProxyCcpReqExec(PPSPPROXYINT pThis, PCCCP5REQ pCcpReq, uint32_t
             {
                 uint32_t uVal = PspAddrReqAligned + sizeof(*pCcpReq);
                 PSPPADDR PspAddrCcpQBase =  CCP_V5_MMIO_ADDRESS + CCP_V5_Q_OFFSET + idxQueue * CCP_V5_Q_SIZE;
-                rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_HEAD, sizeof(uVal), &uVal);
+                rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_TAIL, sizeof(uVal), &uVal);
                 if (!rc)
-                    rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_TAIL, sizeof(PspAddrReqAligned), &PspAddrReqAligned);
+                    rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, PspAddrCcpQBase + CCP_V5_Q_REG_HEAD, sizeof(PspAddrReqAligned), &PspAddrReqAligned);
                 if (!rc)
                 {
                     uVal = 0xd;

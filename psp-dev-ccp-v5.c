@@ -2011,19 +2011,25 @@ static void pspDevCcpQueueRunMaybe(PPSPDEVCCP pThis, PCCPQUEUE pQueue)
         /* Clear halt and running bit. */
         pQueue->u32RegCtrl &= ~CCP_V5_Q_REG_CTRL_HALT;
 
-        uint32_t       u32ReqTail = pQueue->u32RegReqTail;
-        const uint32_t u32ReqHead = pQueue->u32RegReqHead;
+        const uint32_t u32ReqTail = pQueue->u32RegReqTail;
+              uint32_t u32ReqHead = pQueue->u32RegReqHead;
         const size_t   cbQueue    = CCP_V5_Q_REG_CTRL_Q_SZ_GET_SIZE(pQueue->u32RegCtrl);
 
         while (u32ReqTail != u32ReqHead)
         {
             CCP5REQ Req;
 
-            u32ReqTail &= ~(cbQueue - 1); /* Size is a power of two. */
-            int rc = PSPEmuIoMgrPspAddrRead(pThis->pDev->hIoMgr, u32ReqTail, &Req, sizeof(Req));
+/** @todo The CCP does some sort of wraparound for the queue when it reaches the end based on the size
+ * but every attempt to implement this broke either the on chip or off chip BL or the secure OS.
+ * Need to figure out how exactly this works.
+ */
+#if 0
+            u32ReqHead &= ~(cbQueue - 1); /* Size is a power of two. */
+#endif
+            int rc = PSPEmuIoMgrPspAddrRead(pThis->pDev->hIoMgr, u32ReqHead, &Req, sizeof(Req));
             if (!rc)
             {
-                pspDevCcpDumpReq(&Req, u32ReqTail);
+                pspDevCcpDumpReq(&Req, u32ReqHead);
                 rc = pspDevCcpReqProcess(pThis, &Req);
                 if (!rc)
                 {
@@ -2039,17 +2045,17 @@ static void pspDevCcpQueueRunMaybe(PPSPDEVCCP pThis, PCCPQUEUE pQueue)
             }
             else
             {
-                printf("CCP: Failed to read request from 0x%08x with rc=%d\n", u32ReqTail, rc);
+                printf("CCP: Failed to read request from 0x%08x with rc=%d\n", u32ReqHead, rc);
                 pQueue->u32RegSts = CCP_V5_Q_REG_STATUS_ERROR; /* Signal error. */
                 pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_ERROR;
                 break;
             }
 
-            u32ReqTail += sizeof(Req);
+            u32ReqHead += sizeof(Req);
         }
 
         /* Set halt bit again. */
-        pQueue->u32RegReqTail = u32ReqTail;
+        pQueue->u32RegReqHead = u32ReqHead;
         pQueue->u32RegCtrl |= CCP_V5_Q_REG_CTRL_HALT;
         pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_Q_STOP;
         if (u32ReqTail == u32ReqHead)
