@@ -26,6 +26,18 @@
  */
 static const PSPPROXYADDRBLOCKEDDESC g_aProxyBlockedSmn_AmdCpu_Ryzen7_1800x[] =
 {
+    /*
+     * The following monitor commands release the x86 cores on an Ryzen 1800x (1 CCD, 2CCX, 8 cores/16 threads):
+     *
+     *     monitor proxy.SmnWrite 0x18002ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18022ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18042ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18062ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18402ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18422ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18442ff0 4 0x80000000
+     *     monitor proxy.SmnWrite 0x18462ff0 4 0x80000000
+     */
     PSPPROXY_ADDR_BLOCKED_SMN_INIT_ALL_FEAT("X86Ccx0Core0", 0x18002ff0, 4, 0, PSPPROXY_ADDR_BLOCKED_FEAT_F_NO_X86_RELEASE),
     PSPPROXY_ADDR_BLOCKED_SMN_INIT_ALL_FEAT("X86Ccx0Core1", 0x18022ff0, 4, 0, PSPPROXY_ADDR_BLOCKED_FEAT_F_NO_X86_RELEASE),
     PSPPROXY_ADDR_BLOCKED_SMN_INIT_ALL_FEAT("X86Ccx0Core2", 0x18042ff0, 4, 0, PSPPROXY_ADDR_BLOCKED_FEAT_F_NO_X86_RELEASE),
