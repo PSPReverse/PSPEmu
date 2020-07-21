@@ -68,7 +68,7 @@ typedef const PSPTRACEEVTSEVERITY *PCPSPTRACEEVTSEVERITY;
 typedef enum PSPTRACEEVTORIGIN
 {
     /** Invalid origin, do not use. */
-    PSPTRACEEVTORIGIN_INVALID,
+    PSPTRACEEVTORIGIN_INVALID = 0,
     /** PSP MMIO access related. */
     PSPTRACEEVTORIGIN_MMIO,
     /** PSP SMN access related. */

@@ -228,6 +228,7 @@ static const char *g_apszOrigin2Str[] =
     "SMC",
     "CCP",
     "STS",
+    "ACPI",
     "GPIO",
     "IOMUX",
     "RTC",
