@@ -75,15 +75,15 @@ int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd);
  * for the given stage.
  *
  * @returns Status code.
+ * @param   hProxy                  The proxy handle.
  * @param   PspAddrMmio             The MMIO address being accessed.
  * @param   cbAcc                   Size of the access in bytes.
  * @param   fWrite                  Flag whether this is a read of write access.
  * @param   enmStage                The bootloader stage.
- * @param   pCfg                    The PSP emulator config.
  * @param   pvReadVal               Where to store the value to return for blocked reads.
  */
-bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
-                                 PCPSPEMUCFG pCfg, void *pvReadVal);
+bool PSPProxyIsMmioAccessAllowed(PSPPROXY hProxy, PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
+                                 void *pvReadVal);
 
 
 /**
@@ -91,15 +91,15 @@ bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite,
  * for the given stage.
  *
  * @returns Status code.
+ * @param   hProxy                  The proxy handle.
  * @param   SmnAddr                 The SMN address being accessed.
  * @param   cbAcc                   Size of the access in bytes.
  * @param   fWrite                  Flag whether this is a read of write access.
  * @param   enmStage                The bootloader stage.
- * @param   pCfg                    The PSP emulator config.
  * @param   pvReadVal               Where to store the value to return for blocked reads.
  */
-bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
-                                PCPSPEMUCFG pCfg, void *pvReadVal);
+bool PSPProxyIsSmnAccessAllowed(PSPPROXY hProxy, SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
+                                void *pvReadVal);
 
 
 /**
@@ -107,15 +107,15 @@ bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPB
  * for the given stage.
  *
  * @returns Status code.
+ * @param   hProxy                  The proxy handle.
  * @param   PhysX86Addr             The physical x86 address being accessed.
  * @param   cbAcc                   Size of the access in bytes.
  * @param   fWrite                  Flag whether this is a read of write access.
  * @param   enmStage                The bootloader stage.
- * @param   pCfg                    The PSP emulator config.
  * @param   pvReadVal               Where to store the value to return for blocked reads.
  */
-bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
-                                PCPSPEMUCFG pCfg, void *pvReadVal);
+bool PSPProxyIsX86AccessAllowed(PSPPROXY hProxy, X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
+                                void *pvReadVal);
 
 
 #endif /* !__psp_proxy_h */

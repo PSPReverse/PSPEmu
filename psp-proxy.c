@@ -129,6 +129,8 @@ typedef struct PSPPROXYINT
     PSPPROXYCTX                 hPspProxyCtx;
     /** The global config. */
     PCPSPEMUCFG                 pCfg;
+    /** The feature flags for blcking certain address regions. */
+    uint32_t                    fProxyFeat;
     /** Head of CCDs registered with this proxy instance. */
     PPSPPROXYCCD                pCcdsHead;
     /** CCP proxy data if enabled. */
@@ -511,9 +513,9 @@ static void pspEmuProxyCcdPspMmioUnassignedRead(PSPADDR offMmio, size_t cbRead, 
     /* Reads will flush any buffered writes immediately and reset the write buffering. */
     pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
 
-    bool fAllowed = PSPProxyIsMmioAccessAllowed(offMmio, cbRead, false /*fWrite*/,
+    bool fAllowed = PSPProxyIsMmioAccessAllowed(pThis, offMmio, cbRead, false /*fWrite*/,
                                                 pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
-                                                pThis->pCfg, pvVal);
+                                                pvVal);
     if (fAllowed)
     {
         int rc = 0;
@@ -539,9 +541,9 @@ static void pspEmuProxyCcdPspMmioUnassignedWrite(PSPADDR offMmio, size_t cbWrite
     /** @todo Implement buffering for MMIO accesses. */
     pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
 
-    bool fAllowed = PSPProxyIsMmioAccessAllowed(offMmio, cbWrite, true /*fWrite*/,
+    bool fAllowed = PSPProxyIsMmioAccessAllowed(pThis, offMmio, cbWrite, true /*fWrite*/,
                                                 pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
-                                                pThis->pCfg, NULL /*pvReadVal*/);
+                                                NULL /*pvReadVal*/);
     if (fAllowed)
     {
         int rc = 0;
@@ -567,9 +569,9 @@ static void pspEmuProxyCcdPspSmnUnassignedRead(SMNADDR offSmn, size_t cbRead, vo
     /* Reads will flush any buffered writes immediately and reset the write buffering. */
     pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
 
-    bool fAllowed = PSPProxyIsSmnAccessAllowed(offSmn, cbRead, false /*fWrite*/,
+    bool fAllowed = PSPProxyIsSmnAccessAllowed(pThis, offSmn, cbRead, false /*fWrite*/,
                                                pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
-                                               pThis->pCfg, pvVal);
+                                               pvVal);
     if (fAllowed)
     {
         int rc = PSPProxyCtxPspSmnRead(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmn, cbRead, pvVal);
@@ -588,9 +590,9 @@ static void pspEmuProxyCcdPspSmnUnassignedWrite(SMNADDR offSmn, size_t cbWrite, 
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
-    bool fAllowed = PSPProxyIsSmnAccessAllowed(offSmn, cbWrite, true /*fWrite*/,
+    bool fAllowed = PSPProxyIsSmnAccessAllowed(pThis, offSmn, cbWrite, true /*fWrite*/,
                                                pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
-                                               pThis->pCfg, NULL /*pvReadVal*/);
+                                               NULL /*pvReadVal*/);
     if (fAllowed)
     {
         bool fAppended = false;
@@ -626,9 +628,9 @@ static void pspEmuProxyCcdX86UnassignedRead(X86PADDR offX86Phys, size_t cbRead, 
     /* Reads will flush any buffered writes immediately and reset the write buffering. */
     pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
 
-    bool fAllowed = PSPProxyIsX86AccessAllowed(offX86Phys, cbRead, false /*fWrite*/,
+    bool fAllowed = PSPProxyIsX86AccessAllowed(pThis, offX86Phys, cbRead, false /*fWrite*/,
                                                pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
-                                               pThis->pCfg, pvVal);
+                                               pvVal);
     if (fAllowed)
     {
         int rc = 0;
@@ -653,9 +655,9 @@ static void pspEmuProxyCcdX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
-    bool fAllowed = PSPProxyIsX86AccessAllowed(offX86Phys, cbWrite, true /*fWrite*/,
+    bool fAllowed = PSPProxyIsX86AccessAllowed(pThis, offX86Phys, cbWrite, true /*fWrite*/,
                                                pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
-                                               pThis->pCfg, NULL /*pvReadVal*/);
+                                               NULL /*pvReadVal*/);
     if (fAllowed)
     {
         bool fAppended = false;
@@ -1651,13 +1653,15 @@ static const DBGHLPCMD g_aProxyDbgCmds[] =
  * Checks whether the given access is allowed or blocked by the given range descriptor.
  *
  * @returns Flag whether access is allowed, true if allowed, false if denied.
+ * @param   pThis                   The PSP proxy instance.
  * @param   pDesc                   The descriptor to check against.
  * @param   cbAcc                   Size of the access.
  * @param   fWrite                  Flag whether this is a write or read.
  * @param   enmStage                The BL stage we are in.
  * @param   pvReadVal               Where to store the value to return on reads if reads are blocked.
  */
-static bool pspProxyAddrAccessIsAllowed(PCPSPPROXYADDRBLOCKEDDESC pDesc, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage, void *pvReadVal)
+static bool pspProxyAddrAccessIsAllowed(PPSPPROXYINT pThis, PCPSPPROXYADDRBLOCKEDDESC pDesc, size_t cbAcc, bool fWrite,
+                                        PSPBLSTAGE enmStage, void *pvReadVal)
 {
     if (   (   pDesc->cbAcc == cbAcc
             || pDesc->cbAcc == 0)
@@ -1667,7 +1671,9 @@ static bool pspProxyAddrAccessIsAllowed(PCPSPPROXYADDRBLOCKEDDESC pDesc, size_t 
                 && pDesc->fAccess & PSPPROXY_ADDR_BLOCKED_ACCESS_F_READ))
         && (   enmStage == pDesc->enmBlStage
             || enmStage == PSPBLSTAGE_UNKNOWN
-            || pDesc->enmBlStage == PSPBLSTAGE_ANY)) /** @todo Examine feature flags. */
+            || pDesc->enmBlStage == PSPBLSTAGE_ANY)
+        && (   !pDesc->fProxyFeat
+            || (pDesc->fProxyFeat & pThis->fProxyFeat) != 0))
     {
         /* On a read return the value to be used instead. */
         if (!fWrite)
@@ -1686,8 +1692,16 @@ int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
     PPSPPROXYINT pThis = (PPSPPROXYINT)calloc(1, sizeof(*pThis));
     if (pThis)
     {
-        pThis->pCfg      = pCfg;
-        pThis->pCcdsHead = NULL;
+        pThis->pCfg       = pCfg;
+        pThis->pCcdsHead  = NULL;
+        pThis->fProxyFeat = 0;
+
+        if (pCfg->fProxyBlockX86CoreRelease)
+            pThis->fProxyFeat |= PSPPROXY_ADDR_BLOCKED_FEAT_F_NO_X86_RELEASE;
+        if (!strncmp(pCfg->pszPspProxyAddr, "serial://", sizeof("serial://") - 1))
+            pThis->fProxyFeat |= PSPPROXY_ADDR_BLOCKED_FEAT_F_X86_UART;
+        else
+            pThis->fProxyFeat |= PSPPROXY_ADDR_BLOCKED_FEAT_F_SPI; /** @todo Bad assumption actually. */
 
         printf("PSP proxy: Connecting to %s\n", pCfg->pszPspProxyAddr);
         rc = PSPProxyCtxCreate(&pThis->hPspProxyCtx, pCfg->pszPspProxyAddr, &g_PspProxyIoIf, pThis);
@@ -1810,10 +1824,11 @@ int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd)
 }
 
 
-bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
-                                 PCPSPEMUCFG pCfg, void *pvReadVal)
+bool PSPProxyIsMmioAccessAllowed(PSPPROXY hProxy, PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
+                                 void *pvReadVal)
 {
-    PCPSPPROFILE pPspProfile = pCfg->pPspProfile;
+    PPSPPROXYINT pThis = hProxy;
+    PCPSPPROFILE pPspProfile = pThis->pCfg->pPspProfile;
 
     for (uint32_t i = 0; i < pPspProfile->cAddrProxyBlockedMmio; i++)
     {
@@ -1821,18 +1836,19 @@ bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite,
 
         if (   PspAddrMmio >= pDesc->AddrStart.u.PspAddr
             && PspAddrMmio < pDesc->AddrStart.u.PspAddr + pDesc->cbRegion)
-            return pspProxyAddrAccessIsAllowed(pDesc, cbAcc, fWrite, enmStage, pvReadVal);
+            return pspProxyAddrAccessIsAllowed(pThis, pDesc, cbAcc, fWrite, enmStage, pvReadVal);
     }
 
     return true;
 }
 
 
-bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
-                                PCPSPEMUCFG pCfg, void *pvReadVal)
+bool PSPProxyIsSmnAccessAllowed(PSPPROXY hProxy, SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
+                                void *pvReadVal)
 {
-    PCPSPPROFILE pPspProfile = pCfg->pPspProfile;
-    PCPSPAMDCPUPROFILE pCpuProfile = pCfg->pCpuProfile;
+    PPSPPROXYINT pThis = hProxy;
+    PCPSPPROFILE pPspProfile = pThis->pCfg->pPspProfile;
+    PCPSPAMDCPUPROFILE pCpuProfile = pThis->pCfg->pCpuProfile;
 
     for (uint32_t i = 0; i < pPspProfile->cAddrProxyBlockedSmn; i++)
     {
@@ -1840,7 +1856,7 @@ bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPB
 
         if (   SmnAddr >= pDesc->AddrStart.u.SmnAddr
             && SmnAddr < pDesc->AddrStart.u.SmnAddr + pDesc->cbRegion)
-            return pspProxyAddrAccessIsAllowed(pDesc, cbAcc, fWrite, enmStage, pvReadVal);
+            return pspProxyAddrAccessIsAllowed(pThis, pDesc, cbAcc, fWrite, enmStage, pvReadVal);
     }
 
     /* Check the CPU profile as well if existing. */
@@ -1852,7 +1868,7 @@ bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPB
 
             if (   SmnAddr >= pDesc->AddrStart.u.SmnAddr
                 && SmnAddr < pDesc->AddrStart.u.SmnAddr + pDesc->cbRegion)
-                return pspProxyAddrAccessIsAllowed(pDesc, cbAcc, fWrite, enmStage, pvReadVal);
+                return pspProxyAddrAccessIsAllowed(pThis, pDesc, cbAcc, fWrite, enmStage, pvReadVal);
         }
     }
 
@@ -1860,10 +1876,11 @@ bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPB
 }
 
 
-bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
-                                PCPSPEMUCFG pCfg, void *pvReadVal)
+bool PSPProxyIsX86AccessAllowed(PSPPROXY hProxy, X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
+                                void *pvReadVal)
 {
-    PCPSPPROFILE pPspProfile = pCfg->pPspProfile;
+    PPSPPROXYINT pThis = hProxy;
+    PCPSPPROFILE pPspProfile = pThis->pCfg->pPspProfile;
 
     for (uint32_t i = 0; i < pPspProfile->cAddrProxyBlockedX86; i++)
     {
@@ -1871,7 +1888,7 @@ bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite,
 
         if (   PhysX86Addr >= pDesc->AddrStart.u.PhysX86Addr
             && PhysX86Addr < pDesc->AddrStart.u.PhysX86Addr + pDesc->cbRegion)
-            return pspProxyAddrAccessIsAllowed(pDesc, cbAcc, fWrite, enmStage, pvReadVal);
+            return pspProxyAddrAccessIsAllowed(pThis, pDesc, cbAcc, fWrite, enmStage, pvReadVal);
     }
 
     return true;

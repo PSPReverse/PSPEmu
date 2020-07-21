@@ -81,6 +81,7 @@ static struct option g_aOptions[] =
     {"dbg-run-up-to",                required_argument, 0, 'U'},
     {"proxy-trusted-os-handover",    required_argument, 0, 'T'},
     {"proxy-ccp",                    no_argument,       0, 'X'},
+    {"proxy-x86-cores-no-release",   no_argument,       0, '8'},
     {"memory-preload",               required_argument, 0, 'M'},
     {"memory-create",                required_argument, 0, 'R'},
     {"proxy-memory-wt",              required_argument, 0, 'W'},
@@ -549,6 +550,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->fIomLogAllAccesses    = false;
     pCfg->fProxyWrBuffer        = false;
     pCfg->fCcpProxy             = false;
+    pCfg->fProxyBlockX86CoreRelease = false;
     pCfg->pvFlashRom            = NULL;
     pCfg->cbFlashRom            = 0;
     pCfg->pvOnChipBl            = NULL;
@@ -581,7 +583,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
     pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
 
-    while ((ch = getopt_long (argc, argv, "hpbrN:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:W:IA", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (argc, argv, "hpbr8N:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:W:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -623,6 +625,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
                        "    --io-log-replay <path/to/io/log> Replays the given I/O log, mutually exclusive with proxy mode\n"
                        "    --proxy-buffer-writes If proxy mode is enabled certain writes will be cached and sent in bursts to speed up certain access patterns\n"
                        "    --proxy-ccp When proxy mode is enabled this will pass through certain CCP request to a real CCP (AES with keys from the protected LSB so far)\n"
+                       "    --proxy-x86-cores-no-release Do not release the x86 cores in proxy mode\n"
                        "    --dbg-run-up-to <addr> Runs until the given address is hit and drops then into the debugger instead of right at the start\n"
                        "    --single-step-dump-core-state Single step execution, dumping the core state after each instruction\n"
                        "    --dbg-step-count <count> Number of instructions to step through in a single round, use at own RISK\n",
@@ -802,6 +805,9 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
             }
             case 'A':
                 pCfg->fSingleStepDumpCoreState = true;
+                break;
+            case '8':
+                pCfg->fProxyBlockX86CoreRelease = true;
                 break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);

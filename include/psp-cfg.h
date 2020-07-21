@@ -219,6 +219,8 @@ typedef struct PSPEMUCFG
     bool                    fProxyWrBuffer;
     /** Flag whether to proxy certain CCP requests - requires the proxy to be enabled of course. */
     bool                    fCcpProxy;
+    /** Flag whether to not release x86 cores when in proxy mode. */
+    bool                    fProxyBlockX86CoreRelease;
     /** Flag whether to do single step execution with dumping the core state after each instruction. */
     bool                    fSingleStepDumpCoreState;
     /** Debugger port to listen on, 0 means debugger is disabled. */
