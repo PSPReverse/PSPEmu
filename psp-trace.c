@@ -18,6 +18,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -199,6 +200,47 @@ static PPSPTRACEINT g_pTraceDef = NULL;
 
 
 /**
+ * Severity enum to string translation.
+ */
+static const char *g_apszSeverity2Str[] =
+{
+    "INVALID",
+    "DEBUG",
+    "INFO",
+    "WARNING",
+    "ERROR",
+    "FATAL_ERROR"
+};
+
+
+/**
+ * Origin enum to string translation.
+ */
+static const char *g_apszOrigin2Str[] =
+{
+    "INVALID",
+    "MMIO",
+    "SMN",
+    "X86",
+    "X86_MMIO",
+    "X86_MEM",
+    "SVC",
+    "SMC",
+    "CCP",
+    "STS",
+    "GPIO",
+    "IOMUX",
+    "RTC",
+    "LPC",
+    "X86_UART",
+    "PROXY",
+    "DBG",
+    "CORE",
+    "IRQ"
+};
+
+
+/**
  * Returns the tracer to use.
  *
  * @returns Tracer instance to use or NULL if nothing is configured.
@@ -237,28 +279,8 @@ static inline PPSPTRACEINT pspEmuTraceGetInstanceForEvtSeverityAndOrigin(PSPTRAC
  */
 static const char *pspEmuTraceGetEvtOriginStr(PSPTRACEEVTORIGIN enmOrigin)
 {
-    switch (enmOrigin)
-    {
-        case PSPTRACEEVTORIGIN_INVALID:     return "INVALID";
-        case PSPTRACEEVTORIGIN_MMIO:        return "MMIO";
-        case PSPTRACEEVTORIGIN_SMN:         return "SMN";
-        case PSPTRACEEVTORIGIN_X86:         return "X86";
-        case PSPTRACEEVTORIGIN_X86_MMIO:    return "X86_MMIO";
-        case PSPTRACEEVTORIGIN_X86_MEM:     return "X86_MEM";
-        case PSPTRACEEVTORIGIN_SVC:         return "SVC";
-        case PSPTRACEEVTORIGIN_SMC:         return "SMC";
-        case PSPTRACEEVTORIGIN_CCP:         return "CCP";
-        case PSPTRACEEVTORIGIN_STS:         return "STS";
-        case PSPTRACEEVTORIGIN_GPIO:        return "GPIO";
-        case PSPTRACEEVTORIGIN_IOMUX:       return "IOMUX";
-        case PSPTRACEEVTORIGIN_RTC:         return "RTC";
-        case PSPTRACEEVTORIGIN_LPC:         return "LPC";
-        case PSPTRACEEVTORIGIN_X86_UART:    return "X86_UART";
-        case PSPTRACEEVTORIGIN_PROXY:       return "PROXY";
-        case PSPTRACEEVTORIGIN_DBG:         return "DBG";
-        case PSPTRACEEVTORIGIN_CORE:        return "CORE";
-        case PSPTRACEEVTORIGIN_IRQ:         return "IRQ";
-    }
+    if (enmOrigin < ELEMENTS(g_apszOrigin2Str))
+        return g_apszOrigin2Str[enmOrigin];
 
     return "<UNKNOWN>";
 }
@@ -272,17 +294,31 @@ static const char *pspEmuTraceGetEvtOriginStr(PSPTRACEEVTORIGIN enmOrigin)
  */
 static const char *pspEmuTraceGetEvtSeverityStr(PSPTRACEEVTSEVERITY enmSeverity)
 {
-    switch (enmSeverity)
-    {
-        case PSPTRACEEVTSEVERITY_INVALID:     return "INVALID";
-        case PSPTRACEEVTSEVERITY_DEBUG:       return "DEBUG";
-        case PSPTRACEEVTSEVERITY_INFO:        return "INFO";
-        case PSPTRACEEVTSEVERITY_WARNING:     return "WARNING";
-        case PSPTRACEEVTSEVERITY_ERROR:       return "ERROR";
-        case PSPTRACEEVTSEVERITY_FATAL_ERROR: return "FATAL_ERROR";
-    }
+    if (enmSeverity < ELEMENTS(g_apszSeverity2Str))
+        return g_apszSeverity2Str[enmSeverity];
 
     return "<UNKNOWN>";
+}
+
+
+/**
+ * Compares two strings for equality ignoring case and, - and _ mismatches.
+ *
+ * @returns Flag whether both strings are considered equal.
+ * @param   pszStr1                 The first string to compare.
+ * @param   pszStr2                 The string to compare with.
+ */
+static bool pspEmuTraceStrAreEqual(const char *pszStr1, const char *pszStr2)
+{
+    for (; *pszStr1 || *pszStr2; pszStr1++, pszStr2++)
+    {
+        if (   tolower(*pszStr1) != tolower(*pszStr2)
+            && !(   (*pszStr1 == '-' || *pszStr1 == '_')
+                 && (*pszStr2 == '-' || *pszStr2 == '_')))
+            return false;
+    }
+
+    return true;
 }
 
 
@@ -789,6 +825,36 @@ static int pspEmuTraceEvtAddSvmc(PSPTRACE hTrace, PSPTRACEEVTCONTENTTYPE enmCont
     return rc;
 }
 
+int PSPEmuTraceSeverityStringQueryEnum(const char *pszSeverity, PPSPTRACEEVTSEVERITY penmSeverity)
+{
+    for (uint32_t i = 0; i < ELEMENTS(g_apszSeverity2Str); i++)
+    {
+        if (pspEmuTraceStrAreEqual(pszSeverity, g_apszSeverity2Str[i]))
+        {
+            *penmSeverity = (PSPTRACEEVTSEVERITY)i;
+            return STS_INF_SUCCESS;
+        }
+    }
+
+    return STS_ERR_NOT_FOUND;
+}
+
+
+int PSPEmuTraceOriginStringQueryEnum(const char *pszOrigin, PPSPTRACEEVTORIGIN penmOrigin)
+{
+    for (uint32_t i = 0; i < ELEMENTS(g_apszOrigin2Str); i++)
+    {
+        if (pspEmuTraceStrAreEqual(pszOrigin, g_apszOrigin2Str[i]))
+        {
+            *penmOrigin = (PSPTRACEEVTORIGIN)i;
+            return STS_INF_SUCCESS;
+        }
+    }
+
+    return STS_ERR_NOT_FOUND;
+}
+
+
 int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
                       uint32_t cEvtsBuffer, PFNPSPTRACEFLUSH pfnFlush, void *pvUser)
 {
@@ -865,7 +931,7 @@ int PSPEmuTraceSetDefault(PSPTRACE hTrace)
 }
 
 
-int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PSPTRACEEVTORIGIN *paEvtOrigins, PSPTRACEEVTSEVERITY *paEvtSeverities, uint32_t cEvts)
+int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PCPSPTRACEEVTORIGIN paEvtOrigins, PCPSPTRACEEVTSEVERITY paEvtSeverities, uint32_t cEvts)
 {
     int rc = 0;
     PPSPTRACEINT pThis = pspEmuTraceGetInstance(hTrace);

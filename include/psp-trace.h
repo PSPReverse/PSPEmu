@@ -56,6 +56,10 @@ typedef enum PSPTRACEEVTSEVERITY
     /** 32bit hack. */
     PSPTRACEEVTSEVERITY_32BIT_HACK = 0x7fffffff
 } PSPTRACEEVTSEVERITY;
+/** Pointer to a trace event severity. */
+typedef PSPTRACEEVTSEVERITY *PPSPTRACEEVTSEVERITY;
+/** Pointer to a const trace event severity. */
+typedef const PSPTRACEEVTSEVERITY *PCPSPTRACEEVTSEVERITY;
 
 
 /**
@@ -104,10 +108,14 @@ typedef enum PSPTRACEEVTORIGIN
     /** Interrupt controller related. */
     PSPTRACEEVTORIGIN_IRQ,
     /** Last valid origin. */
-    PSPTRACEEVTORIGIN_LAST = PSPTRACEEVTORIGIN_CORE,
+    PSPTRACEEVTORIGIN_LAST = PSPTRACEEVTORIGIN_IRQ,
     /** 32bit hack. */
     PSPTRACEEVTORIGIN_32BIT_HACK = 0x7fffffff
 } PSPTRACEEVTORIGIN;
+/** Pointer to a trace event origin. */
+typedef PSPTRACEEVTORIGIN *PPSPTRACEEVTORIGIN;
+/** Pointer to a const trace event origin. */
+typedef const PSPTRACEEVTORIGIN *PCPSPTRACEEVTORIGIN;
 
 
 /** Include timestamps in the resulting logs (might not be supported on all hosts and will be ignored). */
@@ -124,6 +132,29 @@ typedef enum PSPTRACEEVTORIGIN
 typedef int (FNPSPTRACEFLUSH)(PSPTRACE hTrace, void *pvBuf, size_t cbBuf, void *pvUser);
 /** Trace log flush handler pointer. */
 typedef FNPSPTRACEFLUSH *PFNPSPTRACEFLUSH;
+
+
+/**
+ * Translates the given severity string to the matching enum.
+ *
+ * @returns Status code.
+ * @param   pszSeverity             The severity string to translate.
+ * @param   penmSeverity            Where to store the severity enum on success.
+ *
+ * @note The severity string is matched case insensitive and - and _ are interchangeable.
+ */
+int PSPEmuTraceSeverityStringQueryEnum(const char *pszSeverity, PPSPTRACEEVTSEVERITY penmSeverity);
+
+/**
+ * Translates the given origin string to the matching enum.
+ *
+ * @returns Status code.
+ * @param   pszOrigin               The origin string to translate.
+ * @param   penmOrigin              Where to store the origin enum on success.
+ *
+ * @note The origin string is matched case insensitive and - and _ are interchangeable.
+ */
+int PSPEmuTraceOriginStringQueryEnum(const char *pszOrigin, PPSPTRACEEVTORIGIN penmOrigin);
 
 /**
  * Creates a new tracer instance.
@@ -179,7 +210,7 @@ int PSPEmuTraceSetDefault(PSPTRACE hTrace);
  *                                  and nothing else (always logged).
  * @param   cEvts                   Number of entries in both arrays.
  */
-int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PSPTRACEEVTORIGIN *paEvtOrigins, PSPTRACEEVTSEVERITY *paEvtSeverities, uint32_t cEvts);
+int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PCPSPTRACEEVTORIGIN paEvtOrigins, PCPSPTRACEEVTSEVERITY paEvtSeverities, uint32_t cEvts);
 
 /**
  * Adds the given string to the trace.
