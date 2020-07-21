@@ -32,6 +32,9 @@
 *   Structures and Typedefs                                                                                                      *
 *********************************************************************************************************************************/
 
+/** Ranges block in proxy mode get included here. */
+#include "profiles/proxy-blocked-range-std.h"
+
 
 /* PSP profiles get included here first. */
 #include "profiles/amd-psp-zen.h"

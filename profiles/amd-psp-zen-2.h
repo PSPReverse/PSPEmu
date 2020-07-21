@@ -39,7 +39,19 @@ static const PSPPROFILE g_PspProfileZen2 =
     /** PspAddrMmioSts */
     0x032000d8,
     /** SmnAddrFlashStart */
-    0x44000000
+    0x44000000,
+    /** paAddrProxyBlockedMmio */
+    &g_aProxyBlockedMmioStd[0],
+    /** cAddrProxyBlockedMmio */
+    ELEMENTS(g_aProxyBlockedMmioStd),
+    /** paAddrProxyBlockedSmn */
+    &g_aProxyBlockedSmnStd[0],
+    /** cAddrProxyBlockedSmn */
+    ELEMENTS(g_aProxyBlockedSmnStd),
+    /** paAddrProxyBlockedX86 */
+    &g_aProxyBlockedX86Std[0],
+    /** cAddrProxyBlockedX86 */
+    ELEMENTS(g_aProxyBlockedX86Std)
 };
 
 #endif /* !PSPEMU_PROFILES_psp_amd_zen_2_h */
