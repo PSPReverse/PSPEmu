@@ -929,7 +929,7 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
         PSPPADDR PspPAddrPg = 0;
         size_t cbRegion = 0;
         int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, (PSPVADDR)u64Val, &PspPAddrPg, &cbRegion, NULL /*penmPgTblWalk*/);
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CORE,
                                 "pspEmuCoreMmuPAddrQueryFromVAddr(): VAddr=%#lx rc=%d PAddr=%#lx\n",
                                 (PSPVADDR)u64Val, rc, PspPAddrPg);
         if (!rc)
@@ -947,7 +947,7 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
         PSPPADDR PspPAddrPg = 0;
         size_t cbRegion = 0;
         int rc = pspEmuCoreMmuPAddrQueryFromVAddr(pThis, (PSPVADDR)u64Val, &PspPAddrPg, &cbRegion, NULL /*penmPgTblWalk*/);
-        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CORE,
                                 "pspEmuCoreMmuPAddrQueryFromVAddr(): VAddr=%#lx rc=%d PAddr=%#lx\n",
                                 (PSPVADDR)u64Val, rc, PspPAddrPg);
         if (!rc)
@@ -1005,7 +1005,7 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
             case 1:
                 if (pCpBank->u32RegContextId != (uint32_t)u64Val)
                 {
-                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CORE,
                                             "CO-PROC WRITE: ASID changed to %#lx\n", u64Val);
                     pspEmuCoreMmuMappingsClear(pThis);
                     fHandled = false; /* Let qemu update its internal states as well. */
@@ -1030,7 +1030,7 @@ static bool pspEmuCoreCpWriteWrapper(struct uc_struct *pUcEngine, uint64_t uAddr
         fHandled = false;
     /** @todo TTBR0, TTBR1 and TTBCR writes should cause a stop as well. */
 
-    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CORE,
                             "CO-PROC WRITE: uCp=%u uCrn=%u uCrm=%u uOpc1=%u uOpc2=%u u64Val=%#llx fHandled=%u\n",
                             uCp, uCrn, uCrm, uOpc1, uOpc2, u64Val, fHandled);
     return fHandled;
@@ -1153,7 +1153,7 @@ static bool pspEmuCoreCpReadWrapper(struct uc_struct *pUcEngine, uint64_t uAddrP
     else
         fHandled = false;
 
-    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE,
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CORE,
                             "CO-PROC READ: uCp=%u uCrn=%u uCrm=%u uOpc1=%u uOpc2=%u u64Val=%#llx fHandled=%u\n",
                             uCp, uCrn, uCrm, uOpc1, uOpc2, *pu64Val, fHandled);
     return fHandled;
@@ -1173,7 +1173,7 @@ static void pspEmuCoreCpsrChangeWrapper(struct uc_struct *pUcEngine, uint64_t uA
 {
     PPSPCOREINT pThis = (PPSPCOREINT)pvUser;
 
-    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "pspEmuCoreCpsrChangeWrapper: u32Val=%#x\n", u32Val);
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CORE, "pspEmuCoreCpsrChangeWrapper: u32Val=%#x\n", u32Val);
 
     PSPCOREMODE enmCoreMode = pspEmuCoreModeFromCpsr(u32Val);
     if (pThis->enmCoreMode != enmCoreMode)
@@ -2081,8 +2081,7 @@ static void pspEmuCoreMmuPgTblWrite(struct uc_struct* pUcEngine, uc_mem_type enm
     PCPSPCOREPGTBLTRACK pPgTblTrack = (PCPSPCOREPGTBLTRACK)pvUser;
     PPSPCOREINT pThis = pPgTblTrack->pThis;
 
-    printf("Page table write at address %#llx with value %#llx (cb=%u)\n", uAddr, iVal, cb);
-    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_CORE, "Page table write at address %#llx with value %#llx (cb=%u)\n", uAddr, iVal, cb);
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_DEBUG, PSPTRACEEVTORIGIN_CORE, "Page table write at address %#llx with value %#llx (cb=%u)\n", uAddr, iVal, cb);
 
     /* As the page tables have changed we have to clear all mappings and start all over. */
     pspEmuCoreMmuMappingsClear(pThis);
@@ -2225,8 +2224,8 @@ static int pspEmuCoreMmuPgTblTrackingCreate(PPSPCOREINT pThis, PSPPADDR PspPAddr
                                               &PspVAddrPgTbl, &cbVPgTbl,
                                               &idxL1, &idxL2);
 
-        printf("pspEmuCoreMmuPgTblTrackingCreate: PspPAddrPgTbl=%#x cbPgTbl=%zu PspVAddrPgTbl=%#x cbVPgTbl=%zu\n",
-                                                  PspPAddrPgTbl, cbPgTbl, PspVAddrPgTbl, cbVPgTbl);
+        //printf("pspEmuCoreMmuPgTblTrackingCreate: PspPAddrPgTbl=%#x cbPgTbl=%zu PspVAddrPgTbl=%#x cbVPgTbl=%zu\n",
+        //                                          PspPAddrPgTbl, cbPgTbl, PspVAddrPgTbl, cbVPgTbl);
         if (STS_SUCCESS(rc))
         {
             if (cbVPgTbl >= cbPgTbl)
@@ -2260,8 +2259,8 @@ static int pspEmuCoreMmuPgTblTrackingCreate(PPSPCOREINT pThis, PSPPADDR PspPAddr
                 rc = STS_ERR_INVALID_PARAMETER;
             }
         }
-        else
-            printf("pspEmuCoreMmuPgTblTrackingCreate: rc=%d\n", rc);
+        //else
+        //    printf("pspEmuCoreMmuPgTblTrackingCreate: rc=%d\n", rc);
     } while (STS_SUCCESS(rc));
 
     rc = 0;
@@ -2379,7 +2378,7 @@ static int pspEmuCoreMmuSetupTeardown(PPSPCOREINT pThis)
         }
     }
 
-    printf("pspEmuCoreMmuSetupTeardown: rc=%d\n", rc);
+    //printf("pspEmuCoreMmuSetupTeardown: rc=%d\n", rc);
     return rc;
 }
 
