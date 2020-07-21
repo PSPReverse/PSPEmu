@@ -1846,7 +1846,7 @@ bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPB
     /* Check the CPU profile as well if existing. */
     if (pCpuProfile)
     {
-        for (uint32_t i = 0; i < pPspProfile->cAddrProxyBlockedSmn; i++)
+        for (uint32_t i = 0; i < pCpuProfile->cAddrProxyBlockedSmn; i++)
         {
             PCPSPPROXYADDRBLOCKEDDESC pDesc = &pCpuProfile->paAddrProxyBlockedSmn[i];
 
