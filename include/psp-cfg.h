@@ -17,8 +17,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef __psp_cfg_h
-#define __psp_cfg_h
+#ifndef INCLUDED_psp_cfg_h
+#define INCLUDED_psp_cfg_h
 
 #include <common/types.h>
 
@@ -266,6 +266,10 @@ typedef struct PSPEMUCFG
     uint32_t                cSockets;
     /** Number of CCDs per socket to emulate. */
     uint32_t                cCcdsPerSocket;
+    /** The single socket ID to emulate. */
+    uint32_t                idSocketSingle;
+    /** The single CCD ID to emulate. */
+    uint32_t                idCcdSingle;
     /** Array of memory region descriptors to create on demand. */
     PCPSPEMUCFGMEMREGIONCREATE paMemCreate;
     /** Number of entries in the create memory region descriptor array. */
@@ -302,5 +306,34 @@ typedef const PSPEMUCFG *PCPSPEMUCFG;
  */
 void PSPCfgHelp(const char *pszBinary, bool fVerbose);
 
-#endif /* __psp_cfg_h */
+
+/**
+ * Initializes the given config descriptor with defaults where applicable.
+ *
+ * @returns nothing.
+ * @param   pCfg                    The config to initialize.
+ */
+void PSPCfgInit(PPSPEMUCFG pCfg);
+
+
+/**
+ * Frees all allocated resources for the given config descriptor.
+ *
+ * @returns nothing.
+ * @param   pCfg                    The config to free all resources for.
+ */
+void PSPCfgFree(PPSPEMUCFG pCfg);
+
+
+/**
+ * Parses the given arguments and fills in the given config descriptor.
+ *
+ * @returns Status code.
+ * @param   pCfg                    The config to fill in.
+ * @param   cArgs                   Number of arguments.
+ * @param   papszArgs               The array of arguments to parse.
+ */
+int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs);
+
+#endif /* !INCLUDED_psp_cfg_h */
 
