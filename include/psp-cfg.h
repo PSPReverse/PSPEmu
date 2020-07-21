@@ -292,5 +292,15 @@ typedef PSPEMUCFG *PPSPEMUCFG;
 /** Pointer to a const PSPEmu config. */
 typedef const PSPEMUCFG *PCPSPEMUCFG;
 
+
+/**
+ * Prints the help text to stdout.
+ *
+ * @returns nothing.
+ * @param   pszBinary               The binary name (argv[0] usually).
+ * @param   fVerbose                Flag whether to print in verbose mode.
+ */
+void PSPCfgHelp(const char *pszBinary, bool fVerbose);
+
 #endif /* __psp_cfg_h */
 

@@ -589,47 +589,7 @@ static int pspEmuCfgParse(int argc, char *argv[], PPSPEMUCFG pCfg)
         {
             case 'h':
             case 'H':
-                printf("%s: AMD Platform Secure Processor emulator\n"
-                       "    --emulation-mode [app|sys|on-chip-bl|trusted-os]\n"
-                       "    --flash-rom <path/to/flash/rom>\n"
-                       "    --boot-rom-svc-page <path/to/boot/rom/svc/page>\n"
-                       "    --boot-rom-svc-page-dont-alter Do not alter the boot ROM service page for the emulated CCD (IDs etc.)\n"
-                       "    --bin-contains-hdr The binaries contain the 256 byte header, omit if raw binaries\n"
-                       "    --bin-load <path/to/binary/to/load>\n"
-                       "    --on-chip-bl <path/to/on-chip-bl/binary>\n"
-                       "    --dbg <listening port>\n"
-                       "    --psp-proxy-addr <path/to/proxy/device>\n"
-                       "    --proxy-trusted-os-handover <address> If set, this is the address where the off chip BL jumps to the trusted OS and the emulator will do the same\n"
-                       "    --load-psp-dir\n"
-                       "    --psp-dbg-mode\n"
-                       "    --trace-log <path/to/trace/log>\n"
-                       "    --psp-profile <id> The PSP profile to use\n"
-                       "    --cpu-profile <id> The CPU profile to use\n"
-                       "    --acpi-state <s0|s1|s1|s2|s3|s4|s5>\n"
-                       "    --intercept-svc-6\n"
-                       "    --trace-svcs\n"
-                       "    --uart-remote-addr [<port>|<address:port>]\n"
-                       "    --timer-real-time The timer clocks tick in realtime rather than emulated\n"
-                       "    --memory-create <addrspace>:<address>:<sz> Creates a memory region for the given address space address, can be given multiple times on the command line\n"
-                       "    --memory-preload <addrspace>:<address>:<filename> Preloads a given address space address with data from the given file, can be given multiple times on the command line\n"
-                       "    --proxy-memory-wt <addrspace>:<address>:<sz> Write through the indicated memory region to the real HW in proxy mode even if it is occupied by an emulated region, can be given multiple times on the command line\n"
-                       "    --spi-flash-trace <path/to/psptrace/compatible/flash/trace>\n"
-                       "    --coverage-trace <path/to/coverage/trace/file>\n"
-                       "    --sockets <number of sockets to emulate>\n"
-                       "    --ccds-per-socket <number of CCDS per socket to emulate>\n"
-                       "    --emulate-single-socket-id <id> Emulate only a single PSP with the given socket ID\n"
-                       "    --emulate-single-die-id <id> Emulate only a single PSP with the given die ID\n"
-                       "    --emulate-devices [<dev1>:<dev2>:...] Enables only the specified devices for emulation\n"
-                       "    --iom-log-all-accesses I/O manager logs all device accesses not only the ones to unassigned regions\n"
-                       "    --io-log-write <path/to/io/log> Writes a log of all I/O accesses for later replay\n"
-                       "    --io-log-replay <path/to/io/log> Replays the given I/O log, mutually exclusive with proxy mode\n"
-                       "    --proxy-buffer-writes If proxy mode is enabled certain writes will be cached and sent in bursts to speed up certain access patterns\n"
-                       "    --proxy-ccp When proxy mode is enabled this will pass through certain CCP request to a real CCP (AES with keys from the protected LSB so far)\n"
-                       "    --proxy-x86-cores-no-release Do not release the x86 cores in proxy mode\n"
-                       "    --dbg-run-up-to <addr> Runs until the given address is hit and drops then into the debugger instead of right at the start\n"
-                       "    --single-step-dump-core-state Single step execution, dumping the core state after each instruction\n"
-                       "    --dbg-step-count <count> Number of instructions to step through in a single round, use at own RISK\n",
-                       argv[0]);
+                PSPCfgHelp(argv[0], true /*fVerbose*/);
                 exit(0);
                 break;
 
