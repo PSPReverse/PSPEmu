@@ -33,25 +33,6 @@ typedef PSPPROXY *PPSPPROXY;
 
 
 /**
- * Bootloader stage.
- */
-typedef enum PSPPROXYBLSTAGE
-{
-    /** Invalid bootloader stage. */
-    PSPPROXYBLSTAGE_INVALID = 0,
-    /** Unknown stage. */
-    PSPPROXYBLSTAGE_UNKNOWN,
-    /** on-chip BL stage. */
-    PSPPROXYBLSTAGE_ON_CHIP,
-    /** off-chip BL stage. */
-    PSPPROXYBLSTAGE_OFF_CHIP,
-    /** @todo ABL stages. */
-    /** 32bit hack. */
-    PSPPROXYBLSTAGE_32BIT_HACK = 0x7fffffff
-} PSPPROXYBLSTAGE;
-
-
-/**
  * Creates a new proxy instance.
  *
  * @returns Status code.
@@ -101,7 +82,7 @@ int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd);
  * @param   pCfg                    The PSP emulator config.
  * @param   pvReadVal               Where to store the value to return for blocked reads.
  */
-bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
+bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
                                  PCPSPEMUCFG pCfg, void *pvReadVal);
 
 
@@ -117,7 +98,7 @@ bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite,
  * @param   pCfg                    The PSP emulator config.
  * @param   pvReadVal               Where to store the value to return for blocked reads.
  */
-bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
+bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
                                 PCPSPEMUCFG pCfg, void *pvReadVal);
 
 
@@ -133,7 +114,7 @@ bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPP
  * @param   pCfg                    The PSP emulator config.
  * @param   pvReadVal               Where to store the value to return for blocked reads.
  */
-bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
+bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
                                 PCPSPEMUCFG pCfg, void *pvReadVal);
 
 

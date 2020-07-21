@@ -49,72 +49,6 @@ typedef PSPDATUM *PPSPDATUM;
 
 
 /**
- * PSP MMIO blacklist descriptor.
- */
-typedef struct PSPMMIOBLACKLISTDESC
-{
-    /** MMIO address being blacklisted. */
-    PSPADDR                         PspAddrMmio;
-    /** Access size, 0 means size doesn't matter. */
-    size_t                          cbAcc;
-    /** Flag whether writes are blacklisted. */
-    bool                            fWrites;
-    /** Flag whether reads are blacklisted. */
-    bool                            fReads;
-    /** Value to return on reads if blacklisted. */
-    uint32_t                        u32ValRead;
-} PSPMMIOBLACKLISTDESC;
-/** Pointer to a blacklist descriptor. */
-typedef PSPMMIOBLACKLISTDESC *PPSPMMIOBLACKLISTDESC;
-/** Pointer to a const blacklist descriptor. */
-typedef const PSPMMIOBLACKLISTDESC *PCPSPMMIOBLACKLISTDESC;
-
-
-/**
- * PSP SMN blacklist descriptor.
- */
-typedef struct PSPSMNBLACKLISTDESC
-{
-    /** SMN address being blacklisted. */
-    SMNADDR                         SmnAddr;
-    /** Access size, 0 means size doesn't matter. */
-    size_t                          cbAcc;
-    /** Flag whether writes are blacklisted. */
-    bool                            fWrites;
-    /** Flag whether reads are blacklisted. */
-    bool                            fReads;
-    /** Value to return on reads if blacklisted. */
-    uint32_t                        u32ValRead;
-} PSPSMNBLACKLISTDESC;
-/** Pointer to a blacklist descriptor. */
-typedef PSPSMNBLACKLISTDESC *PPSPSMNBLACKLISTDESC;
-/** Pointer to a const blacklist descriptor. */
-typedef const PSPSMNBLACKLISTDESC *PCPSPSMNBLACKLISTDESC;
-
-
-/**
- * x86 MMIO blacklist descriptor.
- */
-typedef struct PSPX86BLACKLISTDESC
-{
-    /** SMN address being blacklisted. */
-    X86PADDR                        PhysX86Addr;
-    /** Access size, 0 means size doesn't matter. */
-    size_t                          cbAcc;
-    /** Flag whether writes are blacklisted. */
-    bool                            fWrites;
-    /** Flag whether reads are blacklisted. */
-    bool                            fReads;
-    /** Value to return on reads if blacklisted. */
-    uint32_t                        u32ValRead;
-} PSPX86BLACKLISTDESC;
-/** Pointer to a blacklist descriptor. */
-typedef PSPX86BLACKLISTDESC *PPSPX86BLACKLISTDESC;
-/** Pointer to a const blacklist descriptor. */
-typedef const PSPX86BLACKLISTDESC *PCPSPX86BLACKLISTDESC;
-
-
-/**
  * Ternary value.
  */
 typedef enum PSPTERNARY
@@ -202,60 +136,13 @@ typedef struct PSPPROXYINT
 } PSPPROXYINT;
 
 
-/**
- * MMIO address blacklisted for the Zen on chip bootloader.
- */
-static const PSPMMIOBLACKLISTDESC g_aMmioBlacklistedZenOnChip[] =
-{
-    { 0x320001c, 4, true,  false, 0 },
-    { 0x3a0001c, 4, true,  false, 0 },
-    { 0xfffffff, 4, false, false, 0 } /* Dummy which never triggers. */
-};
-
 
 /**
- * SMN address blacklisted for the Zen off chip bootloader.
+ * Converts the given ternary enum to a human readable string.
+ *
+ * @returns String representation of the enum.
+ * @param   enmTernary              The ternary enum to convert.
  */
-static const PSPSMNBLACKLISTDESC g_aSmnBlacklistedZenOffChip[] =
-{
-    { 0x02dc4000, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
-    { 0x02dc4003, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
-    { 0x02dc401e, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
-    { 0x02dc401f, 0, true, true, 0 }, /* Flash related, accessing breaks communication interface. */
-#if 0
-    /*
-     * The following monitor commands release the x86 cores on an Ryzen 1700x (1 CCD, 2CCX, 8 cores):
-     *
-     *     monitor proxy.SmnWrite 0x18002ff0 4 0x80000000
-     *     monitor proxy.SmnWrite 0x18022ff0 4 0x80000000
-     *     monitor proxy.SmnWrite 0x18042ff0 4 0x80000000
-     *     monitor proxy.SmnWrite 0x18062ff0 4 0x80000000
-     *     monitor proxy.SmnWrite 0x18402ff0 4 0x80000000
-     *     monitor proxy.SmnWrite 0x18422ff0 4 0x80000000
-     *     monitor proxy.SmnWrite 0x18442ff0 4 0x80000000
-     *     monitor proxy.SmnWrite 0x18462ff0 4 0x80000000
-     */
-    { 0x18002ff0, 0, true, true, 0 }, /* Releases x86 core. */
-    { 0x18022ff0, 0, true, true, 0 }, /* Releases x86 core. */
-    { 0x18042ff0, 0, true, true, 0 }, /* Releases x86 core. */
-    { 0x18062ff0, 0, true, true, 0 }, /* Releases x86 core. */
-    { 0x18402ff0, 0, true, true, 0 }, /* Releases x86 core. */
-    { 0x18422ff0, 0, true, true, 0 }, /* Releases x86 core. */
-    { 0x18442ff0, 0, true, true, 0 }, /* Releases x86 core. */
-    { 0x18462ff0, 0, true, true, 0 }, /* Releases x86 core. */
-#endif
-};
-
-
-/**
- * x86 address blacklisted for the Zen off chip bootloader.
- */
-static const PSPX86BLACKLISTDESC g_ax86BlacklistedZenOffChip[] =
-{
-    { 0xffffffffffffffff, 8, false, false, 0 } /* Dummy which never triggers. */
-};
-
-
 static const char *pspEmuProxyTernaryToStr(PSPTERNARY enmTernary)
 {
     switch (enmTernary)
@@ -609,10 +496,10 @@ static bool pspEmuProxyCcdWrBufAppend(PPSPPROXYINT pThis, PPSPPROXYCCD pCcdRec, 
  * @returns BL stage.
  * @param   hCcd                    The CCD to determine the stage for.
  */
-static PSPPROXYBLSTAGE pspEmuCcdDetermineBlStage(PSPCCD hCcd)
+static PSPBLSTAGE pspEmuCcdDetermineBlStage(PSPCCD hCcd)
 {
     /** @todo Check the PC. */
-    return PSPPROXYBLSTAGE_UNKNOWN;
+    return PSPBLSTAGE_UNKNOWN;
 }
 
 
@@ -1194,7 +1081,7 @@ static void pspProxyMemWtPspTrace(PSPADDR offMmioAbs, const char *pszDevId, PSPA
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
-    /* This doesn't go through the blacklist checking as we assume the user knows what he did when creating the write through regions... */
+    /* This doesn't go through the blocked region checking as we assume the user knows what he did when creating the write through regions... */
     int rc = STS_INF_SUCCESS;
     if (   cbAccess == 1
         || cbAccess == 2
@@ -1220,7 +1107,7 @@ static void pspProxyMemWtSmnTrace(SMNADDR offSmnAbs, const char *pszDevId, SMNAD
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
-    /* This doesn't go through the blacklist checking as we assume the user knows what he did when creating the write through regions... */
+    /* This doesn't go through the blocked region checking as we assume the user knows what he did when creating the write through regions... */
     int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmnAbs, cbAccess, pvVal);
     if (STS_FAILURE(rc))
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
@@ -1240,7 +1127,7 @@ static void pspProxyMemWtX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86P
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
-    /* This doesn't go through the blacklist checking as we assume the user knows what he did when creating the write through regions... */
+    /* This doesn't go through the blocked region checking as we assume the user knows what he did when creating the write through regions... */
     int rc = STS_INF_SUCCESS;
     if (   cbAccess == 1
         || cbAccess == 2
@@ -1760,6 +1647,38 @@ static const DBGHLPCMD g_aProxyDbgCmds[] =
 };
 
 
+/**
+ * Checks whether the given access is allowed or blocked by the given range descriptor.
+ *
+ * @returns Flag whether access is allowed, true if allowed, false if denied.
+ * @param   pDesc                   The descriptor to check against.
+ * @param   cbAcc                   Size of the access.
+ * @param   fWrite                  Flag whether this is a write or read.
+ * @param   enmStage                The BL stage we are in.
+ * @param   pvReadVal               Where to store the value to return on reads if reads are blocked.
+ */
+static bool pspProxyAddrAccessIsAllowed(PCPSPPROXYADDRBLOCKEDDESC pDesc, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage, void *pvReadVal)
+{
+    if (   (   pDesc->cbAcc == cbAcc
+            || pDesc->cbAcc == 0)
+        && (   (   fWrite
+                && pDesc->fAccess & PSPPROXY_ADDR_BLOCKED_ACCESS_F_WRITE)
+            || (   !fWrite
+                && pDesc->fAccess & PSPPROXY_ADDR_BLOCKED_ACCESS_F_READ))
+        && (   enmStage == pDesc->enmBlStage
+            || enmStage == PSPBLSTAGE_UNKNOWN
+            || pDesc->enmBlStage == PSPBLSTAGE_ANY)) /** @todo Examine feature flags. */
+    {
+        /* On a read return the value to be used instead. */
+        if (!fWrite)
+            pspProxyRead(pvReadVal, pDesc->u32ValRead, cbAcc);
+        return false;
+    }
+
+    return true;
+}
+
+
 int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
 {
     int rc = 0;
@@ -1891,34 +1810,49 @@ int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd)
 }
 
 
-bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
+bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
                                  PCPSPEMUCFG pCfg, void *pvReadVal)
 {
-    if (   enmStage == PSPPROXYBLSTAGE_ON_CHIP
-        || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
+    PCPSPPROFILE pPspProfile = pCfg->pPspProfile;
+
+    for (uint32_t i = 0; i < pPspProfile->cAddrProxyBlockedMmio; i++)
     {
-        for (uint32_t i = 0; i < ELEMENTS(g_aMmioBlacklistedZenOnChip); i++)
+        PCPSPPROXYADDRBLOCKEDDESC pDesc = &pPspProfile->paAddrProxyBlockedMmio[i];
+
+        if (   PspAddrMmio >= pDesc->AddrStart.u.PspAddr
+            && PspAddrMmio < pDesc->AddrStart.u.PspAddr + pDesc->cbRegion)
+            return pspProxyAddrAccessIsAllowed(pDesc, cbAcc, fWrite, enmStage, pvReadVal);
+    }
+
+    return true;
+}
+
+
+bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
+                                PCPSPEMUCFG pCfg, void *pvReadVal)
+{
+    PCPSPPROFILE pPspProfile = pCfg->pPspProfile;
+    PCPSPAMDCPUPROFILE pCpuProfile = pCfg->pCpuProfile;
+
+    for (uint32_t i = 0; i < pPspProfile->cAddrProxyBlockedSmn; i++)
+    {
+        PCPSPPROXYADDRBLOCKEDDESC pDesc = &pPspProfile->paAddrProxyBlockedSmn[i];
+
+        if (   SmnAddr >= pDesc->AddrStart.u.SmnAddr
+            && SmnAddr < pDesc->AddrStart.u.SmnAddr + pDesc->cbRegion)
+            return pspProxyAddrAccessIsAllowed(pDesc, cbAcc, fWrite, enmStage, pvReadVal);
+    }
+
+    /* Check the CPU profile as well if existing. */
+    if (pCpuProfile)
+    {
+        for (uint32_t i = 0; i < pPspProfile->cAddrProxyBlockedSmn; i++)
         {
-            PCPSPMMIOBLACKLISTDESC pDesc = &g_aMmioBlacklistedZenOnChip[i];
+            PCPSPPROXYADDRBLOCKEDDESC pDesc = &pCpuProfile->paAddrProxyBlockedSmn[i];
 
-            if (pDesc->PspAddrMmio == PspAddrMmio)
-            {
-                if (   (   pDesc->cbAcc == cbAcc
-                        || pDesc->cbAcc == 0)
-                    && (   (   fWrite
-                            && pDesc->fWrites)
-                        || (   !fWrite
-                            && pDesc->fReads)))
-                {
-                    /* On a read return the value to be used instead. */
-                    if (!fWrite)
-                        pspProxyRead(pvReadVal, pDesc->u32ValRead, cbAcc);
-                    return false;
-                }
-
-                /* Other checks failed so we can stop searching here (every address only has one descriptor). */
-                break;
-            }
+            if (   SmnAddr >= pDesc->AddrStart.u.SmnAddr
+                && SmnAddr < pDesc->AddrStart.u.SmnAddr + pDesc->cbRegion)
+                return pspProxyAddrAccessIsAllowed(pDesc, cbAcc, fWrite, enmStage, pvReadVal);
         }
     }
 
@@ -1926,70 +1860,18 @@ bool PSPProxyIsMmioAccessAllowed(PSPADDR PspAddrMmio, size_t cbAcc, bool fWrite,
 }
 
 
-bool PSPProxyIsSmnAccessAllowed(SMNADDR SmnAddr, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
+bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPBLSTAGE enmStage,
                                 PCPSPEMUCFG pCfg, void *pvReadVal)
 {
-    if (   enmStage == PSPPROXYBLSTAGE_OFF_CHIP
-        || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
+    PCPSPPROFILE pPspProfile = pCfg->pPspProfile;
+
+    for (uint32_t i = 0; i < pPspProfile->cAddrProxyBlockedX86; i++)
     {
-        for (uint32_t i = 0; i < ELEMENTS(g_aSmnBlacklistedZenOffChip); i++)
-        {
-            PCPSPSMNBLACKLISTDESC pDesc = &g_aSmnBlacklistedZenOffChip[i];
+        PCPSPPROXYADDRBLOCKEDDESC pDesc = &pPspProfile->paAddrProxyBlockedX86[i];
 
-            if (pDesc->SmnAddr == SmnAddr)
-            {
-                if (   (   pDesc->cbAcc == cbAcc
-                        || pDesc->cbAcc == 0)
-                    && (   (   fWrite
-                            && pDesc->fWrites)
-                        || (   !fWrite
-                            && pDesc->fReads)))
-                {
-                    /* On a read return the value to be used instead. */
-                    if (!fWrite)
-                        pspProxyRead(pvReadVal, pDesc->u32ValRead, cbAcc);
-                    return false;
-                }
-
-                /* Other checks failed so we can stop searching here (every address only has one descriptor). */
-                break;
-            }
-        }
-    }
-
-    return true;
-}
-
-
-bool PSPProxyIsX86AccessAllowed(X86PADDR PhysX86Addr, size_t cbAcc, bool fWrite, PSPPROXYBLSTAGE enmStage,
-                                PCPSPEMUCFG pCfg, void *pvReadVal)
-{
-    if (   enmStage == PSPPROXYBLSTAGE_OFF_CHIP
-        || enmStage == PSPPROXYBLSTAGE_UNKNOWN)
-    {
-        for (uint32_t i = 0; i < ELEMENTS(g_ax86BlacklistedZenOffChip); i++)
-        {
-            PCPSPX86BLACKLISTDESC pDesc = &g_ax86BlacklistedZenOffChip[i];
-
-            if (pDesc->PhysX86Addr == PhysX86Addr)
-            {
-                if (   (   pDesc->cbAcc == cbAcc
-                        || pDesc->cbAcc == 0)
-                    && (   (   fWrite
-                            && pDesc->fWrites)
-                        || (   !fWrite
-                            && pDesc->fReads)))
-                {
-                    /* On a read return the value to be used instead. */
-                    if (!fWrite)
-                        pspProxyRead(pvReadVal, pDesc->u32ValRead, cbAcc);
-                    return false;
-                }
-
-                /* Other checks failed so we can stop searching here (every address only has one descriptor). */
-                break;
-            }
-        }
+        if (   PhysX86Addr >= pDesc->AddrStart.u.PhysX86Addr
+            && PhysX86Addr < pDesc->AddrStart.u.PhysX86Addr + pDesc->cbRegion)
+            return pspProxyAddrAccessIsAllowed(pDesc, cbAcc, fWrite, enmStage, pvReadVal);
     }
 
     return true;
