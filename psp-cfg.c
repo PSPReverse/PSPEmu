@@ -35,6 +35,7 @@
 #include <psp-cfg.h>
 #include <psp-flash.h>
 #include <psp-profile.h>
+#include <psp-trace.h>
 
 
 /*********************************************************************************************************************************
@@ -106,6 +107,7 @@ static struct option g_aOptions[] =
     {"cpu-profile",                  required_argument, 0, 'c'},
     {"intercept-svc-6",              no_argument,       0, '6'},
     {"trace-svcs",                   no_argument,       0, 'v'},
+    {"trace-cfg",                    required_argument, 0, 'Q'},
     {"acpi-state",                   required_argument, 0, 'i'},
     {"uart-remote-addr",             required_argument, 0, 'u'},
     {"timer-real-time",              no_argument      , 0, 'r'},
@@ -196,6 +198,7 @@ static const PSPCFGARG g_aCfgArgsProxy[] =
 static const PSPCFGARG g_aCfgArgsTraceLog[] =
 {
     {"trace-log",                    't', "<path/to/trace/log>",              "Enable trace logging and sets the log destination"},
+    {"trace-cfg",                    'Q', "[origin=severity:...]",            "Sets the minimum severity for the given origin in order to appear in the trace log"},
     {"intercept-svc-6",              '6', NULL,                               "Intercepts svc 6 debug log syscalls and prints the content to the trace log"},
     {"trace-svcs",                   'v', NULL,                               "Trace all syscalls being made along with the arguments"},
     {"spi-flash-trace",              'F', "<path/to/flash/trace>",            "Generates a trace compatible with psptrace when the emulated flash device is used" },
@@ -288,6 +291,97 @@ static const char **pspCfgParseDevices(const char *pszDevString)
     }
 
     return papszDevs;
+}
+
+
+/**
+ * Parses the give ntrace config.
+ *
+ * @returns Status code.
+ * @param   pCfg                    The config to add the config to upon success.
+ * @param   pszTraceCfg             The trace config to parse.
+ */
+static int pspCfgParseTraceCfg(PPSPEMUCFG pCfg, const char *pszTraceCfg)
+{
+    /* Count the number of : separators first. */
+    uint32_t cDescs = 1; /* Account for the NULL entry in the table. */
+    const char *pszCur = pszTraceCfg;
+    while (*pszCur != '\0')
+    {
+        char *pszSep = strchr(pszCur, ':');
+        if (!pszSep) /* Last device? */
+            pszSep = strchr(pszCur, '\0');
+        if (!pszSep)
+            break;
+
+        cDescs++;
+        if (*pszSep != '\0')
+            pszCur = pszSep + 1;
+        else
+            pszCur = pszSep;
+    }
+
+    int rc = STS_INF_SUCCESS;
+    PPSPEMUCFGTRACECFGDESC paTraceCfg = (PPSPEMUCFGTRACECFGDESC)calloc(cDescs, sizeof(*paTraceCfg));
+    if (paTraceCfg)
+    {
+        uint32_t idxDesc = 0;
+
+        pszCur = pszTraceCfg;
+        while (*pszCur != '\0')
+        {
+            char *pszSep = strchr(pszCur, ':');
+            if (!pszSep)
+                pszSep = strchr(pszCur, '\0');
+            if (!pszSep)
+            {
+                rc = STS_ERR_INVALID_PARAMETER;
+                break;
+            }
+
+            size_t cchDesc = pszSep - pszCur;
+            char szDesc[512]; /** @todo Lazy approach but should be more than enough. */
+            if (cchDesc >= sizeof(szDesc))
+            {
+                rc = STS_ERR_INVALID_PARAMETER;
+                break;
+            }
+            memcpy(&szDesc[0], pszCur, cchDesc);
+            szDesc[cchDesc] = '\0';
+
+            /* A valid config descriptor should have a = in it. */
+            char *pszSeverityStart = strchr(&szDesc[0], '=');
+            if (!pszSeverityStart)
+            {
+                rc = STS_ERR_INVALID_PARAMETER;
+                break;
+            }
+
+            *pszSeverityStart++ = '\0'; /* Terminate the origin, severity is already terminated. */
+
+            /* Translate to the proper enums. */
+            rc = PSPEmuTraceSeverityStringQueryEnum(pszSeverityStart, &paTraceCfg[idxDesc].enmSeverity);
+            if (STS_SUCCESS(rc))
+                rc = PSPEmuTraceOriginStringQueryEnum(&szDesc[0],&paTraceCfg[idxDesc].enmOrigin);
+            if (STS_FAILURE(rc))
+                break;
+
+            idxDesc++;
+            if (*pszSep != '\0')
+                pszCur = pszSep + 1;
+            else
+                pszCur = pszSep;
+        }
+
+        if (STS_SUCCESS(rc))
+            pCfg->paTraceCfg = paTraceCfg;
+        else
+            free(paTraceCfg);
+    }
+    else
+        rc = STS_ERR_NO_MEMORY;
+
+    return rc;
 }
 
 
@@ -779,6 +873,7 @@ void PSPCfgInit(PPSPEMUCFG pCfg)
     pCfg->pCcpProxyIf           = NULL;
     pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
+    pCfg->paTraceCfg               = NULL;
 }
 
 
@@ -823,6 +918,9 @@ void PSPCfgFree(PPSPEMUCFG pCfg)
 
     if (pCfg->paProxyMemWt)
         free((void *)pCfg->paProxyMemWt);
+
+    if (pCfg->paTraceCfg)
+        free(pCfg->paTraceCfg);
 }
 
 
@@ -1019,6 +1117,13 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
             case '8':
                 pCfg->fProxyBlockX86CoreRelease = true;
                 break;
+            case 'Q':
+            {
+                int rc = pspCfgParseTraceCfg(pCfg, optarg);
+                if (STS_FAILURE(rc))
+                    return rc;
+                break;
+            }
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;

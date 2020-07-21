@@ -24,6 +24,7 @@
 
 #include <psp-dbg-hlp.h>
 #include <psp-profile.h>
+#include <psp-trace.h>
 
 
 /**
@@ -178,6 +179,22 @@ typedef const PSPEMUCFGPROXYMEMWT *PCPSPEMUCFGPROXYMEMWT;
 
 
 /**
+ * Trace log config descriptor.
+ */
+typedef struct PSPEMUCFGTRACECFGDESC
+{
+    /** The origin to configure. */
+    PSPTRACEEVTORIGIN       enmOrigin;
+    /** The severity to set. */
+    PSPTRACEEVTSEVERITY     enmSeverity;
+} PSPEMUCFGTRACECFGDESC;
+/** Pointer to a trace log config descriptor. */
+typedef PSPEMUCFGTRACECFGDESC *PPSPEMUCFGTRACECFGDESC;
+/** Pointer to a const trace log config descriptor. */
+typedef const PSPEMUCFGTRACECFGDESC *PCPSPEMUCFGTRACECFGDESC;
+
+
+/**
  * PSP emulator config.
  */
 typedef struct PSPEMUCFG
@@ -290,6 +307,8 @@ typedef struct PSPEMUCFG
     /** Debug helper module handle if a debugger is enabled so other components can register custom commands
      * for use by the debugger. */
     PSPDBGHLP               hDbgHlp;
+    /** Trace config descriptors. */
+    PPSPEMUCFGTRACECFGDESC  paTraceCfg;
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;

@@ -824,8 +824,21 @@ static int pspEmuCcdTraceInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
     {
         rc = PSPEmuTraceCreateForFile(&pThis->hTrace, PSPEMU_TRACE_F_DEFAULT, pThis->hPspCore,
                                       0, pCfg->pszTraceLog);
-        if (!rc)
+        if (STS_SUCCESS(rc))
             rc = PSPEmuTraceSetDefault(pThis->hTrace);
+        if (   STS_SUCCESS(rc)
+            && pCfg->paTraceCfg)
+        {
+            PCPSPEMUCFGTRACECFGDESC pTraceCfgDesc = &pCfg->paTraceCfg[0];
+
+            while (   pTraceCfgDesc->enmOrigin != PSPTRACEEVTORIGIN_INVALID
+                   && pTraceCfgDesc->enmSeverity != PSPTRACEEVTSEVERITY_INVALID
+                   && STS_SUCCESS(rc))
+            {
+                rc = PSPEmuTraceEvtEnable(pThis->hTrace, &pTraceCfgDesc->enmOrigin, &pTraceCfgDesc->enmSeverity, 1 /*cEvts*/);
+                pTraceCfgDesc++;
+            }
+        }
     }
 
     if (pCfg->pszCovTrace)
