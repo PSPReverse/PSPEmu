@@ -217,6 +217,12 @@ typedef struct PSPAMDCPUPROFILE
     uint32_t                        cCcdsPerSocket;
     /** Maximum number of sockets supported by the CPU. */
     uint32_t                        cSocketsMax;
+    /** Number of cores per CCX. */
+    uint32_t                        cCoresPerCcx;
+    /** Number of CCXs enabled/available for the CPU model. */
+    uint32_t                        cCcxs;
+    /** Number of total cores enabled on the CCD. */
+    uint32_t                        cCoresPerCcd;
     /** Pointer to the assigned PSP profile for the CPU entry. */
     PCPSPPROFILE                    pPspProfile;
     /** Array of blocked SMN ranges for proxy mode specific for the selected CPU profile. */

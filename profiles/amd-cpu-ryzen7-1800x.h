@@ -66,6 +66,12 @@ static const PSPAMDCPUPROFILE g_AmdCpu_Ryzen7_1800X =
     1,
     /** cSocketsMax */
     1,
+    /** cCoresPerCcx */
+    4,
+    /** cCcxs */
+    2,
+    /** cCoresPerCcd */
+    8,
     /** pPspProfile. */
     &g_PspProfileZen,
     /** paAddrProxyBlockedSmn */

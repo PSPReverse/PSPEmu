@@ -493,7 +493,7 @@ int PSPFlashFsQueryL1Dir(PSPFFS hFfs, PCPSPFFSDIR *ppDirL1, size_t *pcbDirL1)
 }
 
 
-int PSPFlashFsDirQueryMerged(PSPFFS hFfs, PPSPFFSDIRHDR pDirHdr, PPSPFFSDIRENTRY paDirEntries, size_t cEntriesMax)
+int PSPFlashFsDirQuery(PSPFFS hFfs, PPSPFFSDIRHDR pDirHdr, PPSPFFSDIRENTRY paDirEntries, size_t cEntriesMax, bool fMergeL2)
 {
     PPSPFFSINT pThis = hFfs;
     PCPSPFFSDIR pDirL1 = pThis->pPspDirL1;
@@ -506,7 +506,8 @@ int PSPFlashFsDirQueryMerged(PSPFFS hFfs, PPSPFFSDIRHDR pDirHdr, PPSPFFSDIRENTRY
     size_t cEntriesCopied = MIN(pDirL1->Hdr.cEntries, cEntriesMax);
     memcpy(paDirEntries, &pDirL1->aEntries[0], cEntriesCopied * sizeof(pDirL1->aEntries[0]));
 
-    if (   cEntriesCopied < cEntriesMax
+    if (   fMergeL2
+        && cEntriesCopied < cEntriesMax
         && pThis->pPspDirL2)
     {
         /* Merge the L2 directory, first the L2 directory pointer is removed and then we append as much as possible. */

@@ -66,7 +66,7 @@ int PSPFlashFsQueryL1Dir(PSPFFS hFfs, PCPSPFFSDIR *ppDirL1, size_t *pcbDirL1);
 
 
 /**
- * Queries the merged directory from the selected L1 and possibly L2 directory and copies it
+ * Queries the directory from the selected L1 and possibly L2 directory and copies it
  * to the given buffer.
  *
  * @return Status code.
@@ -74,11 +74,12 @@ int PSPFlashFsQueryL1Dir(PSPFFS hFfs, PCPSPFFSDIR *ppDirL1, size_t *pcbDirL1);
  * @param   pDirHdr                 The directory header to fill in (L1 directory magic), optional.
  * @param   paDirEntries            Where to store the merged entries.
  * @param   cEntriesMax             Maximum number of entries fitting into the array.
+ * @param   fMergeL2                Flag whether to merge the L2 directory into this as well (kind of what the off chip BL is doing at the beginning).
  *
- * @note L2 directory entries are removed from the merged directory.
+ * @note L2 directory entries are removed from the merged directory if merging is enabled.
  * @note Excessive entries not fitting into the buffer are cut off.
  */
-int PSPFlashFsDirQueryMerged(PSPFFS hFfs, PPSPFFSDIRHDR pDirHdr, PPSPFFSDIRENTRY paDirEntries, size_t cEntriesMax);
+int PSPFlashFsDirQuery(PSPFFS hFfs, PPSPFFSDIRHDR pDirHdr, PPSPFFSDIRENTRY paDirEntries, size_t cEntriesMax, bool fMergeL2);
 
 
 /**

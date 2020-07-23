@@ -78,13 +78,15 @@ int PSPBrspGenerate(PPSPROMSVCPG pBrsp, PCPSPEMUCFG pCfg, uint32_t idCcd, uint32
             printf("Activating PSP firmware debug mode\n");
             pBrsp->Fields.u32BootMode = 1;
         }
+        else
+            pBrsp->Fields.u32BootMode = 2;
 
         PSPFFS hFfs = NULL;
         rc = PSPFlashFsCreate(&hFfs, pCfg->pPspProfile->enmMicroArch, pCfg->pvFlashRom, pCfg->cbFlashRom);
         if (STS_SUCCESS(rc))
         {
             /* Load the merged PSP directory into the BRSP. */
-            rc = PSPFlashFsDirQueryMerged(hFfs, &pBrsp->Fields.FfsDirHdr, &pBrsp->Fields.aFfsDirEntries[0], ELEMENTS(pBrsp->Fields.aFfsDirEntries));
+            rc = PSPFlashFsDirQuery(hFfs, &pBrsp->Fields.FfsDirHdr, &pBrsp->Fields.aFfsDirEntries[0], ELEMENTS(pBrsp->Fields.aFfsDirEntries), false /*fMergeL2*/);
             if (STS_SUCCESS(rc))
             {
                 /* Query AMD public key from flash and insert into BRSP. */
@@ -100,7 +102,35 @@ int PSPBrspGenerate(PPSPROMSVCPG pBrsp, PCPSPEMUCFG pCfg, uint32_t idCcd, uint32
                         pBrsp->Fields.idSocket       = (uint8_t)idSocket;
                         pBrsp->Fields.cDiesPerSocket = (uint8_t)pCfg->cCcdsPerSocket;
                         pBrsp->Fields.cSysSockets    = (uint8_t)pCfg->cSockets;
-                        /** @todo u8PkgType, core info, cCcxs, cCores, etc. */
+
+                        PCPSPAMDCPUPROFILE pCpuProfile = pCfg->pCpuProfile;
+                        pBrsp->Fields.cCoresPerCcx = (uint8_t)pCpuProfile->cCoresPerCcx;
+                        pBrsp->Fields.cCcxs        = (uint8_t)pCpuProfile->cCcxs;
+                        pBrsp->Fields.cCoresPerCcd = (uint8_t)pCpuProfile->cCoresPerCcd;
+
+                        /** @todo This below is all guesswork, figure this out by checking different CPUs. */
+                        pBrsp->Fields.logCoresPerComplex[0] = (uint8_t)pCpuProfile->cCoresPerCcx;
+                        if (pCpuProfile->cCcxs == 2)
+                            pBrsp->Fields.logCoresPerComplex[1] = (uint8_t)pCpuProfile->cCoresPerCcx;
+
+                        /*
+                         * Current assumption is that first come the 'real' cores and second the ones for the SMT
+                         * (need to figure out where SMT is indicated, the bUnknown2 looks promising but to little data right now)
+                         */
+                        for (uint32_t idxCcx = 0; idxCcx < pCpuProfile->cCcxs; idxCcx++)
+                        {
+                            for (uint32_t idxCore = 0; idxCore < pCpuProfile->cCoresPerCcx; idxCore++)
+                            {
+                                uint32_t idxEntry    = idxCcx * pCpuProfile->cCoresPerCcx + idxCore;
+                                uint32_t idxEntrySmt = idxEntry + (pCpuProfile->cCcxs * pCpuProfile->cCoresPerCcx);
+                                pBrsp->Fields.aCoreInfo[idxEntry].idCcx  = (uint8_t)idxCcx;
+                                pBrsp->Fields.aCoreInfo[idxEntry].idCore = (uint8_t)idxCore;
+
+                                /** @todo Determine whether SMT is enabled. */
+                                pBrsp->Fields.aCoreInfo[idxEntrySmt].idCcx  = (uint8_t)idxCcx;
+                                pBrsp->Fields.aCoreInfo[idxEntrySmt].idCore = (uint8_t)idxCore;
+                            }
+                        }
                     }
                     else
                     {
@@ -125,20 +155,20 @@ int PSPBrspGenerate(PPSPROMSVCPG pBrsp, PCPSPEMUCFG pCfg, uint32_t idCcd, uint32
 
 int PSPBrspDump(PPSPROMSVCPG pBrsp)
 {
-    printf("FfsDirHdr.u32Magic:               %#x\n"
-           "FfsDirHdr.u32ChkSumFletcher32:    %#x\n"
-           "FfsDirHdr.cEntries:               %u\n"
-           "FfsDirHdr.u32Rsvd0:               %#x\n",
+    printf("FfsDirHdr.u32Magic:                 %#x\n"
+           "FfsDirHdr.u32ChkSumFletcher32:      %#x\n"
+           "FfsDirHdr.cEntries:                 %u\n"
+           "FfsDirHdr.u32Rsvd0:                 %#x\n",
            pBrsp->Fields.FfsDirHdr.u32Magic, pBrsp->Fields.FfsDirHdr.u32ChkSumFletcher32,
            pBrsp->Fields.FfsDirHdr.cEntries, pBrsp->Fields.FfsDirHdr.u32Rsvd0);
     for (uint32_t i = 0; i < pBrsp->Fields.FfsDirHdr.cEntries; i++)
     {
         PCPSPFFSDIRENTRY pEntry = &pBrsp->Fields.aFfsDirEntries[i];
 
-        printf("aFfsDirEntries[%u].enmType:      %#x\n"
-               "aFfsDirEntries[%u].cbEntry:      %u\n"
-               "aFfsDirEntries[%u].FfsAddrStart: %#x\n"
-               "aFfsDirEntries[%u].u32Rsvd0:     %#x\n",
+        printf("aFfsDirEntries[%02u].enmType:         %#x\n"
+               "aFfsDirEntries[%02u].cbEntry:         %u\n"
+               "aFfsDirEntries[%02u].FfsAddrStart:    %#x\n"
+               "aFfsDirEntries[%02u].u32Rsvd0:        %#x\n",
                i, pEntry->enmType,
                i, pEntry->cbEntry,
                i, pEntry->FfsAddrStart,
@@ -147,18 +177,18 @@ int PSPBrspDump(PPSPROMSVCPG pBrsp)
 
     /** @todo AMD public key. */
 
-    printf("u32BootMode:                      %#x\n"
-           "abUnknown[0..5]:                  %#x %#x %#x %#x %#x\n"
-           "cCores:                           %u\n"
-           "cCcxs:                            %u\n"
-           "cCoresEnabledOnDie:               %u\n"
-           "bUnknown2:                        %#x\n"
-           "logCoresPerComplex[0]:            %u\n"
-           "logCoresPerComplex[1]:            %u\n",
+    printf("u32BootMode:                        %#x\n"
+           "abUnknown[0..5]:                    %#x %#x %#x %#x %#x %#x\n"
+           "cCoresPerCcx:                       %u\n"
+           "cCcxs:                              %u\n"
+           "cCoresPerCcd:                       %u\n"
+           "bUnknown2:                          %#x\n"
+           "logCoresPerComplex[0]:              %u\n"
+           "logCoresPerComplex[1]:              %u\n",
            pBrsp->Fields.u32BootMode,
            pBrsp->Fields.abUnknown1[0], pBrsp->Fields.abUnknown1[1], pBrsp->Fields.abUnknown1[2],
            pBrsp->Fields.abUnknown1[3], pBrsp->Fields.abUnknown1[4], pBrsp->Fields.abUnknown1[5],
-           pBrsp->Fields.cCores, pBrsp->Fields.cCcxs, pBrsp->Fields.cCoresEnabledOnDie,
+           pBrsp->Fields.cCoresPerCcx, pBrsp->Fields.cCcxs, pBrsp->Fields.cCoresPerCcd,
            pBrsp->Fields.bUnknown2,
            pBrsp->Fields.logCoresPerComplex[0], pBrsp->Fields.logCoresPerComplex[1]);
 
@@ -166,20 +196,20 @@ int PSPBrspDump(PPSPROMSVCPG pBrsp)
     {
         const PSPCOREINFO *pCoreInfo = &pBrsp->Fields.aCoreInfo[i];
 
-        printf("aCoreInfo[%u].idCcx:                %u\n"
-               "aCoreInfo[%u].idCore:               %u\n",
+        printf("aCoreInfo[%02u].idCcx:                %u\n"
+               "aCoreInfo[%02u].idCore:               %u\n",
                i, pCoreInfo->idCcx,
                i, pCoreInfo->idCore);
     }
 
-    printf("abUnknown3[0..5]:                 %#x %#x %#x %#x %#x\n"
-           "abUnknown3[6..11]:                %#x %#x %#x %#x %#x\n"
-           "idPhysDie:                        %u\n"
-           "idSocket:                         %u\n"
-           "u8PkgType:                        %#x\n"
-           "cSysSockets:                      %u\n"
-           "bUnk4:                            %#x\n"
-           "cDiesPerSocket:                   %u\n",
+    printf("abUnknown3[0..5]:                   %#x %#x %#x %#x %#x\n"
+           "abUnknown3[6..11]:                  %#x %#x %#x %#x %#x\n"
+           "idPhysDie:                          %u\n"
+           "idSocket:                           %u\n"
+           "u8PkgType:                          %#x\n"
+           "cSysSockets:                        %u\n"
+           "bUnk4:                              %#x\n"
+           "cDiesPerSocket:                     %u\n",
            pBrsp->Fields.abUnknown3[0], pBrsp->Fields.abUnknown3[1], pBrsp->Fields.abUnknown3[2],
            pBrsp->Fields.abUnknown3[3], pBrsp->Fields.abUnknown3[4], pBrsp->Fields.abUnknown3[5],
            pBrsp->Fields.abUnknown3[6], pBrsp->Fields.abUnknown3[7], pBrsp->Fields.abUnknown3[8],
