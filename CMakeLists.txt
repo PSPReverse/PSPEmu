@@ -49,7 +49,10 @@ add_executable(PSPEmu
                       psp-dev-x86-mem.c
                       psp-dev-mmio-unknown.c
                       psp-dev-smn-unknown.c
-                      psp-dev-x86-unknown.c)
+                      psp-dev-x86-unknown.c
+
+                      # OS abstraction APIs goes here
+                      os/file.c)
 
 target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/include"
