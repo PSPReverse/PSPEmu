@@ -25,11 +25,11 @@
 #include <common/types.h>
 #include <common/cdefs.h>
 #include <common/status.h>
-#include <psp-fw/boot-rom-svc-page.h>
 
 #include <os/file.h>
 
 #include <psp-ccd.h>
+#include <psp-brsp.h>
 #include <psp-iom.h>
 #include <psp-irq.h>
 #include <psp-devs.h>
@@ -634,41 +634,12 @@ static int pspEmuCcdMemReset(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 {
     int rc = STS_INF_SUCCESS;
 
-    if (   pCfg->pvBootRomSvcPage
-        && pCfg->cbBootRomSvcPage)
+    if (pCfg->enmMode != PSPEMUMODE_SYSTEM_ON_CHIP_BL)
     {
-        if (pCfg->cbBootRomSvcPage != _4K)
-            return STS_ERR_INVALID_PARAMETER;
-
-        PSPADDR PspAddrBrsp = pCfg->pPspProfile->PspAddrBrsp;
-        if (pCfg->fBootRomSvcPageModify)
-        {
-            PSPROMSVCPG Brsp;
-
-            memcpy(&Brsp, pCfg->pvBootRomSvcPage, sizeof(Brsp));
-
-            if (pCfg->fPspDbgMode)
-            {
-                printf("Activating PSP firmware debug mode\n");
-                Brsp.Fields.u32BootMode = 1;
-            }
-
-            if (pCfg->fLoadPspDir)
-            {
-                printf("Loading PSP 1st level directory from flash image into boot ROM service page\n");
-                uint8_t *pbFlashRom = (uint8_t *)pCfg->pvFlashRom;
-                memcpy(&Brsp.Fields.abFfsDir[0], &pbFlashRom[0x77000], sizeof(Brsp.Fields.abFfsDir)); /** @todo */
-            }
-
-            Brsp.Fields.idPhysDie      = (uint8_t)pThis->idCcd;
-            Brsp.Fields.idSocket       = (uint8_t)pThis->idSocket;
-            Brsp.Fields.cDiesPerSocket = (uint8_t)pCfg->cCcdsPerSocket;
-            /** @todo u8PkgType, core info, cCcxs, cCores, etc. */
-
-            rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrBrsp, &Brsp, sizeof(Brsp));
-        }
-        else /* No modifcation allowed, just copy it. */
-            rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrBrsp, pCfg->pvBootRomSvcPage, pCfg->cbBootRomSvcPage);
+        PSPROMSVCPG Brsp;
+        int rc = PSPBrspGenerate(&Brsp, pCfg, pThis->idCcd, pThis->idSocket);
+        if (STS_SUCCESS(rc))
+            rc = PSPEmuCoreMemWrite(pThis->hPspCore, pCfg->pPspProfile->PspAddrBrsp, &Brsp, sizeof(Brsp));
     }
 
     if (   STS_SUCCESS(rc)
