@@ -57,19 +57,11 @@ cmake . && make
 For first steps no access to AMD hardware is required, only a firmware image from a Mainboard
 vendor which can be downloaded from the vendors websites. In this example the off chip BL is
 executed in the emulator by using a fully emulated setup based on the first generation Zen architecture.
-As the first step the off chip BL needs to be extracted from the firmware image which can be done
-with [PSPTool](https://github.com/PSPReverse/PSPTool).
-After that a so called boot ROM service page needs to be created which is normally left behind by the on chip bootloader
-which is skipped in this example. `PSPEmu` is currently not able to automatically create one for the emulated system
-(has high priority on the todo list). Finally the binary can be run inside the emulator using the following command
 ```
 ./PSPEmu \
     --emulation-mode sys \                       # Sets the emulation mode to start at the off chip BL stage
-    --psp-profile zen-standard \                 # Standard Zen based PSP profile
+    --cpu-profile ryzen7-1800x \                 # Selects a Ryzen 7 1800X for emulation (automatically selects PSP profile)
     --flash-rom <path/to/complete/flash/image> \ # The flash image to use for the emulated flash device
-    --bin-load <path/to/extracted/off/chip/bl> \ # The off chip BL binary to load
-    --bin-contains-hdr \                         # The biniary extracted with PSPTool has a 256 byte header prepended
-    --boot-rom-svc-page <path/to/created/BRSP> \ # The BRSP to load
     --timer-real-time \                          # Emulated timers tick in host real time
     --trace-log ./log \                          # Destination for the log
     --intercept-svc-6 \                          # Intercept and log svc 6 debug log syscalls
