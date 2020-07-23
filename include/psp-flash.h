@@ -17,22 +17,79 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef __psp_flash_h
-#define __psp_flash_h
+#ifndef INCLUDED_psp_flash_h
+#define INCLUDED_psp_flash_h
 
 #include <common/types.h>
 
+#include <psp-fw/ffs.h>
+
+#include <psp-profile.h>
+
+
+/** Opaque PSP flash filesystem handle. */
+typedef struct PSPFFSINT *PSPFFS;
+/** Pointer to a PSP flash filesystem handle. */
+typedef PSPFFS *PPSPFFS;
+
 
 /**
- * Reads the given entry from the flash region parsing the directories etc.
+ * Creates a new flash filesystem instance for the given flash image and config.
  *
  * @returns Status code.
- * @param   enmEntryId              The entry ID to read.
+ * @param   phFfs                   Where to store the handle to the filesystem instance on success.
+ * @param   enmMicroArch            The micro architecture the flash filesystem will be used with (to select the proper directories).
  * @param   pvFlash                 The start of the flash region.
  * @param   cbFlash                 Size of the flash region.
- * @param   pvDst                   Where to store the entry body on success.
- * @param   cbDst                   Size of the destination buffer.
  */
-int PSPEmuFlashReadEntry(uint32_t enmEntryId, void *pvFlash, size_t cbFlash, void *pvDst, size_t cbDst);
+int PSPFlashFsCreate(PPSPFFS phFfs, PSPEMUMICROARCH enmMicroArch, const void *pvFlash, size_t cbFlash);
 
-#endif /* __psp_flash_h */
+
+/**
+ * Destroys the given flash filesystem instance.
+ *
+ * @returns nothing.
+ * @param   hFfs                    The flash filesystem instance handle.
+ */
+void PSPFlashFsDestroy(PSPFFS hFfs);
+
+
+/**
+ * Queries the L1 PSP directory from the given flash image.
+ *
+ * @returns Status code.
+ * @param   hFfs                    The flash filesystem instance handle.
+ * @param   ppDirL1                 Where to store the pointer to the verified L1 directory on success.
+ * @param   pcbDirL1                Where to store the size of the L1 directory on success.
+ */
+int PSPFlashFsQueryL1Dir(PSPFFS hFfs, PCPSPFFSDIR *ppDirL1, size_t *pcbDirL1);
+
+
+/**
+ * Queries the merged directory from the selected L1 and possibly L2 directory and copies it
+ * to the given buffer.
+ *
+ * @return Status code.
+ * @param   hFfs                    The flash filesystem instance handle.
+ * @param   pDirHdr                 The directory header to fill in (L1 directory magic), optional.
+ * @param   paDirEntries            Where to store the merged entries.
+ * @param   cEntriesMax             Maximum number of entries fitting into the array.
+ *
+ * @note L2 directory entries are removed from the merged directory.
+ * @note Excessive entries not fitting into the buffer are cut off.
+ */
+int PSPFlashFsDirQueryMerged(PSPFFS hFfs, PPSPFFSDIRHDR pDirHdr, PPSPFFSDIRENTRY paDirEntries, size_t cEntriesMax);
+
+
+/**
+ * Queries the given entry from the flash region parsing the directories etc.
+ *
+ * @returns Status code.
+ * @param   hFfs                    The flash filesystem instance handle.
+ * @param   enmEntry                The entry type to read.
+ * @param   ppvEntry                Where to store the pointer to the entry start on success.
+ * @param   pcbEntry                Where to store the size of the entry on success.
+ */
+int PSPFlashFsQueryEntry(PSPFFS hFfs, PSPFFSDIRENTRYTYPE enmEntry, const void **ppvEntry, size_t *pcbEntry);
+
+#endif /* !INCLUDED_psp_flash_h */
