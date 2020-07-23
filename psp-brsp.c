@@ -30,6 +30,7 @@
 #include <os/file.h>
 
 #include <psp-brsp.h>
+#include <psp-flash.h>
 
 
 /*********************************************************************************************************************************
@@ -78,17 +79,43 @@ int PSPBrspGenerate(PPSPROMSVCPG pBrsp, PCPSPEMUCFG pCfg, uint32_t idCcd, uint32
             pBrsp->Fields.u32BootMode = 1;
         }
 
-        if (pCfg->fLoadPspDir)
+        PSPFFS hFfs = NULL;
+        rc = PSPFlashFsCreate(&hFfs, pCfg->pPspProfile->enmMicroArch, pCfg->pvFlashRom, pCfg->cbFlashRom);
+        if (STS_SUCCESS(rc))
         {
-            printf("Loading PSP 1st level directory from flash image into boot ROM service page\n");
-            uint8_t *pbFlashRom = (uint8_t *)pCfg->pvFlashRom;
-            memcpy(&pBrsp->Fields.abFfsDir[0], &pbFlashRom[0x77000], sizeof(pBrsp->Fields.abFfsDir)); /** @todo */
-        }
+            /* Load the merged PSP directory into the BRSP. */
+            rc = PSPFlashFsDirQueryMerged(hFfs, &pBrsp->Fields.FfsDirHdr, &pBrsp->Fields.aFfsDirEntries[0], ELEMENTS(pBrsp->Fields.aFfsDirEntries));
+            if (STS_SUCCESS(rc))
+            {
+                /* Query AMD public key from flash and insert into BRSP. */
+                const void *pvAmdPubKey = NULL;
+                size_t cbAmdPubKey = 0;
+                rc = PSPFlashFsQueryEntry(hFfs, PSPFFSDIRENTRYTYPE_AMD_PUBLIC_KEY, &pvAmdPubKey, &cbAmdPubKey);
+                if (STS_SUCCESS(rc))
+                {
+                    if (cbAmdPubKey == sizeof(pBrsp->Fields.abAmdPubKey))
+                    {
+                        memcpy(&pBrsp->Fields.abAmdPubKey[0], pvAmdPubKey, sizeof(pBrsp->Fields.abAmdPubKey));
+                        pBrsp->Fields.idPhysDie      = (uint8_t)idCcd;
+                        pBrsp->Fields.idSocket       = (uint8_t)idSocket;
+                        pBrsp->Fields.cDiesPerSocket = (uint8_t)pCfg->cCcdsPerSocket;
+                        pBrsp->Fields.cSysSockets    = (uint8_t)pCfg->cSockets;
+                        /** @todo u8PkgType, core info, cCcxs, cCores, etc. */
+                    }
+                    else
+                    {
+                        printf("Loaded AMD public key doesn't match expected size: %zu vs %zu expected\n", cbAmdPubKey, sizeof(pBrsp->Fields.abAmdPubKey));
+                        rc = STS_ERR_INVALID_PARAMETER;
+                    }
+                }
+                else
+                    printf("Loading AMD public key into BRSP failed with %d!\n", rc);
+            }
 
-        pBrsp->Fields.idPhysDie      = (uint8_t)idCcd;
-        pBrsp->Fields.idSocket       = (uint8_t)idSocket;
-        pBrsp->Fields.cDiesPerSocket = (uint8_t)pCfg->cCcdsPerSocket;
-        /** @todo u8PkgType, core info, cCcxs, cCores, etc. */
+            PSPFlashFsDestroy(hFfs);
+        }
+        else
+            printf("Creating flash filesystem read instance failed with %d\n", rc);
     }
 
     return rc;
