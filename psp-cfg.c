@@ -847,8 +847,6 @@ void PSPCfgInit(PPSPEMUCFG pCfg)
     pCfg->cbOnChipBl            = 0;
     pCfg->pvBinLoad             = NULL;
     pCfg->cbBinLoad             = 0;
-    pCfg->pvBootRomSvcPage      = NULL;
-    pCfg->cbBootRomSvcPage      = 0;
     pCfg->pszPspProxyAddr       = NULL;
     pCfg->PspAddrProxyTrustedOsHandover = 0;
     pCfg->pszTraceLog           = NULL;
@@ -894,10 +892,6 @@ void PSPCfgFree(PPSPEMUCFG pCfg)
     if (   pCfg->pvBinLoad
         && pCfg->cbBinLoad)
         OSFileLoadAllFree(pCfg->pvBinLoad, pCfg->cbBinLoad);
-
-    if (   pCfg->pvBootRomSvcPage
-        && pCfg->cbBootRomSvcPage)
-        OSFileLoadAllFree(pCfg->pvBootRomSvcPage, pCfg->cbBootRomSvcPage);
 
     if (pCfg->papszDevs)
     {
@@ -1153,14 +1147,6 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
         rc = OSFileLoadAll(pCfg->pszPathBinLoad, &pCfg->pvBinLoad, &pCfg->cbBinLoad);
         if (rc)
             fprintf(stderr, "Loading the binary \"%s\" failed with %d\n", pCfg->pszPathBinLoad, rc);
-    }
-
-    if (   STS_SUCCESS(rc)
-        && pCfg->pszPathBootRomSvcPage)
-    {
-        rc = OSFileLoadAll(pCfg->pszPathBootRomSvcPage, &pCfg->pvBootRomSvcPage, &pCfg->cbBootRomSvcPage);
-        if (rc)
-            fprintf(stderr, "Loading the boot ROM service page from the given file failed with %d\n", rc);
     }
 
     if (STS_FAILURE(rc))

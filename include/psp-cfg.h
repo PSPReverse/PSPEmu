@@ -258,10 +258,6 @@ typedef struct PSPEMUCFG
     void                    *pvBinLoad;
     /** Number of bytes of the binary loaded. */
     size_t                  cbBinLoad;
-    /** Pointer to the boot ROM service page if pszPathBootRomSvcPage is not NULL. */
-    void                    *pvBootRomSvcPage;
-    /** Number of bytes of the loaded boot ROM service page. */
-    size_t                  cbBootRomSvcPage;
     /** The proxy address if configured. */
     const char              *pszPspProxyAddr;
     /** PSP code address where the off chip BL jumps to the trusted OS.
