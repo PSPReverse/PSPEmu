@@ -26,7 +26,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
-#include <time.h>
 
 #include <poll.h>
 #include <sys/ioctl.h>
@@ -34,6 +33,8 @@
 #include <pthread.h>
 
 #include <common/cdefs.h>
+
+#include <os/time.h>
 
 #include <psp-devs.h>
 
@@ -63,22 +64,6 @@ typedef PSPDEVFLASH *PPSPDEVFLASH;
 
 
 
-/**
- * Gets the nanosecond timestamp.
- *
- * @returns Nanoseconds elapsed (monotonic increasing).
- */
-static uint64_t pspDevFlashGetTimeNs(void)
-{
-    struct timespec Tp;
-    int rcPsx = clock_gettime(CLOCK_MONOTONIC, &Tp);
-    if (!rcPsx)
-        return ((uint64_t)Tp.tv_sec * 1000ULL * 1000ULL * 1000ULL) + Tp.tv_nsec;
-
-    return 0;
-}
-
-
 static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pvUser)
 {
     PPSPDEVFLASH pThis = (PPSPDEVFLASH)pvUser;
@@ -92,7 +77,7 @@ static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pv
     if (pThis->pSpiFlashTrace)
     {
         /* Generate a new packet ID and read command if the last access isn't adjacent to this one. */
-        uint64_t tsCmd = pspDevFlashGetTimeNs() - pThis->tsStart;
+        uint64_t tsCmd = OSTimeTsGetNano() - pThis->tsStart;
         uint64_t tsCmdSec = tsCmd / (1000 * 1000 * 1000);
         uint64_t tsCmdNs = tsCmd % (1000 * 1000 * 1000);
 
@@ -179,7 +164,7 @@ static int pspDevFlashInit(PPSPDEV pDev)
             size_t cWritten = fwrite(&szHdr[0], sizeof(szHdr) - 1, 1, pThis->pSpiFlashTrace);
             if (cWritten != 1)
                 rc = -1;
-            pThis->tsStart = pspDevFlashGetTimeNs();
+            pThis->tsStart = OSTimeTsGetNano();
         }
         else
             rc = -1;

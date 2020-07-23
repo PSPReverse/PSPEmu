@@ -19,9 +19,10 @@
  */
 
 #include <stdio.h>
-#include <time.h>
 
 #include <common/cdefs.h>
+
+#include <os/time.h>
 
 #include <psp-devs.h>
 
@@ -44,22 +45,6 @@ typedef struct PSPDEVTIMER
 } PSPDEVTIMER;
 /** Pointer to the device instance data. */
 typedef PSPDEVTIMER *PPSPDEVTIMER;
-
-
-/**
- * Gets the nanosecond timestamp.
- *
- * @returns Nanoseconds elapsed (monotonic increasing).
- */
-static uint64_t pspDevTimerRealtimeSample(void)
-{
-    struct timespec Tp;
-    int rcPsx = clock_gettime(CLOCK_MONOTONIC, &Tp);
-    if (!rcPsx)
-        return ((uint64_t)Tp.tv_sec * 1000ULL * 1000ULL * 1000ULL) + Tp.tv_nsec;
-
-    return 0;
-}
 
 
 static void pspDevTimerMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
@@ -92,7 +77,7 @@ static void pspDevTimerMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, voi
             {
                 if (pThis->regCtrl & 0x1)
                 {
-                    uint64_t tsNow = pspDevTimerRealtimeSample();
+                    uint64_t tsNow = OSTimeTsGetNano();
                     uint64_t tsElapsed = tsNow - pThis->tsLast;
                     pThis->regCnt100MHz += (uint32_t)(tsElapsed / 10); /* 10ns intervals. */
                     *pu32Ret = pThis->regCnt100MHz;
@@ -131,7 +116,7 @@ static void pspDevTimerMmioWrite(PSPADDR offMmio, size_t cbWrite, const void *pv
             if (   pThis->fRealtime
                 && (u32Val & 0x1)
                 && !(pThis->regCtrl & 0x1))
-                pThis->tsLast = pspDevTimerRealtimeSample();
+                pThis->tsLast = OSTimeTsGetNano();
             pThis->regCtrl = u32Val;
             break;
         }
@@ -157,7 +142,7 @@ static int pspDevTimerInit(PPSPDEV pDev)
     PPSPDEVTIMER pThis = (PPSPDEVTIMER)&pDev->abInstance[0];
 
     pThis->fRealtime    = pDev->pCfg->fTimerRealtime;
-    pThis->tsLast       = pspDevTimerRealtimeSample();
+    pThis->tsLast       = OSTimeTsGetNano();
     pThis->regCtrl      = 0;
     pThis->regCnt100MHz = 0;
 
