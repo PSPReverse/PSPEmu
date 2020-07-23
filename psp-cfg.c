@@ -100,7 +100,6 @@ static struct option g_aOptions[] =
     {"bin-load",                     required_argument, 0, 'b'},
     {"bin-contains-hdr",             no_argument,       0, 'p'},
     {"dbg",                          required_argument, 0, 'd'},
-    {"load-psp-dir",                 no_argument,       0, 'l'},
     {"psp-dbg-mode",                 no_argument,       0, 'g'},
     {"psp-proxy-addr",               required_argument, 0, 'x'},
     {"trace-log",                    required_argument, 0, 't'},
@@ -152,7 +151,6 @@ static const PSPCFGARG g_aCfgArgsGeneral[] =
     {"boot-rom-svc-page-dont-alter", 'n', NULL,                               "Don't alter the boot ROM service page to match the emulated system"},
     {"bin-load",                     'b', "<path/to/binary/to/load>",         "Binary to load into SRAM for emulation, depends on the emulation mode"},
     {"bin-contains-hdr",             'p', NULL,                               "The binary has the 256byte header prepended. Leave out if the loaded binary doesn't has the header"},
-    {"load-psp-dir",                 'l', NULL,                               "DO NOT USE (due for removal)"},
     {"psp-dbg-mode",                 'g', NULL,                               "Enables PSP debug mode where signature checks are disabled and some BLs print additional information"},
     {"sockets",                      'S', "<socket cound>",                   "Emulate the given number of sockets, must be in range of the selected CPU profile"},
     {"ccds-per-socket",              'C', "<CCD count per socket>",           "Emulate the given number of CCDs for each socket, overwrites the value in the CPU profile"},
@@ -833,7 +831,6 @@ void PSPCfgInit(PPSPEMUCFG pCfg)
     pCfg->uDbgPort              = 0;
     pCfg->cDbgInsnStep          = 0;
     pCfg->PspAddrDbgRunUpTo     = UINT32_MAX;
-    pCfg->fLoadPspDir           = false;
     pCfg->fIncptSvc6            = false;
     pCfg->fTraceSvcs            = false;
     pCfg->fTimerRealtime        = false;
@@ -972,9 +969,6 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
                 break;
             case 'd':
                 pCfg->uDbgPort = strtoul(optarg, NULL, 10);
-                break;
-            case 'l':
-                pCfg->fLoadPspDir = true;
                 break;
             case 'g':
                 pCfg->fPspDbgMode = true;
