@@ -878,7 +878,7 @@ int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
         if (fFlags & PSPEMU_TRACE_F_ALL_EVENTS)
         {
             for (uint32_t i = 0; i < ELEMENTS(pThis->aenmEvtTypesSeverity); i++)
-                pThis->aenmEvtTypesSeverity[i] = PSPTRACEEVTSEVERITY_DEBUG;
+                pThis->aenmEvtTypesSeverity[i] = PSPTRACEEVTSEVERITY_INFO;
         }
 
         /** @todo Timestamping. */
