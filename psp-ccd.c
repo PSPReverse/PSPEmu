@@ -30,6 +30,7 @@
 
 #include <psp-ccd.h>
 #include <psp-brsp.h>
+#include <psp-flash.h>
 #include <psp-iom.h>
 #include <psp-irq.h>
 #include <psp-devs.h>
@@ -642,9 +643,7 @@ static int pspEmuCcdMemReset(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
             rc = PSPEmuCoreMemWrite(pThis->hPspCore, pCfg->pPspProfile->PspAddrBrsp, &Brsp, sizeof(Brsp));
     }
 
-    if (   STS_SUCCESS(rc)
-        && pCfg->pvBinLoad
-        && pCfg->cbBinLoad)
+    if (STS_SUCCESS(rc))
     {
         PSPADDR PspAddrWrite = 0;
         switch (pCfg->enmMode)
@@ -662,11 +661,53 @@ static int pspEmuCcdMemReset(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
                 return -1;
         }
 
-        if (   !pCfg->fBinContainsHdr
-            && pCfg->enmMode != PSPEMUMODE_TRUSTED_OS)
-            PspAddrWrite += 256; /* Skip the header part. */
+        if (   pCfg->pvBinLoad
+            && pCfg->cbBinLoad)
+        {
+            /* Load the indicated binary. */
+            if (   !pCfg->fBinContainsHdr
+                && pCfg->enmMode != PSPEMUMODE_TRUSTED_OS)
+                PspAddrWrite += 256; /* Skip the header part. */
 
-        rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrWrite, pCfg->pvBinLoad, pCfg->cbBinLoad);
+            rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrWrite, pCfg->pvBinLoad, pCfg->cbBinLoad);
+        }
+        else
+        {
+            /* Load the proper binary from the flash image. */
+            PSPFFSDIRENTRYTYPE enmEntryType;
+            size_t cbBinaryMax = 0;
+            switch (pCfg->enmMode)
+            {
+                case PSPEMUMODE_SYSTEM:
+                    enmEntryType = PSPFFSDIRENTRYTYPE_PSP_OFF_CHIP_BL;
+                    cbBinaryMax = 0x3d000 - 1;
+                    break;
+                case PSPEMUMODE_TRUSTED_OS:
+                case PSPEMUMODE_APP:
+                case PSPEMUMODE_SYSTEM_ON_CHIP_BL:
+                default:
+                    return STS_ERR_INVALID_PARAMETER;
+            }
+
+            PSPFFS hFfs = NULL;
+            rc = PSPFlashFsCreate(&hFfs, pCfg->pPspProfile->enmMicroArch, pCfg->pvFlashRom, pCfg->cbFlashRom);
+            if (STS_SUCCESS(rc))
+            {
+                /** @todo Signature checking, zlib decompression, etc. */
+                const void *pvBinary = NULL;
+                size_t cbBinary = 0;
+                rc = PSPFlashFsQueryEntry(hFfs, enmEntryType, &pvBinary, &cbBinary);
+                if (STS_SUCCESS(rc))
+                {
+                    if (cbBinary < cbBinaryMax)
+                        rc = PSPEmuCoreMemWrite(pThis->hPspCore, PspAddrWrite, pvBinary, cbBinary);
+                    else
+                        rc = STS_ERR_BUFFER_OVERFLOW;
+                }
+
+                PSPFlashFsDestroy(hFfs);
+            }
+        }
     }
 
     if (STS_SUCCESS(rc))

@@ -739,9 +739,10 @@ static int pspCfgVerify(PCPSPEMUCFG pCfg)
     }
 
     if (   pCfg->enmMode != PSPEMUMODE_SYSTEM_ON_CHIP_BL
+        && pCfg->enmMode != PSPEMUMODE_SYSTEM
         && !pCfg->pszPathBinLoad)
     {
-        fprintf(stderr, "Loading the designated binary from the flash image is not implemented yet, please load the binary explicitely using --bin-load\n");
+        fprintf(stderr, "Loading the designated binary from the flash image is not implemented for the selected emulation mode yet, please load the binary explicitely using --bin-load\n");
         return STS_ERR_GENERAL_ERROR;
     }
 
