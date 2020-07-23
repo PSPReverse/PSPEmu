@@ -71,7 +71,7 @@ static void pspDevTimerMmioRead(PSPADDR offMmio, size_t cbRead, void *pvVal, voi
             {
                 *pu32Ret = pThis->regCnt100MHz;
                 if (pThis->regCtrl & 0x1)
-                    pThis->regCnt100MHz++;
+                    pThis->regCnt100MHz += 1000 * 1000 * 100; /* 1 second jump per read. */
             }
             else
             {
