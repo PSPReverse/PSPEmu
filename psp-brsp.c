@@ -118,6 +118,75 @@ int PSPBrspGenerate(PPSPROMSVCPG pBrsp, PCPSPEMUCFG pCfg, uint32_t idCcd, uint32
             printf("Creating flash filesystem read instance failed with %d\n", rc);
     }
 
+    //PSPBrspDump(pBrsp); /* For debug purposes */
     return rc;
+}
+
+
+int PSPBrspDump(PPSPROMSVCPG pBrsp)
+{
+    printf("FfsDirHdr.u32Magic:               %#x\n"
+           "FfsDirHdr.u32ChkSumFletcher32:    %#x\n"
+           "FfsDirHdr.cEntries:               %u\n"
+           "FfsDirHdr.u32Rsvd0:               %#x\n",
+           pBrsp->Fields.FfsDirHdr.u32Magic, pBrsp->Fields.FfsDirHdr.u32ChkSumFletcher32,
+           pBrsp->Fields.FfsDirHdr.cEntries, pBrsp->Fields.FfsDirHdr.u32Rsvd0);
+    for (uint32_t i = 0; i < pBrsp->Fields.FfsDirHdr.cEntries; i++)
+    {
+        PCPSPFFSDIRENTRY pEntry = &pBrsp->Fields.aFfsDirEntries[i];
+
+        printf("aFfsDirEntries[%u].enmType:      %#x\n"
+               "aFfsDirEntries[%u].cbEntry:      %u\n"
+               "aFfsDirEntries[%u].FfsAddrStart: %#x\n"
+               "aFfsDirEntries[%u].u32Rsvd0:     %#x\n",
+               i, pEntry->enmType,
+               i, pEntry->cbEntry,
+               i, pEntry->FfsAddrStart,
+               i, pEntry->u32Rsvd0);
+    }
+
+    /** @todo AMD public key. */
+
+    printf("u32BootMode:                      %#x\n"
+           "abUnknown[0..5]:                  %#x %#x %#x %#x %#x\n"
+           "cCores:                           %u\n"
+           "cCcxs:                            %u\n"
+           "cCoresEnabledOnDie:               %u\n"
+           "bUnknown2:                        %#x\n"
+           "logCoresPerComplex[0]:            %u\n"
+           "logCoresPerComplex[1]:            %u\n",
+           pBrsp->Fields.u32BootMode,
+           pBrsp->Fields.abUnknown1[0], pBrsp->Fields.abUnknown1[1], pBrsp->Fields.abUnknown1[2],
+           pBrsp->Fields.abUnknown1[3], pBrsp->Fields.abUnknown1[4], pBrsp->Fields.abUnknown1[5],
+           pBrsp->Fields.cCores, pBrsp->Fields.cCcxs, pBrsp->Fields.cCoresEnabledOnDie,
+           pBrsp->Fields.bUnknown2,
+           pBrsp->Fields.logCoresPerComplex[0], pBrsp->Fields.logCoresPerComplex[1]);
+
+    for (uint32_t i = 0; i < ELEMENTS(pBrsp->Fields.aCoreInfo); i++)
+    {
+        const PSPCOREINFO *pCoreInfo = &pBrsp->Fields.aCoreInfo[i];
+
+        printf("aCoreInfo[%u].idCcx:                %u\n"
+               "aCoreInfo[%u].idCore:               %u\n",
+               i, pCoreInfo->idCcx,
+               i, pCoreInfo->idCore);
+    }
+
+    printf("abUnknown3[0..5]:                 %#x %#x %#x %#x %#x\n"
+           "abUnknown3[6..11]:                %#x %#x %#x %#x %#x\n"
+           "idPhysDie:                        %u\n"
+           "idSocket:                         %u\n"
+           "u8PkgType:                        %#x\n"
+           "cSysSockets:                      %u\n"
+           "bUnk4:                            %#x\n"
+           "cDiesPerSocket:                   %u\n",
+           pBrsp->Fields.abUnknown3[0], pBrsp->Fields.abUnknown3[1], pBrsp->Fields.abUnknown3[2],
+           pBrsp->Fields.abUnknown3[3], pBrsp->Fields.abUnknown3[4], pBrsp->Fields.abUnknown3[5],
+           pBrsp->Fields.abUnknown3[6], pBrsp->Fields.abUnknown3[7], pBrsp->Fields.abUnknown3[8],
+           pBrsp->Fields.abUnknown3[9], pBrsp->Fields.abUnknown3[10], pBrsp->Fields.abUnknown3[11],
+           pBrsp->Fields.idPhysDie, pBrsp->Fields.idSocket, pBrsp->Fields.u8PkgType,
+           pBrsp->Fields.cSysSockets, pBrsp->Fields.bUnk4, pBrsp->Fields.cDiesPerSocket);
+
+    return STS_INF_SUCCESS;
 }
 

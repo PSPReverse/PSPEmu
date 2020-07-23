@@ -38,4 +38,13 @@
  */
 int PSPBrspGenerate(PPSPROMSVCPG pBrsp, PCPSPEMUCFG pCfg, uint32_t idCcd, uint32_t idSocket);
 
+
+/**
+ * Dumps the given BRSP to stdout.
+ *
+ * @returns Status code.
+ * @param   pBrsp                   The Boot ROM Service Page to dump.
+ */
+int PSPBrspDump(PPSPROMSVCPG pBrsp);
+
 #endif /* !INCLUDED_psp_brsp_h */
