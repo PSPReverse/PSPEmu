@@ -22,24 +22,6 @@
 
 #include <common/types.h>
 
-/**
- * Loads the flash from the given filename returning an appropriate memory buffer (mmap'ed for example).
- *
- * @returns Status code.
- * @param   pszFilename             The filename to laod the flash content from.
- * @param   ppv                     Where to store the pointer to the flash content on success.
- * @param   pcb                     Where to store the size of the flash region on success.
- */
-int PSPEmuFlashLoadFromFile(const char *pszFilename, void **ppv, size_t *pcb);
-
-/**
- * Frees the flash region created with PSPEmuFlashLoadFromFile().
- *
- * @returns Status code.
- * @param   pv                      Pointer to the start of the flash region as returned by PSPEmuFlashLoadFromFile().
- * @param   cb                      Size of the region as returned by PSPEmuFlashLoadFromFile().
- */
-int PSPEmuFlashFree(void *pv, size_t cb);
 
 /**
  * Reads the given entry from the flash region parsing the directories etc.

@@ -32,8 +32,9 @@
 #include <common/cdefs.h>
 #include <common/status.h>
 
+#include <os/file.h>
+
 #include <psp-cfg.h>
-#include <psp-flash.h>
 #include <psp-profile.h>
 #include <psp-trace.h>
 
@@ -884,19 +885,19 @@ void PSPCfgFree(PPSPEMUCFG pCfg)
 
     if (   pCfg->pvOnChipBl
         && pCfg->cbOnChipBl)
-        PSPEmuFlashFree(pCfg->pvOnChipBl, pCfg->cbOnChipBl);
+        OSFileLoadAllFree(pCfg->pvOnChipBl, pCfg->cbOnChipBl);
 
     if (   pCfg->pvFlashRom
         && pCfg->cbFlashRom)
-        PSPEmuFlashFree(pCfg->pvFlashRom, pCfg->cbFlashRom);
+        OSFileLoadAllFree(pCfg->pvFlashRom, pCfg->cbFlashRom);
 
     if (   pCfg->pvBinLoad
         && pCfg->cbBinLoad)
-        PSPEmuFlashFree(pCfg->pvBinLoad, pCfg->cbBinLoad);
+        OSFileLoadAllFree(pCfg->pvBinLoad, pCfg->cbBinLoad);
 
     if (   pCfg->pvBootRomSvcPage
         && pCfg->cbBootRomSvcPage)
-        PSPEmuFlashFree(pCfg->pvBootRomSvcPage, pCfg->cbBootRomSvcPage);
+        OSFileLoadAllFree(pCfg->pvBootRomSvcPage, pCfg->cbBootRomSvcPage);
 
     if (pCfg->papszDevs)
     {
@@ -1134,14 +1135,14 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
     if (   STS_SUCCESS(rc)
         && pCfg->pszPathOnChipBl)
     {
-        rc = PSPEmuFlashLoadFromFile(pCfg->pszPathOnChipBl, &pCfg->pvOnChipBl, &pCfg->cbOnChipBl);
+        rc = OSFileLoadAll(pCfg->pszPathOnChipBl, &pCfg->pvOnChipBl, &pCfg->cbOnChipBl);
         if (rc)
             fprintf(stderr, "Loading the on chip bootloader ROM failed with %d\n", rc);
     }
 
     if (STS_SUCCESS(rc))
     {
-        rc = PSPEmuFlashLoadFromFile(pCfg->pszPathFlashRom, &pCfg->pvFlashRom, &pCfg->cbFlashRom);
+        rc = OSFileLoadAll(pCfg->pszPathFlashRom, &pCfg->pvFlashRom, &pCfg->cbFlashRom);
         if (rc)
             fprintf(stderr, "Loading the flash ROM failed with %d\n", rc);
     }
@@ -1149,7 +1150,7 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
     if (   STS_SUCCESS(rc)
         && pCfg->pszPathBinLoad)
     {
-        rc = PSPEmuFlashLoadFromFile(pCfg->pszPathBinLoad, &pCfg->pvBinLoad, &pCfg->cbBinLoad);
+        rc = OSFileLoadAll(pCfg->pszPathBinLoad, &pCfg->pvBinLoad, &pCfg->cbBinLoad);
         if (rc)
             fprintf(stderr, "Loading the binary \"%s\" failed with %d\n", pCfg->pszPathBinLoad, rc);
     }
@@ -1157,7 +1158,7 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
     if (   STS_SUCCESS(rc)
         && pCfg->pszPathBootRomSvcPage)
     {
-        rc = PSPEmuFlashLoadFromFile(pCfg->pszPathBootRomSvcPage, &pCfg->pvBootRomSvcPage, &pCfg->cbBootRomSvcPage);
+        rc = OSFileLoadAll(pCfg->pszPathBootRomSvcPage, &pCfg->pvBootRomSvcPage, &pCfg->cbBootRomSvcPage);
         if (rc)
             fprintf(stderr, "Loading the boot ROM service page from the given file failed with %d\n", rc);
     }

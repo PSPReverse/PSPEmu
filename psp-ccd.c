@@ -27,8 +27,9 @@
 #include <common/status.h>
 #include <psp-fw/boot-rom-svc-page.h>
 
+#include <os/file.h>
+
 #include <psp-ccd.h>
-#include <psp-flash.h>
 #include <psp-iom.h>
 #include <psp-irq.h>
 #include <psp-devs.h>
@@ -597,7 +598,7 @@ static int pspEmuCcdMemPreload(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
 
         void *pvPreload = NULL;
         size_t cbPreload = 0;
-        rc = PSPEmuFlashLoadFromFile(pMemPreload->pszFilePreload, &pvPreload, &cbPreload);
+        rc = OSFileLoadAll(pMemPreload->pszFilePreload, &pvPreload, &cbPreload);
         if (STS_SUCCESS(rc))
         {
             switch (pMemPreload->enmAddrSpace)
@@ -613,7 +614,8 @@ static int pspEmuCcdMemPreload(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
                     rc = STS_ERR_INVALID_PARAMETER; /** @todo */
                     break;
             }
-            PSPEmuFlashFree(pvPreload, cbPreload);
+
+            OSFileLoadAllFree(pvPreload, cbPreload);
         }
     }
 

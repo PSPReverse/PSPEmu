@@ -26,12 +26,13 @@
 #include <common/cdefs.h>
 #include <psp/ccp.h>
 
+#include <os/file.h>
+
 #include <libpspproxy.h>
 
 #include <psp-proxy.h>
 #include <psp-trace.h>
 #include <psp-iom.h>
-#include <psp-flash.h>
 
 
 /**
@@ -1603,14 +1604,14 @@ static int pspProxyDbgCmdX86MemWriteFile(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp,
         {
             void *pv = NULL;
             size_t cb = 0;
-            int rc = PSPEmuFlashLoadFromFile(pszFile, &pv, &cb);
+            int rc = OSFileLoadAll(pszFile, &pv, &cb);
             if (STS_SUCCESS(rc))
             {
                 rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pv, cb);
                 if (STS_FAILURE(rc))
                     pHlp->pfnPrintf(pHlp, "Writing file \"%s\" to memory at %#llx failed with %d\n", pszFile, PhysX86Addr, rc);
 
-                free(pv);
+                OSFileLoadAllFree(pv, cb);
             }
             else
                 pHlp->pfnPrintf(pHlp, "Opening file \"%s\" failed with %d\n", pszFile, rc);

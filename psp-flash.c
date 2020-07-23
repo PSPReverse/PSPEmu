@@ -24,57 +24,6 @@
 
 #include <psp-flash.h>
 
-int PSPEmuFlashLoadFromFile(const char *pszFilename, void **ppv, size_t *pcb)
-{
-    int rc = 0;
-    FILE *pFwFile = fopen(pszFilename, "rb");
-    if (pFwFile)
-    {
-        /* Determine file size. */
-        rc = fseek(pFwFile, 0, SEEK_END);
-        if (!rc)
-        {
-            long cbFw = ftell(pFwFile);
-            if (cbFw != -1)
-            {
-                rewind(pFwFile);
-
-                void *pvFw = malloc(cbFw);
-                if (pvFw)
-                {
-                    size_t cbRead = fread(pvFw, cbFw, 1, pFwFile);
-                    if (cbRead == 1)
-                    {
-                        *ppv = pvFw;
-                        *pcb = cbFw;
-                        return 0;
-                    }
-
-                    free(pvFw);
-                    rc = -1;
-                }
-                else
-                    rc = -1;
-            }
-            else
-                rc = errno;
-        }
-        else
-            rc = errno;
-
-        fclose(pFwFile);
-    }
-    else
-        rc = errno;
-
-    return rc;
-}
-
-int PSPEmuFlashFree(void *pv, size_t cb)
-{
-    free(pv);
-    return 0;
-}
 
 int PSPEmuFlashReadEntry(uint32_t enmEntryId, void *pvFlash, size_t cbFlash, void *pvDst, size_t cbDst)
 {
