@@ -261,6 +261,8 @@ int OSTcpServerCreate(POSTCPSRV phTcpSrv, uint16_t uPort)
         }
         else
             rc = STS_ERR_INVALID_PARAMETER; /** @todo Status code. */
+
+        free(pThis);
     }
     else
         rc = STS_ERR_NO_MEMORY;
