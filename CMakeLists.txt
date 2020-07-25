@@ -55,7 +55,8 @@ add_executable(PSPEmu
                       # OS abstraction APIs goes here
                       os/file.c
                       os/posix/time.c
-                      os/posix/lock.c)
+                      os/posix/lock.c
+                      os/posix/thread.c)
 
 target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/include"
