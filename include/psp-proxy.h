@@ -24,6 +24,7 @@
 
 #include <psp-cfg.h>
 #include <psp-ccd.h>
+#include <psp-x86-ice.h>
 
 
 /** Opaque PSP proxy handle. */
@@ -56,6 +57,7 @@ void PSPProxyDestroy(PSPPROXY hProxy);
  *
  * @returns Status code.
  * @param   hProxy                  The proxy handle.
+ * @param   hCcd                    The CCD handle to register.
  */
 int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd);
 
@@ -68,6 +70,26 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd);
  * @param   hCcd                    The CCD handle to deregister.
  */
 int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd);
+
+
+/**
+ * Registers the given x86 ICE bridge for hardware access proxying.
+ *
+ * @returns Status code.
+ * @param   hProxy                  The proxy handle.
+ * @param   hX86Ice                 The ICE bridge handle to register.
+ */
+int PSPProxyX86IceRegister(PSPPROXY hProxy, PSPX86ICE hX86Ice);
+
+
+/**
+ * Registers the given x86 ICE bridge from the given proxy.
+ *
+ * @returns Status code.
+ * @param   hProxy                  The proxy handle.
+ * @param   hX86Ice                 The ICE bridge handle to deregister.
+ */
+int PSPProxyX86IceDeregister(PSPPROXY hProxy, PSPX86ICE hX86Ice);
 
 
 /**

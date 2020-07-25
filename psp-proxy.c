@@ -123,6 +123,22 @@ typedef PSPPROXYCCD *PPSPPROXYCCD;
 
 
 /**
+ * x86 ICE bridge registration record.
+ */
+typedef struct PSPPROXYX86ICE
+{
+    /** Pointer to the next record. */
+    struct PSPPROXYX86ICE       *pNext;
+    /** Pointer to the owning proxy instance. */
+    PPSPPROXYINT                pThis;
+    /** The ICE bridge handle. */
+    PSPX86ICE                   hX86Ice;
+} PSPPROXYX86ICE;
+/** Pointer to a CCD registration record. */
+typedef PSPPROXYX86ICE *PPSPPROXYX86ICE;
+
+
+/**
  * Proxy instance data.
  */
 typedef struct PSPPROXYINT
@@ -137,6 +153,8 @@ typedef struct PSPPROXYINT
     uint32_t                    fProxyFeat;
     /** Head of CCDs registered with this proxy instance. */
     PPSPPROXYCCD                pCcdsHead;
+    /** head of x86 ICE bridges registered with this proxy instance. */
+    PPSPPROXYX86ICE             pX86IcesHead;
     /** CCP proxy data if enabled. */
     PSPPROXYCCP                 CcpProxy;
 } PSPPROXYINT;
@@ -1227,6 +1245,44 @@ static void pspProxyMemWtX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86P
 
 
 /**
+ * @copydoc{FNPSPX86ICEIOPORTREAD, X86 ICE bridge I/O port read callback.}
+ */
+static int pspProxyX86IceIoPortRead(PSPX86ICE hX86Ice, uint16_t IoPort, size_t cbRead, void *pvVal, void *pvUser)
+{
+    PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
+    PPSPPROXYINT pThis = pX86IceRec->pThis;
+
+    pspProxyLock(pThis);
+    int rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, 0xfffdfc000000 + IoPort, cbRead, pvVal);
+    pspProxyUnlock(pThis);
+
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyX86IceIoPortRead() failed with %d", rc);
+    return rc;
+}
+
+
+/**
+ * @copydoc{FNPSPX86ICEIOPORTWRITE, X86 ICE bridge I/O port write callback.}
+ */
+static int pspProxyX86IceIoPortWrite(PSPX86ICE hX86Ice, uint16_t IoPort, size_t cbWrite, const void *pvVal, void *pvUser)
+{
+    PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
+    PPSPPROXYINT pThis = pX86IceRec->pThis;
+
+    pspProxyLock(pThis);
+    int rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, 0xfffdfc000000 + IoPort, cbWrite, pvVal);
+    pspProxyUnlock(pThis);
+
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyX86IceIoPortWrite() failed with %d", rc);
+    return rc;
+}
+
+
+/**
  * Registers configured write through regions with the given I/O manager.
  *
  * @returns Status code.
@@ -1899,9 +1955,10 @@ int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
     PPSPPROXYINT pThis = (PPSPPROXYINT)calloc(1, sizeof(*pThis));
     if (pThis)
     {
-        pThis->pCfg       = pCfg;
-        pThis->pCcdsHead  = NULL;
-        pThis->fProxyFeat = 0;
+        pThis->pCfg         = pCfg;
+        pThis->pCcdsHead    = NULL;
+        pThis->pX86IcesHead = NULL;
+        pThis->fProxyFeat   = 0;
 
         if (pCfg->fProxyBlockX86CoreRelease)
             pThis->fProxyFeat |= PSPPROXY_ADDR_BLOCKED_FEAT_F_NO_X86_RELEASE;
@@ -2037,6 +2094,48 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
 
 
 int PSPProxyCcdDeregister(PSPPROXY hProxy, PSPCCD hCcd)
+{
+    /** @todo */
+    return STS_ERR_GENERAL_ERROR;
+}
+
+
+int PSPProxyX86IceRegister(PSPPROXY hProxy, PSPX86ICE hX86Ice)
+{
+    PPSPPROXYINT pThis = hProxy;
+
+    /** @todo Check for duplicates. */
+    int rc = STS_INF_SUCCESS;
+    PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)calloc(1, sizeof(*pX86IceRec));
+    if (pX86IceRec)
+    {
+        /* Register the I/O port handlers. */
+        rc = PSPX86IceIoPortRwHandlerSet(hX86Ice, pspProxyX86IceIoPortRead, pspProxyX86IceIoPortWrite, pX86IceRec);
+        if (STS_SUCCESS(rc))
+        {
+            pspProxyLock(pThis);
+
+            pX86IceRec->pThis   = pThis;
+            pX86IceRec->hX86Ice = hX86Ice;
+            pX86IceRec->pNext   = pThis->pX86IcesHead;
+
+            pThis->pX86IcesHead = pX86IceRec;
+
+            pspProxyUnlock(pThis);
+
+            return STS_INF_SUCCESS;
+        }
+
+        free(pX86IceRec);
+    }
+    else
+        rc = STS_ERR_NO_MEMORY;
+
+    return rc;
+}
+
+
+int PSPProxyX86IceDeregister(PSPPROXY hProxy, PSPX86ICE hX86Ice)
 {
     /** @todo */
     return STS_ERR_GENERAL_ERROR;
