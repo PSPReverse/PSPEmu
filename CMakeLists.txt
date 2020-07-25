@@ -51,6 +51,7 @@ add_executable(PSPEmu
                       psp-dev-mmio-unknown.c
                       psp-dev-smn-unknown.c
                       psp-dev-x86-unknown.c
+                      psp-x86-ice.c
 
                       # OS abstraction APIs goes here
                       os/file.c
