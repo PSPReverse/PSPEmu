@@ -35,6 +35,7 @@
 #include <psp-dbg.h>
 #include <psp-proxy.h>
 #include <psp-iolog-replay.h>
+#include <psp-x86-ice.h>
 
 
 /**
@@ -100,6 +101,7 @@ int main(int argc, char *argv[])
             if (!rc)
             {
                 PSPPROXY hProxy = NULL;
+                PSPX86ICE hX86Ice = NULL;
                 PSPIOLOGREPLAY hIoLogReplay = NULL;
 
                 /* Setup the proxy if configured. */
@@ -108,6 +110,17 @@ int main(int argc, char *argv[])
                     rc = PSPProxyCreate(&hProxy, &Cfg);
                     if (!rc)
                         rc = PSPProxyCcdRegister(hProxy, hCcd);
+
+                    if (   STS_SUCCESS(rc)
+                        && Cfg.uX86IcePort)
+                    {
+                        rc = PSPX86IceCreate(&hX86Ice, Cfg.uX86IcePort);
+                        if (STS_SUCCESS(rc))
+                        {
+                            /* Register the ICE bridge with the proxy. */
+                            rc = PSPProxyX86IceRegister(hProxy, hX86Ice);
+                        }
+                    }
                 }
                 else if (Cfg.pszIoLogReplay)
                 {
