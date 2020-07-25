@@ -281,6 +281,8 @@ typedef struct PSPEMUCFG
     uint32_t                idSocketSingle;
     /** The single CCD ID to emulate. */
     uint32_t                idCcdSingle;
+    /** The port to listen on for the x86 ICE bridge. */
+    uint32_t                uX86IcePort;
     /** Array of memory region descriptors to create on demand. */
     PCPSPEMUCFGMEMREGIONCREATE paMemCreate;
     /** Number of entries in the create memory region descriptor array. */

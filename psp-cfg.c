@@ -131,6 +131,7 @@ static struct option g_aOptions[] =
     {"memory-create",                required_argument, 0, 'R'},
     {"proxy-memory-wt",              required_argument, 0, 'W'},
     {"single-step-dump-core-state",  no_argument,       0, 'A'},
+    {"enable-x86-ice",               required_argument, 0, 'e'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -210,6 +211,15 @@ static const PSPCFGARG g_aCfgArgsTraceLog[] =
 
 
 /**
+ * The arguments of the x86 ICE settings group.
+ */
+static const PSPCFGARG g_aCfgArgsX86Ice[] =
+{
+    {"enable-x86-ice",               'e', "<port>",                           "Enable the x86 ICE bridge on the given port"},
+};
+
+
+/**
  * The argument groups.
  */
 static const PSPCFGARGGRP g_aCfgArgGroups[] =
@@ -218,6 +228,7 @@ static const PSPCFGARGGRP g_aCfgArgGroups[] =
     { "Debugger related settings",      &g_aCfgArgsDbg[0],      ELEMENTS(g_aCfgArgsDbg)      },
     { "Proxy mode related settings",    &g_aCfgArgsProxy[0],    ELEMENTS(g_aCfgArgsProxy)    },
     { "Trace logging related settings", &g_aCfgArgsTraceLog[0], ELEMENTS(g_aCfgArgsTraceLog) },
+    { "X86 ICE related settings",       &g_aCfgArgsX86Ice[0], ELEMENTS(g_aCfgArgsX86Ice)     }
 };
 
 
@@ -860,6 +871,7 @@ void PSPCfgInit(PPSPEMUCFG pCfg)
     pCfg->cCcdsPerSocket        = 1;
     pCfg->idSocketSingle        = UINT32_MAX;
     pCfg->idCcdSingle           = UINT32_MAX;
+    pCfg->uX86IcePort           = 0;
     pCfg->paMemCreate           = NULL;
     pCfg->cMemCreate            = 0;
     pCfg->paMemPreload          = NULL;
@@ -924,7 +936,7 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
 
     PSPCfgInit(pCfg);
 
-    while ((ch = getopt_long (cArgs, (char * const *)papszArgs, "hpbr8N:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:W:IA", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (cArgs, (char * const *)papszArgs, "hpbr8N:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:W:e:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
@@ -1114,6 +1126,9 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
                     return rc;
                 break;
             }
+            case 'e':
+                pCfg->uX86IcePort = strtoul(optarg, NULL, 10);
+                break;
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;
