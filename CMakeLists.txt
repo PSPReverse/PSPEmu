@@ -56,7 +56,8 @@ add_executable(PSPEmu
                       os/file.c
                       os/posix/time.c
                       os/posix/lock.c
-                      os/posix/thread.c)
+                      os/posix/thread.c
+                      os/posix/tcp.c)
 
 target_include_directories(PSPEmu PUBLIC
                            "${PROJECT_SOURCE_DIR}/include"
