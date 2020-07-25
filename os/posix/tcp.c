@@ -28,6 +28,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <netdb.h>
 #include <poll.h>
 
@@ -126,6 +127,20 @@ int OSTcpConnectionClose(OSTCPCON hTcpCon)
     close(pThis->iFdSock);
     free(pThis);
     return STS_INF_SUCCESS;
+}
+
+
+int OSTcpConnectionSendCoalescingSet(OSTCPCON hTcpCon, bool fEnable)
+{
+    int rc = STS_INF_SUCCESS;
+    POSTCPCONINT pThis = hTcpCon;
+    int iFlag = fEnable ? 1 : 0;
+
+    int rcPsx = setsockopt(pThis->iFdSock, IPPROTO_TCP, TCP_NODELAY, &iFlag, sizeof(iFlag));
+    if (rcPsx)
+        rc = STS_ERR_INVALID_PARAMETER;
+
+    return rc;
 }
 
 

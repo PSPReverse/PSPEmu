@@ -63,6 +63,16 @@ int OSTcpConnectionClose(OSTCPCON hTcpCon);
 
 
 /**
+ * Enabled or disable send coalescing aka. Nagles algorithm.
+ *
+ * @returns Status code.
+ * @param   hTcpCon                 The TCP connection to configure.
+ * @param   fEnable                 Flag whether to enable or disable send coalescing.
+ */
+int OSTcpConnectionSendCoalescingSet(OSTCPCON hTcpCon, bool fEnable);
+
+
+/**
  * Tries to read the given number of bytes from the given client connection.
  *
  * @returns Status code.
