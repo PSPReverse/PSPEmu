@@ -141,9 +141,9 @@ static inline uint8_t pspX86IceSerialIceHexToNibble(uint8_t bVal)
     if (bVal >= '0' && bVal <= '9')
         return bVal - '0';
     else if (bVal >= 'a' && bVal <= 'f')
-        return bVal - 'a';
+        return bVal - 'a' + 10;
     else if (bVal >= 'A' && bVal <= 'F')
-        return bVal - 'A';
+        return bVal - 'A' + 10;
 
     return 0;
 }
@@ -273,7 +273,8 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
         uint8_t bRx = 0;
         size_t cbRead = 0;
         rc = OSTcpConnectionRead(hTcpCon, &bRx, sizeof(bRx), &cbRead);
-        if (STS_SUCCESS(rc))
+        if (   STS_SUCCESS(rc)
+            && cbRead == 1)
         {
             /** @todo Assert cbRead == 1 */
             switch (pRx->enmState)
@@ -305,6 +306,7 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                     else
                         rc = STS_ERR_INVALID_PARAMETER;
                     pRx->enmState = PSPX86SERIALICERXSTATE_ADDR; /* Doesn't matter in error case. */
+                    break;
                 case PSPX86SERIALICERXSTATE_ADDR:
                 {
                     pRx->uAddr <<= 4;
@@ -313,12 +315,14 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
 
                     if (!pRx->cbAddr)
                         pRx->enmState = PSPX86SERIALICERXSTATE_DOT;
+                    break;
                 }
                 case PSPX86SERIALICERXSTATE_DOT:
                 {
                     if (bRx != '.')
                         rc = STS_ERR_INVALID_PARAMETER;
                     pRx->enmState = PSPX86SERIALICERXSTATE_WIDTH;
+                    break;
                 }
                 case PSPX86SERIALICERXSTATE_WIDTH:
                 {
@@ -337,7 +341,7 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                         rc = pspX86IceSerialIceProcess(pThis, pRx, hTcpCon);
                     else
                     {
-                        pRx->cbData *= 2;
+                        pRx->cbData = pRx->cb * 2;
                         pRx->enmState = PSPX86SERIALICERXSTATE_EQUAL;
                     }
                     break;
@@ -413,7 +417,7 @@ static int pspX86IceNetIoThrd(OSTHREAD hThread, void *pvUser)
             if (STS_SUCCESS(rc))
             {
                 rc = pspX86IceSerialIceRecv(pThis, &RxState, hTcpCon);
-                if (STS_SUCCESS(rc))
+                if (STS_FAILURE(rc))
                 {
                     /* Some error happened, close connection and continue. */
                     OSTcpConnectionClose(hTcpCon, false /*fShutdown*/);
