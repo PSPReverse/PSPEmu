@@ -27,6 +27,7 @@
 #include <psp/ccp.h>
 
 #include <os/file.h>
+#include <os/lock.h>
 
 #include <libpspproxy.h>
 
@@ -126,6 +127,8 @@ typedef PSPPROXYCCD *PPSPPROXYCCD;
  */
 typedef struct PSPPROXYINT
 {
+    /** The lock protecting the proxy instance against concurrent accesses. */
+    OSLOCK                      hLock;
     /** PSP proxy context handle. */
     PSPPROXYCTX                 hPspProxyCtx;
     /** The global config. */
@@ -292,6 +295,34 @@ static void pspProxyRead(void *pvDst, uint32_t u32Val, size_t cbAcc)
             *(uint32_t *)pvDst = u32Val;
             break;
     }
+}
+
+
+/**
+ * Locks the given proxy instance.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance to lock.
+ */
+static int pspProxyLock(PPSPPROXYINT pThis)
+{
+    int rc = OSLockAcquire(pThis->hLock);
+    /** @todo Assert rc */
+    return rc;
+}
+
+
+/**
+ * Unlocks the given proxy instance.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance to unlock.
+ */
+static int pspProxyUnlock(PPSPPROXYINT pThis)
+{
+    int rc = OSLockRelease(pThis->hLock);
+    /** @todo Assert rc */
+    return rc;
 }
 
 
@@ -511,6 +542,8 @@ static void pspEmuProxyCcdPspMmioUnassignedRead(PSPADDR offMmio, size_t cbRead, 
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
+    pspProxyLock(pThis);
+
     /* Reads will flush any buffered writes immediately and reset the write buffering. */
     pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
 
@@ -531,6 +564,8 @@ static void pspEmuProxyCcdPspMmioUnassignedRead(PSPADDR offMmio, size_t cbRead, 
     else
         PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
                                  "<PROXY/DENIED>", offMmio, pvVal, cbRead);
+
+    pspProxyUnlock(pThis);
 }
 
 
@@ -538,6 +573,8 @@ static void pspEmuProxyCcdPspMmioUnassignedWrite(PSPADDR offMmio, size_t cbWrite
 {
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    pspProxyLock(pThis);
 
     /** @todo Implement buffering for MMIO accesses. */
     pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
@@ -559,6 +596,8 @@ static void pspEmuProxyCcdPspMmioUnassignedWrite(PSPADDR offMmio, size_t cbWrite
     else
         PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_MMIO,
                                   "<PROXY/DENIED>", offMmio, pvVal, cbWrite);
+
+    pspProxyUnlock(pThis);
 }
 
 
@@ -566,6 +605,8 @@ static void pspEmuProxyCcdPspSmnUnassignedRead(SMNADDR offSmn, size_t cbRead, vo
 {
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    pspProxyLock(pThis);
 
     /* Reads will flush any buffered writes immediately and reset the write buffering. */
     pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
@@ -583,6 +624,8 @@ static void pspEmuProxyCcdPspSmnUnassignedRead(SMNADDR offSmn, size_t cbRead, vo
     else
         PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
                                  "<PROXY/DENIED>", offSmn, pvVal, cbRead);
+
+    pspProxyUnlock(pThis);
 }
 
 
@@ -590,6 +633,8 @@ static void pspEmuProxyCcdPspSmnUnassignedWrite(SMNADDR offSmn, size_t cbWrite, 
 {
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    pspProxyLock(pThis);
 
     bool fAllowed = PSPProxyIsSmnAccessAllowed(pThis, offSmn, cbWrite, true /*fWrite*/,
                                                pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
@@ -617,6 +662,8 @@ static void pspEmuProxyCcdPspSmnUnassignedWrite(SMNADDR offSmn, size_t cbWrite, 
     else
         PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_SMN,
                                   "<PROXY/DENIED>", offSmn, pvVal, cbWrite);
+
+    pspProxyUnlock(pThis);
 }
 
 
@@ -625,6 +672,8 @@ static void pspEmuProxyCcdX86UnassignedRead(X86PADDR offX86Phys, size_t cbRead, 
 {
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    pspProxyLock(pThis);
 
     /* Reads will flush any buffered writes immediately and reset the write buffering. */
     pspEmuProxyCcdWrBufFlush(pThis, pCcdRec);
@@ -647,6 +696,8 @@ static void pspEmuProxyCcdX86UnassignedRead(X86PADDR offX86Phys, size_t cbRead, 
     else
         PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
                                  "<PROXY/DENIED>", offX86Phys, pvVal, cbRead);
+
+    pspProxyUnlock(pThis);
 }
 
 
@@ -655,6 +706,8 @@ static void pspEmuProxyCcdX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite
 {
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
+
+    pspProxyLock(pThis);
 
     bool fAllowed = PSPProxyIsX86AccessAllowed(pThis, offX86Phys, cbWrite, true /*fWrite*/,
                                                pspEmuCcdDetermineBlStage(pCcdRec->hCcd),
@@ -688,6 +741,8 @@ static void pspEmuProxyCcdX86UnassignedWrite(X86PADDR offX86Phys, size_t cbWrite
     else
         PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86,
                                   "<PROXY/DENIED>", offX86Phys, pvVal, cbWrite);
+
+    pspProxyUnlock(pThis);
 }
 
 
@@ -700,7 +755,10 @@ static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFla
 
     if (fFlags & PSPEMU_CORE_WFI_CHECK) /* Do a non blocking check. */
     {
+        pspProxyLock(pThis);
         int rc = PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 0);
+        pspProxyUnlock(pThis);
+
         if (STS_SUCCESS(rc))
         {
             PSPEmuCoreIrqSet(hCore, *pfIrq);
@@ -713,8 +771,11 @@ static int pspEmuProxyWfiReached(PSPCORE hCore, PSPADDR PspAddrPc, uint32_t fFla
     int rc = STS_INF_SUCCESS;
     do
     {
+        pspProxyLock(pThis);
         rc = PSPProxyCtxPspWaitForIrq(pThis->hPspProxyCtx, &idCcd, pfIrq, pfFirq, 10 * 1000);
-        if (!rc)
+        pspProxyUnlock(pThis);
+
+        if (STS_SUCCESS(rc))
         {
             PSPEmuCoreIrqSet(hCore, *pfIrq);
             PSPEmuCoreFiqSet(hCore, *pfFirq);
@@ -764,6 +825,8 @@ static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPCORETP hTp, uint32_t 
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
                                 "    R0: %#08x R1: %#08x R2: %#08x R3: %#08x\n",
                                 au32Gprs[0], au32Gprs[1], au32Gprs[2], au32Gprs[3]);
+
+        pspProxyLock(pThis);
 
         /* Sync the BRSP. */
         uint8_t abData[_4K];
@@ -836,6 +899,8 @@ static void pspEmuProxyTrustedOsHandover(PSPCORE hCore, PSPCORETP hTp, uint32_t 
         else
             PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
                                     "pspEmuProxyTrustedOsHandover() syncing the BRSP failed with %d\n", rc);
+
+        pspProxyUnlock(pThis);
     }
     else
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
@@ -958,6 +1023,7 @@ static int pspEmuProxyCcpAesDo(PCCCPPROXY pCcpProxyIf, uint32_t u32Dw0, size_t c
     PCPSPPROXYCCP pCcpProxy = (PCPSPPROXYCCP)pCcpProxyIf;
     PPSPPROXYINT pThis = pCcpProxy->pThis;
 
+    pspProxyLock(pThis);
     if (pvIv && cbIv)
     {
 #if 0 /** @todo (Not required for unwrapping the IKEK but would be nice to have) */
@@ -1068,6 +1134,7 @@ static int pspEmuProxyCcpAesDo(PCCCPPROXY pCcpProxyIf, uint32_t u32Dw0, size_t c
         }
     }
 
+    pspProxyUnlock(pThis);
     return rc;
 }
 
@@ -1084,6 +1151,8 @@ static void pspProxyMemWtPspTrace(PSPADDR offMmioAbs, const char *pszDevId, PSPA
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
+    pspProxyLock(pThis);
+
     /* This doesn't go through the blocked region checking as we assume the user knows what he did when creating the write through regions... */
     int rc = STS_INF_SUCCESS;
     if (   cbAccess == 1
@@ -1092,6 +1161,9 @@ static void pspProxyMemWtPspTrace(PSPADDR offMmioAbs, const char *pszDevId, PSPA
         rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, offMmioAbs, cbAccess, pvVal);
     else
         rc = PSPProxyCtxPspMemWrite(pThis->hPspProxyCtx, offMmioAbs, pvVal, cbAccess);
+
+    pspProxyUnlock(pThis);
+
     if (STS_FAILURE(rc))
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
                                 "pspProxyMemWtPspTrace() failed with %d", rc);
@@ -1110,8 +1182,13 @@ static void pspProxyMemWtSmnTrace(SMNADDR offSmnAbs, const char *pszDevId, SMNAD
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
+    pspProxyLock(pThis);
+
     /* This doesn't go through the blocked region checking as we assume the user knows what he did when creating the write through regions... */
     int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, offSmnAbs, cbAccess, pvVal);
+
+    pspProxyUnlock(pThis);
+
     if (STS_FAILURE(rc))
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
                                 "pspProxyMemWtSmnTrace() failed with %d", rc);
@@ -1130,6 +1207,8 @@ static void pspProxyMemWtX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86P
     PPSPPROXYCCD pCcdRec = (PPSPPROXYCCD)pvUser;
     PPSPPROXYINT pThis = pCcdRec->pThis;
 
+    pspProxyLock(pThis);
+
     /* This doesn't go through the blocked region checking as we assume the user knows what he did when creating the write through regions... */
     int rc = STS_INF_SUCCESS;
     if (   cbAccess == 1
@@ -1138,6 +1217,9 @@ static void pspProxyMemWtX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86P
         rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, offX86Abs, cbAccess, pvVal);
     else
         rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, offX86Abs, pvVal, cbAccess);
+
+    pspProxyUnlock(pThis);
+
     if (STS_FAILURE(rc))
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
                                 "pspProxyMemWtX86Trace() failed with %d", rc);
@@ -1249,7 +1331,11 @@ static int pspProxyDbgCmdMmioRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const 
             {
                 size_t cbRead = (size_t)(pszSz[0] - '0');
                 PSPDATUM Datum;
+
+                pspProxyLock(pThis);
                 int rc = PSPProxyCtxPspMmioRead(pThis->hPspProxyCtx, MmioAddr, cbRead, &Datum.ab[0]);
+                pspProxyUnlock(pThis);
+
                 if (STS_SUCCESS(rc))
                 {
                     uint32_t u32Val;
@@ -1339,7 +1425,10 @@ static int pspProxyDbgCmdMmioWrite(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const
                             pHlp->pfnPrintf(pHlp, "Something is really buggy here cbWrite=%zu!\n", cbWrite);
                     }
 
+                    pspProxyLock(pThis);
                     int rc = PSPProxyCtxPspMmioWrite(pThis->hPspProxyCtx, MmioAddr, cbWrite, &Datum.ab[0]);
+                    pspProxyUnlock(pThis);
+
                     if (STS_SUCCESS(rc))
                         pHlp->pfnPrintf(pHlp, "MMIO %#x %zu: %#x\n", MmioAddr, cbWrite, u32Val);
                     else
@@ -1389,7 +1478,11 @@ static int pspProxyDbgCmdSmnRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const c
             {
                 size_t cbRead = (size_t)(pszSz[0] - '0');
                 PSPDATUM Datum;
+
+                pspProxyLock(pThis);
                 int rc = PSPProxyCtxPspSmnRead(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, SmnAddr, cbRead, &Datum.ab[0]);
+                pspProxyUnlock(pThis);
+
                 if (STS_SUCCESS(rc))
                 {
                     uint32_t u32Val;
@@ -1457,7 +1550,7 @@ static int pspProxyDbgCmdSmnWrite(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const 
                     || pszSz[0] == '4'))
             {
                 size_t cbWrite = (size_t)(pszSz[0] - '0');
-                uint32_t u32Val = strtoul(pszVal, &pszTmpEnd, 0 /*base*/);;
+                uint32_t u32Val = strtoul(pszVal, &pszTmpEnd, 0 /*base*/);
 
                 if (   pszTmpEnd != pszVal
                     && *pszTmpEnd == '\0')
@@ -1479,7 +1572,10 @@ static int pspProxyDbgCmdSmnWrite(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const 
                             pHlp->pfnPrintf(pHlp, "Something is really buggy here cbWrite=%zu!\n", cbWrite);
                     }
 
+                    pspProxyLock(pThis);
                     int rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, SmnAddr, cbWrite, &Datum.ab[0]);
+                    pspProxyUnlock(pThis);
+
                     if (STS_SUCCESS(rc))
                         pHlp->pfnPrintf(pHlp, "SMN %#x %zu: %#x\n", SmnAddr, cbWrite, u32Val);
                     else
@@ -1528,10 +1624,14 @@ static int pspProxyDbgX86ReadWorker(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, cons
                 size_t cbRead = (size_t)(pszSz[0] - '0');
                 PSPDATUM Datum;
                 int rc;
+
+                pspProxyLock(pThis);
                 if (fMmio)
                     rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, PhysX86Addr, cbRead, &Datum.ab[0]);
                 else
                     rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, &Datum.ab[0], cbRead);
+                pspProxyUnlock(pThis);
+
                 if (STS_SUCCESS(rc))
                 {
                     uint64_t u64Val;
@@ -1554,10 +1654,93 @@ static int pspProxyDbgX86ReadWorker(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, cons
                             pHlp->pfnPrintf(pHlp, "Something is really buggy here cbRead=%zu!\n", cbRead);
                     }
 
-                    pHlp->pfnPrintf(pHlp, "SMN %#llx %zu: %#llx\n", PhysX86Addr, cbRead, u64Val);
+                    pHlp->pfnPrintf(pHlp, "%s %#llx %zu: %#llx\n", fMmio ? "X86/MMIO" : "X86/MEM", PhysX86Addr, cbRead, u64Val);
                 }
                 else
                     pHlp->pfnPrintf(pHlp, "Reading %zu bytes from x86 address %#llx failed with %d\n", cbRead, PhysX86Addr, rc);
+            }
+            else
+                pHlp->pfnPrintf(pHlp, "Size parameter is invalid, must be 1, 2, 4 or 8\n");
+        }
+        else
+            pHlp->pfnPrintf(pHlp, "Address parameter is invalid\n");
+    }
+    else
+        pHlp->pfnPrintf(pHlp, "Invalid number of arguments, command takes exactly two: <addr> <sz>\n");
+
+    return STS_INF_SUCCESS;
+}
+
+
+static int pspProxyDbgX86WriteWorker(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser, bool fMmio)
+{
+    PPSPPROXYINT pThis = (PPSPPROXYINT)pvUser;
+
+    const char *pszAddr = pszArgs;
+    const char *pszSz   = pszArgs ? strchr(pszAddr, ' ') : NULL;
+    const char *pszVal  = pszSz   ? strchr(pszSz + 1, ' ') : NULL;
+
+    if (   pszAddr
+        && pszSz
+        && pszVal)
+    {
+        /* Get past the space. */
+        pszSz++;
+        pszVal++;
+
+        char *pszTmpEnd = NULL;
+        X86PADDR PhysX86Addr = strtoull(pszAddr, &pszTmpEnd, 0 /*base*/);
+        if (   pszTmpEnd != pszAddr
+            && *pszTmpEnd == ' ')
+        {
+            if (   pszSz[1] == ' '
+                && (   pszSz[0] == '1'
+                    || pszSz[0] == '2'
+                    || pszSz[0] == '4'
+                    || pszSz[0] == '8'))
+            {
+                size_t cbWrite = (size_t)(pszSz[0] - '0');
+                uint64_t u64Val = strtoull(pszVal, &pszTmpEnd, 0 /*base*/);
+
+                if (   pszTmpEnd != pszVal
+                    && *pszTmpEnd == '\0')
+                {
+                    PSPDATUM Datum;
+
+                    switch (cbWrite)
+                    {
+                        case 1:
+                            Datum.u8 = (uint8_t)u64Val;
+                            break;
+                        case 2:
+                            Datum.u16 = (uint16_t)u64Val;
+                            break;
+                        case 4:
+                            Datum.u32 = (uint32_t)u64Val;
+                            break;
+                        case 8:
+                            Datum.u64 = u64Val;
+                            break;
+                        default:
+                            pHlp->pfnPrintf(pHlp, "Something is really buggy here cbWrite=%zu!\n", cbWrite);
+                    }
+
+                    int rc;
+
+                    pspProxyLock(pThis);
+                    if (fMmio)
+                        rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, PhysX86Addr, cbWrite, &Datum.ab[0]);
+                    else
+                        rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, &Datum.ab[0], cbWrite);
+                    pspProxyUnlock(pThis);
+
+                    if (STS_SUCCESS(rc))
+                        pHlp->pfnPrintf(pHlp, "%s %#llx %zu: %#llx\n", fMmio ? "X86/MMIO" : "X86/MEM", PhysX86Addr, cbWrite, u64Val);
+                    else
+                        pHlp->pfnPrintf(pHlp, "Writing %zu bytes to X86 address %#llx failed with %d\n", cbWrite, PhysX86Addr, rc);
+                }
+                else
+                    pHlp->pfnPrintf(pHlp, "Value parameter is invalid: %s\n", pszVal);
             }
             else
                 pHlp->pfnPrintf(pHlp, "Size parameter is invalid, must be 1, 2, 4 or 8\n");
@@ -1578,6 +1761,15 @@ static int pspProxyDbgX86ReadWorker(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, cons
 static int pspProxyDbgCmdX86MemRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
 {
     return pspProxyDbgX86ReadWorker(hDbgHlp, pHlp, pszArgs, pvUser, false /*fMmio*/);
+}
+
+
+/**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
+static int pspProxyDbgCmdX86MemWrite(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    return pspProxyDbgX86WriteWorker(hDbgHlp, pHlp, pszArgs, pvUser, false /*fMmio*/);
 }
 
 
@@ -1607,7 +1799,10 @@ static int pspProxyDbgCmdX86MemWriteFile(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp,
             int rc = OSFileLoadAll(pszFile, &pv, &cb);
             if (STS_SUCCESS(rc))
             {
+                pspProxyLock(pThis);
                 rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pv, cb);
+                pspProxyUnlock(pThis);
+
                 if (STS_FAILURE(rc))
                     pHlp->pfnPrintf(pHlp, "Writing file \"%s\" to memory at %#llx failed with %d\n", pszFile, PhysX86Addr, rc);
 
@@ -1636,6 +1831,15 @@ static int pspProxyDbgCmdX86MmioRead(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, con
 
 
 /**
+ * @copydoc{DBGHLPCMD,pfnCmd}
+ */
+static int pspProxyDbgCmdX86MmioWrite(PSPDBGHLP hDbgHlp, PCPSPDBGOUTHLP pHlp, const char *pszArgs, void *pvUser)
+{
+    return pspProxyDbgX86WriteWorker(hDbgHlp, pHlp, pszArgs, pvUser, true /*fMmio*/);
+}
+
+
+/**
  * Arra of proxy related debugger commands registered with the debugger.
  */
 static const DBGHLPCMD g_aProxyDbgCmds[] =
@@ -1645,8 +1849,10 @@ static const DBGHLPCMD g_aProxyDbgCmds[] =
     { "proxy.SmnRead",          "Reads a value from the given SMN address, arguments: <addr> <sz>",                      pspProxyDbgCmdSmnRead         },
     { "proxy.SmnWrite",         "Writes a value to the given SMN address, arguments: <addr> <sz> <val>",                 pspProxyDbgCmdSmnWrite        },
     { "proxy.X86MemRead",       "Reads a value from the given x86 as a normal memory address, arguments: <addr> <sz>",   pspProxyDbgCmdX86MemRead      },
+    { "proxy.X86MemWrite",      "Writes a value to the given x86 memory address, arguments: <addr> <sz> <val>",          pspProxyDbgCmdX86MemWrite     },
     { "proxy.X86MemWriteFile",  "Writes data from the given file to the destination address, arguments: <addr> <file>",  pspProxyDbgCmdX86MemWriteFile },
     { "proxy.X86MmioRead",      "Reads a value from the given x86 as MMIO address, arguments: <addr> <sz>",              pspProxyDbgCmdX86MmioRead     },
+    { "proxy.X86MmioWrite",     "Writes a value to the given x86 MMIO address, arguments: <addr> <sz> <val>",            pspProxyDbgCmdX86MmioWrite    },
 };
 
 
@@ -1688,7 +1894,7 @@ static bool pspProxyAddrAccessIsAllowed(PPSPPROXYINT pThis, PCPSPPROXYADDRBLOCKE
 
 int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
 {
-    int rc = 0;
+    int rc = STS_INF_SUCCESS;
 
     PPSPPROXYINT pThis = (PPSPPROXYINT)calloc(1, sizeof(*pThis));
     if (pThis)
@@ -1704,32 +1910,38 @@ int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
         else
             pThis->fProxyFeat |= PSPPROXY_ADDR_BLOCKED_FEAT_F_SPI; /** @todo Bad assumption actually. */
 
-        printf("PSP proxy: Connecting to %s\n", pCfg->pszPspProxyAddr);
-        rc = PSPProxyCtxCreate(&pThis->hPspProxyCtx, pCfg->pszPspProxyAddr, &g_PspProxyIoIf, pThis);
-        if (!rc)
+        rc = OSLockCreate(&pThis->hLock);
+        if (STS_SUCCESS(rc))
         {
-            printf("PSP proxy: Connected to %s\n", pCfg->pszPspProxyAddr);
-            if (pCfg->fCcpProxy)
+            printf("PSP proxy: Connecting to %s\n", pCfg->pszPspProxyAddr);
+            rc = PSPProxyCtxCreate(&pThis->hPspProxyCtx, pCfg->pszPspProxyAddr, &g_PspProxyIoIf, pThis);
+            if (STS_SUCCESS(rc))
             {
-                /* Set up the CCP proxy instance data. */
-                pThis->CcpProxy.pThis = pThis;
-                pThis->CcpProxy.CcpProxyIf.pfnAesDo = pspEmuProxyCcpAesDo;
-                pCfg->pCcpProxyIf = &pThis->CcpProxy.CcpProxyIf;
+                printf("PSP proxy: Connected to %s\n", pCfg->pszPspProxyAddr);
+                if (pCfg->fCcpProxy)
+                {
+                    /* Set up the CCP proxy instance data. */
+                    pThis->CcpProxy.pThis = pThis;
+                    pThis->CcpProxy.CcpProxyIf.pfnAesDo = pspEmuProxyCcpAesDo;
+                    pCfg->pCcpProxyIf = &pThis->CcpProxy.CcpProxyIf;
+                }
+
+                /* Register our custom commands. */
+                PSPEmuDbgHlpCmdRegister(pCfg->hDbgHlp, g_aProxyDbgCmds, ELEMENTS(g_aProxyDbgCmds), pThis);
+
+                *phProxy = pThis;
+                return STS_INF_SUCCESS;
             }
+            else
+                fprintf(stderr, "Connecting to the PSP proxy failed with %d\n", rc);
 
-            /* Register our custom commands. */
-            PSPEmuDbgHlpCmdRegister(pCfg->hDbgHlp, g_aProxyDbgCmds, ELEMENTS(g_aProxyDbgCmds), pThis);
-
-            *phProxy = pThis;
-            return 0;
+            OSLockDestroy(pThis->hLock);
         }
-        else
-            fprintf(stderr, "Connecting to the PSP proxy failed with %d\n", rc);
 
         free(pThis);
     }
     else
-        rc = -1;
+        rc = STS_ERR_NO_MEMORY;
 
     return rc;
 }
@@ -1749,6 +1961,7 @@ void PSPProxyDestroy(PSPPROXY hProxy)
     }
 
     PSPProxyCtxDestroy(pThis->hPspProxyCtx);
+    OSLockDestroy(pThis->hLock);
     free(pThis);
 }
 
@@ -1796,6 +2009,8 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
 
             if (STS_SUCCESS(rc))
             {
+                pspProxyLock(pThis);
+
                 pCcdRec->pThis                  = pThis;
                 pCcdRec->hCcd                   = hCcd;
                 pCcdRec->ProxyAddr.enmAddrSpace = PSPPROXYADDRSPACE_INVALID;
@@ -1805,6 +2020,9 @@ int PSPProxyCcdRegister(PSPPROXY hProxy, PSPCCD hCcd)
                 pCcdRec->pNext                  = pThis->pCcdsHead;
 
                 pThis->pCcdsHead = pCcdRec;
+
+                pspProxyUnlock(pThis);
+
                 return STS_INF_SUCCESS;
             }
         }
