@@ -58,8 +58,9 @@ int OSTcpClientConnect(POSTCPCON phTcpCon, const char *pszHostname, uint16_t uPo
  *
  * @returns Status code.
  * @param   hTcpCon                 The TCP connection to close.
+ * @param   fShutdown               Flag whether to do an orderly shutdown of the connection.
  */
-int OSTcpConnectionClose(OSTCPCON hTcpCon);
+int OSTcpConnectionClose(OSTCPCON hTcpCon, bool fShutdown);
 
 
 /**

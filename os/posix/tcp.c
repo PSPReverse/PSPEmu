@@ -119,11 +119,12 @@ int OSTcpClientConnect(POSTCPCON phTcpCon, const char *pszHostname, uint16_t uPo
 }
 
 
-int OSTcpConnectionClose(OSTCPCON hTcpCon)
+int OSTcpConnectionClose(OSTCPCON hTcpCon, bool fShutdown)
 {
     POSTCPCONINT pThis = hTcpCon;
 
-    shutdown(pThis->iFdSock, SHUT_RDWR); /* Ignore any errors here. */
+    if (fShutdown)
+        shutdown(pThis->iFdSock, SHUT_RDWR); /* Ignore any errors here. */
     close(pThis->iFdSock);
     free(pThis);
     return STS_INF_SUCCESS;
