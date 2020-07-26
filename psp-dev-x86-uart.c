@@ -17,26 +17,26 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include <errno.h>
+/*********************************************************************************************************************************
+*   Header Files                                                                                                                 *
+*********************************************************************************************************************************/
+#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-
-#include <poll.h>
-#include <sys/ioctl.h>
 
 #include <common/cdefs.h>
+#include <common/status.h>
 #include <x86/uart.h>
+
+#include <os/tcp.h>
 
 #include <psp-devs.h>
 #include <psp-trace.h>
 
+
+/*********************************************************************************************************************************
+*   Structures and Typedefs                                                                                                      *
+*********************************************************************************************************************************/
 
 /**
  * Unknown device instance data.
@@ -73,15 +73,20 @@ typedef struct PSPDEVUART
             bool            fSrv;
             /** Flag whether there is data to read on the socket. */
             bool            fDataRdy;
-            /** The listening socket. */
-            int             iFdListening;
+            /** The server socket if in server mode. */
+            OSTCPSRV        hTcpSrv;
             /** The socket for the current connection. */
-            int             iFdCon;
+            OSTCPCON        hTcpCon;
         } Sock;
     } u;
 } PSPDEVUART;
 /** Pointer to the device instance data. */
 typedef PSPDEVUART *PPSPDEVUART;
+
+
+/*********************************************************************************************************************************
+*   Internal Functions                                                                                                           *
+*********************************************************************************************************************************/
 
 static void pspDevX86UartRead(X86PADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
@@ -113,22 +118,22 @@ static void pspDevX86UartRead(X86PADDR offMmio, size_t cbRead, void *pvVal, void
             {
                 if (!pThis->u.Sock.fDataRdy)
                 {
-                    struct pollfd PollFd;
-
-                    PollFd.fd      = pThis->u.Sock.iFdCon;
-                    PollFd.events  = POLLIN | POLLHUP | POLLERR;
-                    PollFd.revents = 0;
-
-                    int rcPsx = poll(&PollFd, 1, 0);
-                    if (rcPsx == 1)
+                    if (pThis->u.Sock.hTcpCon)
                     {
-                        uRegLsr |= X86_UART_REG_LSR_DR;
-                        ssize_t cbRet = recv(pThis->u.Sock.iFdCon, &pThis->u8RegRbr, 1, MSG_DONTWAIT);
-                        if (cbRet != 1)
-                            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
-                                                    "Error reading data from socket: %zd", cbRet);
-                        else
-                            pThis->u.Sock.fDataRdy = true;
+                        uint32_t fEvtsRecv = 0;
+                        int rc = OSTcpConnectionPoll(pThis->u.Sock.hTcpCon, OSTCP_POLL_F_READ | OSTCP_POLL_F_ERROR, &fEvtsRecv, 0 /*cMsWait*/);
+                        if (STS_SUCCESS(rc))
+                        {
+                            if (fEvtsRecv & OSTCP_POLL_F_READ)
+                            {
+                                rc = OSTcpConnectionRead(pThis->u.Sock.hTcpCon, &pThis->u8RegRbr, 1, NULL /*pcbRead*/);
+                                if (STS_SUCCESS(rc))
+                                    pThis->u.Sock.fDataRdy = true;
+                                else
+                                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
+                                                            "Error reading data from socket: %d", rc);
+                            }
+                        }
                     }
                 }
                 else
@@ -186,10 +191,13 @@ static void pspDevX86UartWrite(X86PADDR offMmio, size_t cbWrite, const void *pvV
             else if (pThis->fSocket)
             {
                 /* Socket mode, send data as is. */
-                ssize_t cbSent = send(pThis->u.Sock.iFdCon, &bVal, 1, 0);
-                if (cbSent != 1)
-                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
-                                            "Failed to send data over socket: %zd", cbSent);
+                if (pThis->u.Sock.hTcpCon)
+                {
+                    int rc = OSTcpConnectionWrite(pThis->u.Sock.hTcpCon, &bVal, 1, NULL /*pcbWritten*/);
+                    if (STS_FAILURE(rc))
+                        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_X86_UART,
+                                                "Failed to send data over socket: %d", rc);
+                }
             }
             else if (bVal != '\r') /* Ignore carriage return. */
             {
@@ -273,6 +281,8 @@ static int pspDevX86UartInit(PPSPDEV pDev)
     {
         pThis->fSocket         = true;
         pThis->u.Sock.fDataRdy = false;
+        pThis->u.Sock.hTcpSrv  = NULL;
+        pThis->u.Sock.hTcpCon  = NULL;
 
         /* Check for server mode. */
         char *pszSep = strchr(pDev->pCfg->pszUartRemoteAddr, ':');
@@ -281,73 +291,29 @@ static int pspDevX86UartInit(PPSPDEV pDev)
             /* Client mode with hostname:port. */
             pThis->u.Sock.fSrv = false;
             *pszSep++ = '\0';
-            struct hostent *pSrv = gethostbyname(pDev->pCfg->pszUartRemoteAddr);
-            if (pSrv)
-            {
-                struct sockaddr_in SrvAddr;
-                memset(&SrvAddr, 0, sizeof(SrvAddr));
-                SrvAddr.sin_family = AF_INET;
-                memcpy(&SrvAddr.sin_addr.s_addr, pSrv->h_addr, pSrv->h_length);
-                SrvAddr.sin_port = htons(atoi(pszSep));
-
-                pThis->u.Sock.iFdCon = socket(AF_INET, SOCK_STREAM, 0);
-                if (pThis->u.Sock.iFdCon > -1)
-                {
-                    int rcPsx = connect(pThis->u.Sock.iFdCon,(struct sockaddr *)&SrvAddr,sizeof(SrvAddr));
-                    if (rcPsx < 0)
-                    {
-                        printf("UART: Failed to connect to %s:%s\n", pDev->pCfg->pszUartRemoteAddr, pszSep);
-                        close(pThis->u.Sock.iFdCon);
-                        rc = -1;
-                    }
-                }
-                else
-                    rc = -1;
-            }
-            else
-            {
-                printf("UART: Error resolving %s\n", pDev->pCfg->pszUartRemoteAddr);
-                rc = -1;
-            }
+            int rc = OSTcpClientConnect(&pThis->u.Sock.hTcpCon, pDev->pCfg->pszUartRemoteAddr, atoi(pszSep));
+            if (STS_FAILURE(rc))
+                printf("UART: Failed to connect to %s:%s\n", pDev->pCfg->pszUartRemoteAddr, pszSep);
         }
         else
         {
-            /* Server mode, create sockets and wait for an incoming connection before continuing. */
-            struct sockaddr_in SockAddr;
-
             pThis->u.Sock.fSrv         = true;
-            pThis->u.Sock.iFdListening = socket(AF_INET, SOCK_STREAM, 0);
-            if (pThis->u.Sock.iFdListening > -1)
+
+            /* Server mode, create sockets and wait for an incoming connection before continuing. */
+            int rc  = OSTcpServerCreate(&pThis->u.Sock.hTcpSrv, atoi(pDev->pCfg->pszUartRemoteAddr));
+            if (STS_SUCCESS(rc))
             {
-                memset(&SockAddr, 0, sizeof(SockAddr));
-
-                SockAddr.sin_family      = AF_INET;
-                SockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-                SockAddr.sin_port        = htons(atoi(pDev->pCfg->pszUartRemoteAddr));
-                int rcPsx = bind(pThis->u.Sock.iFdListening, (struct sockaddr *)&SockAddr, sizeof(SockAddr));
-                if (!rcPsx)
+                printf("UART: Waiting for incoming connection...\n");
+                rc = OSTcpServerConnectionWaitFor(pThis->u.Sock.hTcpSrv, &pThis->u.Sock.hTcpCon, UINT32_MAX /*cMsWait*/);
+                if (STS_FAILURE(rc))
                 {
-                    printf("UART: Waiting for incoming connection...\n");
-                    rcPsx = listen(pThis->u.Sock.iFdListening, 1);
-                    if (!rcPsx)
-                    {
-                        pThis->u.Sock.iFdCon = accept(pThis->u.Sock.iFdListening, (struct sockaddr *)NULL, NULL);
-                        if (pThis->u.Sock.iFdCon == -1)
-                        {
-                            pThis->u.Sock.iFdCon = 0;
-                            rc = -1;
-                        }
-                    }
-                    else
-                        rc = -1;
+                    printf("UART: Waiting for incoming connection failed with %d\n", rc);
+                    OSTcpServerDestroy(pThis->u.Sock.hTcpSrv);
+                    pThis->u.Sock.hTcpSrv = NULL;
                 }
-                else
-                    rc = -1;
-
-                close(pThis->u.Sock.iFdListening);
             }
             else
-                rc = -1;
+                printf("UART: Creating server on port %u failed with %d\n", pDev->pCfg->pszUartRemoteAddr, rc);
         }
     }
 
@@ -357,7 +323,18 @@ static int pspDevX86UartInit(PPSPDEV pDev)
 
 static void pspDevX86UartDestruct(PPSPDEV pDev)
 {
-    /* Nothing to do so far. */
+    PPSPDEVUART pThis = (PPSPDEVUART)&pDev->abInstance[0];
+
+    if (pThis->u.Sock.fSrv)
+    {
+        if (pThis->u.Sock.hTcpCon)
+            OSTcpConnectionClose(pThis->u.Sock.hTcpCon, true /*fShutdown*/);
+        if (pThis->u.Sock.hTcpSrv)
+            OSTcpServerDestroy(pThis->u.Sock.hTcpSrv);
+
+        pThis->u.Sock.hTcpCon = NULL;
+        pThis->u.Sock.hTcpSrv = NULL;
+    }
 }
 
 
