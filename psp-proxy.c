@@ -1256,7 +1256,13 @@ static int pspProxyX86IceIoPortRead(PSPX86ICE hX86Ice, uint16_t IoPort, size_t c
     int rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, 0xfffdfc000000 + IoPort, cbRead, pvVal);
     pspProxyUnlock(pThis);
 
-    if (STS_FAILURE(rc))
+    if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
+    {
+        /* Most likely a data abort execption inside the stub due to the access, pretend the I/O port doesn't exist for now. */
+        memset(pvVal, 0xff, cbRead);
+        rc = STS_INF_SUCCESS;
+    }
+    else if (STS_FAILURE(rc))
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
                                 "pspProxyX86IceIoPortRead() failed with %d", rc);
     return rc;
@@ -1275,7 +1281,12 @@ static int pspProxyX86IceIoPortWrite(PSPX86ICE hX86Ice, uint16_t IoPort, size_t 
     int rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, 0xfffdfc000000 + IoPort, cbWrite, pvVal);
     pspProxyUnlock(pThis);
 
-    if (STS_FAILURE(rc))
+    if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
+    {
+        /* Most likely a data abort execption inside the stub due to the access, ignore the write and pretend success. */
+        rc = STS_INF_SUCCESS;
+    }
+    else  if (STS_FAILURE(rc))
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
                                 "pspProxyX86IceIoPortWrite() failed with %d", rc);
     return rc;
