@@ -1294,6 +1294,91 @@ static int pspProxyX86IceIoPortWrite(PSPX86ICE hX86Ice, uint16_t IoPort, size_t 
 
 
 /**
+ * @copydoc{FNPSPX86ICEMEMREAD, X86 ICE bridge memory read callback.}
+ */
+static int pspProxyX86IceMemRead(PSPX86ICE hX86Ice, X86PADDR PhysX86Addr, PSPX86ICEMEMTYPE enmMemType, size_t cbRead, void *pvVal, void *pvUser)
+{
+    PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
+    PPSPPROXYINT pThis = pX86IceRec->pThis;
+    int rc = STS_INF_SUCCESS;
+
+    pspProxyLock(pThis);
+    if (enmMemType == PSPX86ICEMEMTYPE_RAM)
+        rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
+    else if (enmMemType == PSPX86ICEMEMTYPE_MMIO)
+        rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, PhysX86Addr, cbRead, pvVal);
+    else if (enmMemType == PSPX86ICEMEMTYPE_UNKNOWN)
+    {
+        /*
+         * These are kinda tricky as the wrong type will cause a data abort exception in the stub.
+         * Most of them can be recovered from but sometimes the stub will jsut hang requiring manual
+         * workarounds...
+         *
+         * For now we assume every access > 4 bytes or with an odd byte count, except 1, to be RAM. For the others we
+         * try MMIO first and resort to RAM if the stub returns an error.
+         */
+        if (   cbRead > 4
+            || (   (cbRead & 1)
+                && cbRead != 1))
+            rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
+        else
+        {
+            rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, PhysX86Addr, cbRead, pvVal);
+            if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
+                rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
+        }
+    }
+    else
+        rc = STS_ERR_NOT_FOUND;
+    pspProxyUnlock(pThis);
+
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyX86IceMemRead() failed with %d", rc);
+    return rc;
+}
+
+
+/**
+ * @copydoc{FNPSPX86ICEMEMWRITE, X86 ICE bridge memory write callback.}
+ */
+static int pspProxyX86IceMemWrite(PSPX86ICE hX86Ice, X86PADDR PhysX86Addr, PSPX86ICEMEMTYPE enmMemType, size_t cbWrite, const void *pvVal, void *pvUser)
+{
+    PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
+    PPSPPROXYINT pThis = pX86IceRec->pThis;
+    int rc = STS_INF_SUCCESS;
+
+    pspProxyLock(pThis);
+    if (enmMemType == PSPX86ICEMEMTYPE_RAM)
+        rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
+    else if (enmMemType == PSPX86ICEMEMTYPE_MMIO)
+        rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, PhysX86Addr, cbWrite, pvVal);
+    else if (enmMemType == PSPX86ICEMEMTYPE_UNKNOWN)
+    {
+        /* See the note in pspProxyX86IceMemRead() about the memory types. */
+        if (   cbWrite > 4
+            || (   (cbWrite & 1)
+                && cbWrite != 1))
+            rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
+        else
+        {
+            rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, PhysX86Addr, cbWrite, pvVal);
+            if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
+                rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
+        }
+    }
+    else
+        rc = STS_ERR_NOT_FOUND;
+    pspProxyUnlock(pThis);
+
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyX86IceMemWrite() failed with %d", rc);
+    return rc;
+}
+
+
+/**
  * Registers configured write through regions with the given I/O manager.
  *
  * @returns Status code.
@@ -2122,6 +2207,8 @@ int PSPProxyX86IceRegister(PSPPROXY hProxy, PSPX86ICE hX86Ice)
     {
         /* Register the I/O port handlers. */
         rc = PSPX86IceIoPortRwHandlerSet(hX86Ice, pspProxyX86IceIoPortRead, pspProxyX86IceIoPortWrite, pX86IceRec);
+        if (STS_SUCCESS(rc))
+            rc = PSPX86IceMemRwHandlerSet(hX86Ice, pspProxyX86IceMemRead, pspProxyX86IceMemWrite, pX86IceRec);
         if (STS_SUCCESS(rc))
         {
             pspProxyLock(pThis);
