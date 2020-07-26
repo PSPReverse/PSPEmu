@@ -69,6 +69,12 @@ typedef struct PSPX86ICEINT
     PFNPSPX86ICEIOPORTWRITE         pfnIoPortWrite;
     /** Opaque user data to pass to the I/O port read/write handlers. */
     void                            *pvUserIoPortRw;
+    /** Memory read handler. */
+    PFNPSPX86ICEMEMREAD             pfnMemRead;
+    /** Memory write handler. */
+    PFNPSPX86ICEMEMWRITE            pfnMemWrite;
+    /** Opaque user data to pass to the memory read/write handlers. */
+    void                            *pvUserMemRw;
 } PSPX86ICEINT;
 /** Pointer to the internal x86 ICE instance data. */
 typedef PSPX86ICEINT *PPSPX86ICEINT;
@@ -105,13 +111,13 @@ typedef struct PSPX86SERIALICERX
     /** Number if address bytes left. */
     size_t                          cbAddr;
     /** The address to access. */
-    uint32_t                        uAddr;
+    uint64_t                        uAddr;
     /** Access width. */
     size_t                          cb;
     /** Number of data bytes to receive for writes. */
     size_t                          cbData;
     /** Data to write during writes. */
-    uint32_t                        u32Val;
+    uint64_t                        u64Val;
 } PSPX86SERIALICERX;
 /** Pointer to a command receive state. */
 typedef PSPX86SERIALICERX *PPSPX86SERIALICERX;
@@ -164,7 +170,7 @@ static void pspX86IceSerialIceRxReset(PPSPX86SERIALICERX pRx)
     pRx->uAddr    = 0;
     pRx->cb       = 0;
     pRx->cbData   = 0;
-    pRx->u32Val   = 0;
+    pRx->u64Val   = 0;
 }
 
 
@@ -182,6 +188,10 @@ static int pspX86IceSerialIceProcess(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx
     PFNPSPX86ICEIOPORTREAD  pfnIoPortRead = pThis->pfnIoPortRead;
     PFNPSPX86ICEIOPORTWRITE pfnIoPortWrite = pThis->pfnIoPortWrite;
     void *pvUserIoPortRw = pThis->pvUserIoPortRw;
+
+    PFNPSPX86ICEMEMREAD  pfnMemRead = pThis->pfnMemRead;
+    PFNPSPX86ICEMEMWRITE pfnMemWrite = pThis->pfnMemWrite;
+    void *pvUserMemRw = pThis->pvUserMemRw;
     OSLockRelease(pThis->hLock);
 
     int rc = STS_INF_SUCCESS;
@@ -196,48 +206,75 @@ static int pspX86IceSerialIceProcess(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx
             {
                 default: /* Should never happen. */
                 case 1:
-                    Val.u8 = (uint8_t)pRx->u32Val;
+                    Val.u8 = (uint8_t)pRx->u64Val;
                     break;
                 case 2:
-                    Val.u16 = (uint16_t)pRx->u32Val;
+                    Val.u16 = (uint16_t)pRx->u64Val;
                     break;
                 case 4:
-                    Val.u32 = pRx->u32Val;
+                    Val.u32 = (uint32_t)pRx->u64Val;
                     break;
             }
 
             rc = pfnIoPortWrite(pThis, (uint16_t)pRx->uAddr, pRx->cb, &Val.ab[0], pvUserIoPortRw);
         }
     }
-    else /** @todo Memory */
-        rc = STS_ERR_NOT_FOUND;
+    else
+    {
+        if (pRx->fRead)
+            rc = pfnMemRead(pThis, pRx->uAddr, PSPX86ICEMEMTYPE_UNKNOWN, pRx->cb, &Val.ab[0], pvUserMemRw);
+        else
+        {
+            switch (pRx->cb)
+            {
+                default: /* Should never happen. */
+                case 1:
+                    Val.u8 = (uint8_t)pRx->u64Val;
+                    break;
+                case 2:
+                    Val.u16 = (uint16_t)pRx->u64Val;
+                    break;
+                case 4:
+                    Val.u32 = (uint32_t)pRx->u64Val;
+                    break;
+                case 8:
+                    Val.u64 = pRx->u64Val;
+                    break;
+            }
+
+            rc = pfnMemWrite(pThis, pRx->uAddr, PSPX86ICEMEMTYPE_UNKNOWN, pRx->cb, &Val.ab[0], pvUserMemRw);
+        }
+    }
 
     if (   STS_SUCCESS(rc)
         && pRx->fRead)
     {
         /* Send response. */
 
-        uint32_t u32Read = 0;
+        uint64_t u64Read = 0;
         switch (pRx->cb)
         {
             default: /* Should never happen. */
             case 1:
-                u32Read = Val.u8;
+                u64Read = Val.u8;
                 break;
             case 2:
-                u32Read = Val.u16;
+                u64Read = Val.u16;
                 break;
             case 4:
-                u32Read = Val.u32;
+                u64Read = Val.u32;
+                break;
+            case 8:
+                u64Read = Val.u64;
                 break;
         }
 
-        uint8_t abResp[8] = { 0 };
+        uint8_t abResp[16] = { 0 };
         for (uint32_t i = 0; i < pRx->cb * 2; i += 2)
         {
-            abResp[i]     = s_abHexToChr[(u32Read >> 4) & 0xf];
-            abResp[i + 1] = s_abHexToChr[u32Read & 0xf];
-            u32Read >>= 8;
+            abResp[i]     = s_abHexToChr[(u64Read >> 4) & 0xf];
+            abResp[i + 1] = s_abHexToChr[u64Read & 0xf];
+            u64Read >>= 8;
         }
 
         rc = OSTcpConnectionWrite(hTcpCon, &abResp[0], pRx->cb * 2, NULL /*pcbWritten*/);
@@ -332,6 +369,9 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                         pRx->cb = 2;
                     else if (bRx == 'l')
                         pRx->cb = 4;
+                    else if (   bRx == 'q'
+                             && !pRx->fIoPort)
+                        pRx->cb = 8;
                     else
                         rc = STS_ERR_INVALID_PARAMETER;
 
@@ -353,8 +393,8 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                     break;
                 case PSPX86SERIALICERXSTATE_DATA:
                 {
-                    pRx->u32Val <<= 4;
-                    pRx->u32Val |= pspX86IceSerialIceHexToNibble(bRx);
+                    pRx->u64Val <<= 4;
+                    pRx->u64Val |= pspX86IceSerialIceHexToNibble(bRx);
                     pRx->cbData--;
 
                     if (!pRx->cbData)
@@ -496,6 +536,20 @@ int PSPX86IceIoPortRwHandlerSet(PSPX86ICE hX86Ice, PFNPSPX86ICEIOPORTREAD pfnIoP
     pThis->pfnIoPortRead  = pfnIoPortRead;
     pThis->pfnIoPortWrite = pfnIoPortWrite;
     pThis->pvUserIoPortRw = pvUser;
+    OSLockRelease(pThis->hLock);
+
+    return STS_INF_SUCCESS;
+}
+
+
+int PSPX86IceMemRwHandlerSet(PSPX86ICE hX86Ice, PFNPSPX86ICEMEMREAD pfnMemRead, PFNPSPX86ICEMEMWRITE pfnMemWrite, void *pvUser)
+{
+    PPSPX86ICEINT pThis = hX86Ice;
+
+    OSLockAcquire(pThis->hLock);
+    pThis->pfnMemRead  = pfnMemRead;
+    pThis->pfnMemRead  = pfnMemRead;
+    pThis->pvUserMemRw = pvUser;
     OSLockRelease(pThis->hLock);
 
     return STS_INF_SUCCESS;
