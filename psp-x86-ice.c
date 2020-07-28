@@ -51,6 +51,33 @@ typedef PSPDATUM *PPSPDATUM;
 
 
 /**
+ * The header for the binary transfer mode.
+ */
+typedef struct PSPX86SERIALICEBINHDR
+{
+    /** Flags for the transfer. */
+    uint32_t                        fFlags;
+    /** Size of the transfer in bytes. */
+    uint32_t                        cbXfer;
+    /** The start address */
+    uint64_t                        u64AddrStart;
+} PSPX86SERIALICEBINHDR;
+/** Pointer to a binary transfer header. */
+typedef PSPX86SERIALICEBINHDR *PPSPX86SERIALICEBINHDR;
+/** Pointer to a const binary transfer header. */
+typedef const PSPX86SERIALICEBINHDR *PCPSPX86SERIALICEBINHDR;
+
+/** Indicates a write request, read if cleared. */
+#define PSPX86ICE_BIN_REQ_HDR_F_WRITE           BIT(0)
+/** Indicates an I/O port access, memory access if clear. */
+#define PSPX86ICE_BIN_REQ_HDR_F_IOPORT          BIT(1)
+/** Indicates a a RAM memory access, MMIO or unknown if clear. */
+#define PSPX86ICE_BIN_REQ_HDR_F_MEM_RAM         BIT(2)
+/** Indicates a a MMIO memory access, RAM or unknown if clear. */
+#define PSPX86ICE_BIN_REQ_HDR_F_MEM_MMIO        BIT(3)
+
+
+/**
  * The x86 ICE instance data.
  */
 typedef struct PSPX86ICEINT
@@ -61,7 +88,7 @@ typedef struct PSPX86ICEINT
     OSTCPSRV                        hTcpSrv;
     /** The network I/O thread. */
     OSTHREAD                        hThreadIo;
-    /** Flag whether the thread should temrinate. */
+    /** Flag whether the thread should terminate. */
     volatile bool                   fThreadTerminate;
     /** I/O port read handler .*/
     PFNPSPX86ICEIOPORTREAD          pfnIoPortRead;
@@ -297,6 +324,97 @@ static int pspX86IceSerialIceProcess(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx
 
 
 /**
+ * Processes a binary transfer request.
+ *
+ * @returns Status code.
+ * @param   pThis                   The x86 ICE instance.
+ * @param   hTcpCon                 The TCP connection to read from.
+ */
+static int pspX86IceSerialIceBinXfer(PPSPX86ICEINT pThis, OSTCPCON hTcpCon)
+{
+    OSLockAcquire(pThis->hLock);
+    PFNPSPX86ICEIOPORTREAD  pfnIoPortRead = pThis->pfnIoPortRead;
+    PFNPSPX86ICEIOPORTWRITE pfnIoPortWrite = pThis->pfnIoPortWrite;
+    void *pvUserIoPortRw = pThis->pvUserIoPortRw;
+
+    PFNPSPX86ICEMEMREAD  pfnMemRead = pThis->pfnMemRead;
+    PFNPSPX86ICEMEMWRITE pfnMemWrite = pThis->pfnMemWrite;
+    void *pvUserMemRw = pThis->pvUserMemRw;
+    OSLockRelease(pThis->hLock);
+
+    PSPX86SERIALICEBINHDR ReqHdr;
+    int rc = OSTcpConnectionRead(hTcpCon, &ReqHdr, sizeof(ReqHdr), NULL /*pcbRead*/);
+    if (STS_SUCCESS(rc))
+    {
+        if (ReqHdr.fFlags & PSPX86ICE_BIN_REQ_HDR_F_IOPORT)
+        {
+            uint8_t abData[4]; /* Maximum. */
+            if (   ReqHdr.cbXfer == 1
+                || ReqHdr.cbXfer == 2
+                || ReqHdr.cbXfer == 4)
+            {
+                if (ReqHdr.fFlags & PSPX86ICE_BIN_REQ_HDR_F_WRITE)
+                {
+                    /* Receive the data to write. */
+                    rc = OSTcpConnectionRead(hTcpCon, &abData[0], sizeof(abData), NULL /*pcbRead*/);
+                    if (STS_SUCCESS(rc))
+                        rc = pfnIoPortWrite(pThis, (uint16_t)ReqHdr.u64AddrStart, ReqHdr.cbXfer, &abData[0], pvUserIoPortRw);
+                }
+                else
+                {
+                    rc = pfnIoPortRead(pThis, (uint16_t)ReqHdr.u64AddrStart, ReqHdr.cbXfer, &abData[0], pvUserIoPortRw);
+                    if (STS_SUCCESS(rc))
+                        rc = OSTcpConnectionWrite(hTcpCon, &abData[0], sizeof(abData), NULL /*pcbWritten*/);
+                }
+            }
+        }
+        else
+        {
+            /* Memory. */
+            uint8_t abData[_4K];
+            PSPX86ICEMEMTYPE enmMemType = PSPX86ICEMEMTYPE_UNKNOWN;
+            size_t cbXferLeft = ReqHdr.cbXfer;
+            X86PADDR PhysX86Addr = ReqHdr.u64AddrStart;
+
+            if (ReqHdr.fFlags & PSPX86ICE_BIN_REQ_HDR_F_MEM_RAM)
+                enmMemType = PSPX86ICEMEMTYPE_RAM;
+            else if (ReqHdr.fFlags & PSPX86ICE_BIN_REQ_HDR_F_MEM_MMIO)
+                enmMemType = PSPX86ICEMEMTYPE_MMIO;
+
+            /* Worker loop */
+            while (   cbXferLeft
+                   && STS_SUCCESS(rc))
+            {
+                size_t cbThisXfer = MIN(cbXferLeft, sizeof(abData));
+
+                if (ReqHdr.fFlags & PSPX86ICE_BIN_REQ_HDR_F_WRITE)
+                {
+                    /* Receive the data to write. */
+                    rc = OSTcpConnectionRead(hTcpCon, &abData[0], cbThisXfer, NULL /*pcbRead*/);
+                    if (STS_SUCCESS(rc))
+                        rc = pfnMemWrite(pThis, PhysX86Addr, enmMemType, cbThisXfer, &abData[0], pvUserMemRw);
+                }
+                else
+                {
+                    rc = pfnMemRead(pThis, PhysX86Addr, enmMemType, cbThisXfer, &abData[0], pvUserMemRw);
+                    if (STS_SUCCESS(rc))
+                        rc = OSTcpConnectionWrite(hTcpCon, &abData[0], cbThisXfer, NULL /*pcbWritten*/);
+                }
+
+                PhysX86Addr += cbThisXfer;
+                cbXferLeft  -= cbThisXfer;
+            }
+        }
+
+        uint8_t achReady[3] = { '>', '\r', '\n' };
+        rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
+    }
+
+    return rc;
+}
+
+
+/**
  * Tries to receive as much as possible from the given TCP connection, advancing the state machine.
  *
  * @returns Status code.
@@ -336,6 +454,8 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                         /* Reset state machine to start anew. */
                         pspX86IceSerialIceRxReset(pRx);
                     }
+                    else if (bRx == '!')
+                        rc = pspX86IceSerialIceBinXfer(pThis, hTcpCon);
                     break;
                 case PSPX86SERIALICERXSTATE_RW_WAIT:
                     if (bRx == 'r')
