@@ -313,7 +313,7 @@ static int pspX86IceSerialIceProcess(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx
     /* Send new readiness symbol. */
     if (STS_SUCCESS(rc))
     {
-        uint8_t achReady[3] = { '>', '\r', '\n' };
+        uint8_t achReady[3] = { '\r', '\n', '>' };
         rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
     }
 
@@ -371,7 +371,7 @@ static int pspX86IceSerialIceBinXfer(PPSPX86ICEINT pThis, OSTCPCON hTcpCon)
         else
         {
             /* Memory. */
-            uint8_t abData[_4K];
+            uint8_t abData[32];
             PSPX86ICEMEMTYPE enmMemType = PSPX86ICEMEMTYPE_UNKNOWN;
             size_t cbXferLeft = ReqHdr.cbXfer;
             X86PADDR PhysX86Addr = ReqHdr.u64AddrStart;
@@ -406,7 +406,7 @@ static int pspX86IceSerialIceBinXfer(PPSPX86ICEINT pThis, OSTCPCON hTcpCon)
             }
         }
 
-        uint8_t achReady[3] = { '>', '\r', '\n' };
+        uint8_t achReady[3] = { '\r', '\n', '>' };
         rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
     }
 
@@ -447,7 +447,7 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                         rc = OSTcpConnectionWrite(hTcpCon, &bResp, sizeof(bResp), NULL /*pcbWritten*/);
                         if (STS_SUCCESS(rc))
                         {
-                            uint8_t achReady[3] = { '>', '\r', '\n' };
+                            uint8_t achReady[3] = { '\r', '\n', '>' };
                             rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
                         }
 
@@ -585,7 +585,7 @@ static int pspX86IceNetIoThrd(OSTHREAD hThread, void *pvUser)
                 /** @todo Log error but continue. */
 
                 /* Send the data to indicate readiness. */
-                uint8_t achReady[3] = { '>', '\r', '\n' };
+                uint8_t achReady[3] = { '\r', '\n', '>' };
                 rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
                 if (STS_FAILURE(rc))
                 {
@@ -696,9 +696,9 @@ int PSPX86IceMemRwHandlerSet(PSPX86ICE hX86Ice, PFNPSPX86ICEMEMREAD pfnMemRead, 
     PPSPX86ICEINT pThis = hX86Ice;
 
     OSLockAcquire(pThis->hLock);
-    pThis->pfnMemRead  = pfnMemRead;
-    pThis->pfnMemRead  = pfnMemRead;
-    pThis->pvUserMemRw = pvUser;
+    pThis->pfnMemRead   = pfnMemRead;
+    pThis->pfnMemWrite  = pfnMemWrite;
+    pThis->pvUserMemRw  = pvUser;
     OSLockRelease(pThis->hLock);
 
     return STS_INF_SUCCESS;
