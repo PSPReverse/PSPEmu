@@ -103,11 +103,13 @@ typedef enum PSPX86SERIALICERXSTATE
 typedef struct PSPX86SERIALICERX
 {
     /** The receive state we are in. */
-    PSPX86SERIALICERXSTATE           enmState;
+    PSPX86SERIALICERXSTATE          enmState;
     /** Flag whether to read or write. */
     bool                            fRead;
     /** Flag whether an I/O port or an MMIO address should be accessed. */
     bool                            fIoPort;
+    /** The memory type. */
+    PSPX86ICEMEMTYPE                enmMemType;
     /** Number if address bytes left. */
     size_t                          cbAddr;
     /** The address to access. */
@@ -163,14 +165,15 @@ static inline uint8_t pspX86IceSerialIceHexToNibble(uint8_t bVal)
  */
 static void pspX86IceSerialIceRxReset(PPSPX86SERIALICERX pRx)
 {
-    pRx->enmState = PSPX86SERIALICERXSTATE_CMD_MARKER_WAIT;
-    pRx->fRead    = false;
-    pRx->fIoPort  = false;
-    pRx->cbAddr   = 0;
-    pRx->uAddr    = 0;
-    pRx->cb       = 0;
-    pRx->cbData   = 0;
-    pRx->u64Val   = 0;
+    pRx->enmState   = PSPX86SERIALICERXSTATE_CMD_MARKER_WAIT;
+    pRx->fRead      = false;
+    pRx->fIoPort    = false;
+    pRx->enmMemType = PSPX86ICEMEMTYPE_UNKNOWN;
+    pRx->cbAddr     = 0;
+    pRx->uAddr      = 0;
+    pRx->cb         = 0;
+    pRx->cbData     = 0;
+    pRx->u64Val     = 0;
 }
 
 
@@ -222,7 +225,7 @@ static int pspX86IceSerialIceProcess(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx
     else
     {
         if (pRx->fRead)
-            rc = pfnMemRead(pThis, pRx->uAddr, PSPX86ICEMEMTYPE_UNKNOWN, pRx->cb, &Val.ab[0], pvUserMemRw);
+            rc = pfnMemRead(pThis, pRx->uAddr, pRx->enmMemType, pRx->cb, &Val.ab[0], pvUserMemRw);
         else
         {
             switch (pRx->cb)
@@ -242,7 +245,7 @@ static int pspX86IceSerialIceProcess(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx
                     break;
             }
 
-            rc = pfnMemWrite(pThis, pRx->uAddr, PSPX86ICEMEMTYPE_UNKNOWN, pRx->cb, &Val.ab[0], pvUserMemRw);
+            rc = pfnMemWrite(pThis, pRx->uAddr, pRx->enmMemType, pRx->cb, &Val.ab[0], pvUserMemRw);
         }
     }
 
@@ -319,6 +322,20 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                 case PSPX86SERIALICERXSTATE_CMD_MARKER_WAIT:
                     if (bRx == '*')
                         pRx->enmState = PSPX86SERIALICERXSTATE_RW_WAIT;
+                    else if (bRx == '?')
+                    {
+                        /* Query extended protocol available, return a 1. */
+                        uint8_t bResp = '1';
+                        rc = OSTcpConnectionWrite(hTcpCon, &bResp, sizeof(bResp), NULL /*pcbWritten*/);
+                        if (STS_SUCCESS(rc))
+                        {
+                            uint8_t achReady[3] = { '>', '\r', '\n' };
+                            rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
+                        }
+
+                        /* Reset state machine to start anew. */
+                        pspX86IceSerialIceRxReset(pRx);
+                    }
                     break;
                 case PSPX86SERIALICERXSTATE_RW_WAIT:
                     if (bRx == 'r')
@@ -339,6 +356,18 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                     {
                         pRx->fIoPort = false;
                         pRx->cbAddr  = 8;
+                    }
+                    else if (bRx == 'M')
+                    {
+                        pRx->enmMemType = PSPX86ICEMEMTYPE_MMIO;
+                        pRx->fIoPort    = false;
+                        pRx->cbAddr     = 16;
+                    }
+                    else if (bRx == 'R')
+                    {
+                        pRx->enmMemType = PSPX86ICEMEMTYPE_RAM;
+                        pRx->fIoPort    = false;
+                        pRx->cbAddr     = 16;
                     }
                     else
                         rc = STS_ERR_INVALID_PARAMETER;
