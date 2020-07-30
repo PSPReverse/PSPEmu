@@ -746,7 +746,8 @@ static int pspEmuCcdMemInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
                                     pThis->pvSram);
     if (STS_SUCCESS(rc))
         rc = pspEmuCcdMemRegionsTmpCreate(pThis, pCfg);
-    if (STS_SUCCESS(rc))
+    if (   STS_SUCCESS(rc)
+        && pCfg->enmMode != PSPEMUMODE_SYSTEM_ON_CHIP_BL)
         rc = pspEmuCcdMemReset(pThis, pCfg);
 
     return rc;
