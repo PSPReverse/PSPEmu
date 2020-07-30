@@ -107,8 +107,12 @@ typedef enum PSPTRACEEVTORIGIN
     PSPTRACEEVTORIGIN_CORE,
     /** Interrupt controller related. */
     PSPTRACEEVTORIGIN_IRQ,
+    /** x86 ICE bridge MMIO access related. */
+    PSPTRACEEVTORIGIN_X86_ICE_MMIO,
+    /** x86 ICE bridge I/O port access related. */
+    PSPTRACEEVTORIGIN_X86_ICE_IOPORT,
     /** Last valid origin. */
-    PSPTRACEEVTORIGIN_LAST = PSPTRACEEVTORIGIN_IRQ,
+    PSPTRACEEVTORIGIN_LAST = PSPTRACEEVTORIGIN_X86_ICE_IOPORT,
     /** 32bit hack. */
     PSPTRACEEVTORIGIN_32BIT_HACK = 0x7fffffff
 } PSPTRACEEVTORIGIN;

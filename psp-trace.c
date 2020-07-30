@@ -26,6 +26,8 @@
 
 #include <common/status.h>
 
+#include <os/lock.h>
+
 #include <psp-trace.h>
 
 
@@ -164,6 +166,8 @@ typedef const PSPTRACEEVT *PCPSPTRACEEVT;
  */
 typedef struct PSPTRACEINT
 {
+    /** Lock protecting against concurrent use. */
+    OSLOCK                          hLock;
     /** The next trace event ID to use. */
     uint64_t                        uTraceEvtIdNext;
     /** The nanosecond timestamp when the tracer was created. */
@@ -237,7 +241,9 @@ static const char *g_apszOrigin2Str[] =
     "PROXY",
     "DBG",
     "CORE",
-    "IRQ"
+    "IRQ",
+    "X86_ICE_MMIO",
+    "X86_ICE_IOPORT"
 };
 
 
@@ -742,6 +748,8 @@ static int pspEmuTraceEvtAddDevReadWriteWorker(PSPTRACE hTrace, PSPTRACEEVTSEVER
     PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmOrigin);
     if (pThis)
     {
+        OSLockAcquire(pThis->hLock);
+
         PPSPTRACEEVT pEvt;
         size_t cchDevId = strlen(pszDevId) + 1; /* Include terminator */
         size_t cbAlloc = sizeof(PSPTRACEEVTDEVXFER) + cbXfer + cchDevId;
@@ -758,6 +766,8 @@ static int pspEmuTraceEvtAddDevReadWriteWorker(PSPTRACE hTrace, PSPTRACEEVTSEVER
             memcpy(&pDevXfer->abXfer[cbXfer], pszDevId, cchDevId);
             rc = pspEmuTraceFlushMaybe(pThis);
         }
+
+        OSLockRelease(pThis->hLock);
     }
     return rc;
 }
@@ -794,6 +804,8 @@ static int pspEmuTraceEvtAddSvmc(PSPTRACE hTrace, PSPTRACEEVTCONTENTTYPE enmCont
     PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmEvtOrigin);
     if (pThis)
     {
+        OSLockAcquire(pThis->hLock);
+
         PPSPTRACEEVT pEvt;
         size_t cchMsg = pszMsg ? strlen(pszMsg) + 1 : 0;
         size_t cbAlloc = sizeof(PSPTRACEEVTSVMC) + cchMsg;
@@ -810,8 +822,7 @@ static int pspEmuTraceEvtAddSvmc(PSPTRACE hTrace, PSPTRACEEVTCONTENTTYPE enmCont
                 PSPCOREREG_R0,
                 PSPCOREREG_R1,
                 PSPCOREREG_R2,
-                PSPCOREREG_R3,
-                PSPCOREREG_LR
+                PSPCOREREG_R3
             };
 
             PSPEmuCoreQueryRegBatch(pThis->hPspCore, &s_aSvmcRegQuery[0], ELEMENTS(s_aSvmcRegQuery), &pSvmc->au32ArgsRet[0]);
@@ -821,6 +832,8 @@ static int pspEmuTraceEvtAddSvmc(PSPTRACE hTrace, PSPTRACEEVTCONTENTTYPE enmCont
                 pSvmc->szMsg[0] = '\0'; /* Make sure it is terminated. */
             rc = pspEmuTraceFlushMaybe(pThis);
         }
+
+        OSLockRelease(pThis->hLock);
     }
 
     return rc;
@@ -859,34 +872,41 @@ int PSPEmuTraceOriginStringQueryEnum(const char *pszOrigin, PPSPTRACEEVTORIGIN p
 int PSPEmuTraceCreate(PPSPTRACE phTrace, uint32_t fFlags, PSPCORE hPspCore,
                       uint32_t cEvtsBuffer, PFNPSPTRACEFLUSH pfnFlush, void *pvUser)
 {
-    int rc = 0;
+    int rc = STS_INF_SUCCESS;
     PPSPTRACEINT pThis = (PPSPTRACEINT)calloc(1, sizeof(*pThis));
     if (pThis)
     {
-        pThis->uTraceEvtIdNext  = 0;
-        pThis->tsTraceCreatedNs = 0;
-        pThis->hPspCore         = hPspCore;
-        pThis->fFlags           = fFlags;
-        pThis->cEvtsBuffer      = cEvtsBuffer;
-        pThis->pfnFlush         = pfnFlush;
-        pThis->pvUser           = pvUser;
-        pThis->cbEvtAlloc       = 0;
-        pThis->cTraceEvtsMax    = 0;
-        pThis->cTraceEvts       = 0;
-        pThis->papTraceEvts     = NULL;
-
-        if (fFlags & PSPEMU_TRACE_F_ALL_EVENTS)
+        rc = OSLockCreate(&pThis->hLock);
+        if (STS_SUCCESS(rc))
         {
-            for (uint32_t i = 0; i < ELEMENTS(pThis->aenmEvtTypesSeverity); i++)
-                pThis->aenmEvtTypesSeverity[i] = PSPTRACEEVTSEVERITY_INFO;
+            pThis->uTraceEvtIdNext  = 0;
+            pThis->tsTraceCreatedNs = 0;
+            pThis->hPspCore         = hPspCore;
+            pThis->fFlags           = fFlags;
+            pThis->cEvtsBuffer      = cEvtsBuffer;
+            pThis->pfnFlush         = pfnFlush;
+            pThis->pvUser           = pvUser;
+            pThis->cbEvtAlloc       = 0;
+            pThis->cTraceEvtsMax    = 0;
+            pThis->cTraceEvts       = 0;
+            pThis->papTraceEvts     = NULL;
+
+            if (fFlags & PSPEMU_TRACE_F_ALL_EVENTS)
+            {
+                for (uint32_t i = 0; i < ELEMENTS(pThis->aenmEvtTypesSeverity); i++)
+                    pThis->aenmEvtTypesSeverity[i] = PSPTRACEEVTSEVERITY_INFO;
+            }
+
+            /** @todo Timestamping. */
+
+            *phTrace = pThis;
+            return STS_INF_SUCCESS;
         }
 
-        /** @todo Timestamping. */
-
-        *phTrace = pThis;
+        free(pThis);
     }
     else
-        rc = -1;
+        rc = STS_ERR_NO_MEMORY;
 
     return rc;
 }
@@ -921,6 +941,7 @@ void PSPEmuTraceDestroy(PSPTRACE hTrace)
             free((void *)pThis->papTraceEvts[i]);
         free(pThis->papTraceEvts);
     }
+    OSLockDestroy(pThis->hLock);
     free(pThis);
 }
 
@@ -939,6 +960,8 @@ int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PCPSPTRACEEVTORIGIN paEvtOrigins, PCPS
 
     if (pThis)
     {
+        OSLockAcquire(pThis->hLock);
+
         for (uint32_t i = 0; i < cEvts; i++)
         {
             PSPTRACEEVTORIGIN enmOrigin = paEvtOrigins[i];
@@ -947,6 +970,8 @@ int PSPEmuTraceEvtEnable(PSPTRACE hTrace, PCPSPTRACEEVTORIGIN paEvtOrigins, PCPS
             else
                 return -1;
         }
+
+        OSLockRelease(pThis->hLock);
     }
 
     return rc;
@@ -960,8 +985,9 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, P
     PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmEvtOrigin);
     if (pThis)
     {
-        uint8_t szTmp[_4K]; /** @todo Maybe allocate scratch buffer if this turns to be too small (or fix your damn log strings...). */
+        OSLockAcquire(pThis->hLock);
 
+        uint8_t szTmp[_4K]; /** @todo Maybe allocate scratch buffer if this turns to be too small (or fix your damn log strings...). */
         bzero(&szTmp[0], sizeof(szTmp));
         int rcStr = vsnprintf(&szTmp[0], sizeof(szTmp), pszFmt, hArgs);
         if (rcStr > 0)
@@ -1016,6 +1042,8 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, P
         }
         else
             rc = -1;
+
+        OSLockRelease(pThis->hLock);
     }
     return rc;
 }
@@ -1041,6 +1069,8 @@ int PSPEmuTraceEvtAddXfer(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPT
     PPSPTRACEINT pThis = pspEmuTraceGetInstanceForEvtSeverityAndOrigin(hTrace, enmSeverity, enmEvtOrigin);
     if (pThis)
     {
+        OSLockAcquire(pThis->hLock);
+
         PPSPTRACEEVT pEvt;
         size_t cbAlloc = sizeof(PSPTRACEEVTXFER) + cbXfer;
         rc = pspEmuTraceEvtCreateAndLink(pThis, enmSeverity, enmEvtOrigin, PSPTRACEEVTCONTENTTYPE_XFER, cbAlloc, &pEvt);
@@ -1053,6 +1083,8 @@ int PSPEmuTraceEvtAddXfer(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, PSPT
             memcpy(&pXfer->abXfer[0], pvBuf, cbXfer);
             rc = pspEmuTraceFlushMaybe(pThis);
         }
+
+        OSLockRelease(pThis->hLock);
     }
 
     return rc;
