@@ -132,6 +132,7 @@ static struct option g_aOptions[] =
     {"proxy-memory-wt",              required_argument, 0, 'W'},
     {"single-step-dump-core-state",  no_argument,       0, 'A'},
     {"enable-x86-ice",               required_argument, 0, 'e'},
+    {"enable-x86-stub",              required_argument, 0, 'B'},
 
     {"help",                         no_argument,       0, 'H'},
     {0, 0, 0, 0}
@@ -216,6 +217,7 @@ static const PSPCFGARG g_aCfgArgsTraceLog[] =
 static const PSPCFGARG g_aCfgArgsX86Ice[] =
 {
     {"enable-x86-ice",               'e', "<port>",                           "Enable the x86 ICE bridge on the given port"},
+    {"enable-x86-stub",              'B', "<uefi-addr>:<uefi-sz>:<binary>",   "Use the given x86 stub to forward peripheral access to the hardware"},
 };
 
 
@@ -228,7 +230,7 @@ static const PSPCFGARGGRP g_aCfgArgGroups[] =
     { "Debugger related settings",      &g_aCfgArgsDbg[0],      ELEMENTS(g_aCfgArgsDbg)      },
     { "Proxy mode related settings",    &g_aCfgArgsProxy[0],    ELEMENTS(g_aCfgArgsProxy)    },
     { "Trace logging related settings", &g_aCfgArgsTraceLog[0], ELEMENTS(g_aCfgArgsTraceLog) },
-    { "X86 ICE related settings",       &g_aCfgArgsX86Ice[0], ELEMENTS(g_aCfgArgsX86Ice)     }
+    { "X86 ICE related settings",       &g_aCfgArgsX86Ice[0],   ELEMENTS(g_aCfgArgsX86Ice)   }
 };
 
 
@@ -706,6 +708,54 @@ static int pspCfgProxyMemRegionWtParse(PPSPEMUCFG pCfg, const char *pszRegion)
 
 
 /**
+ * Parse the x86 stub config.
+ *
+ * @returns Status code.
+ * @param   pCfg                    The config to add the descriptor to upon success.
+ * @param   pszX86StubCfg           The argument string to parse.
+ */
+static int pspCfgParseX86Stub(PPSPEMUCFG pCfg, const char *pszX86StubCfg)
+{
+    int rc = STS_INF_SUCCESS;
+    PSPEMUCFGPROXYMEMWT MemRegion;
+    const char *pszCur = pszX86StubCfg;
+
+    char *pszSep = strchr(pszCur, ':');
+    if (pszSep)
+    {
+        char *pszEndPtr;
+
+        errno = 0;
+        pCfg->PhysX86AddrUefiStart = strtoull(pszCur, &pszEndPtr, 0);
+        if (   !errno
+            && pszEndPtr == pszSep)
+        {
+            pszCur = pszEndPtr + 1;
+
+            pszSep = strchr(pszCur, ':');
+            if (pszSep)
+            {
+                pCfg->cbUefi = strtoull(pszCur, &pszEndPtr, 0);
+                if (   !errno
+                    && pszEndPtr == pszSep)
+                    pCfg->pszX86StubFilename = pszSep + 1;
+                else
+                    rc = STS_ERR_INVALID_PARAMETER;
+            }
+            else
+                rc = STS_ERR_INVALID_PARAMETER;
+        }
+        else
+            rc = STS_ERR_INVALID_PARAMETER;
+    }
+    else
+        rc = STS_ERR_INVALID_PARAMETER;
+
+    return rc;
+}
+
+
+/**
  * Verifies the given config for some basic sanity.
  *
  * @returns status code.
@@ -883,6 +933,9 @@ void PSPCfgInit(PPSPEMUCFG pCfg)
     pCfg->hDbgHlp               = NULL;
     pCfg->fSingleStepDumpCoreState = false;
     pCfg->paTraceCfg               = NULL;
+    pCfg->pszX86StubFilename       = NULL,
+    pCfg->PhysX86AddrUefiStart     = 0;
+    pCfg->cbUefi                   = 0;
 }
 
 
@@ -1129,6 +1182,13 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
             case 'e':
                 pCfg->uX86IcePort = strtoul(optarg, NULL, 10);
                 break;
+            case 'B':
+            {
+                int rc = pspCfgParseX86Stub(pCfg, optarg);
+                if (STS_FAILURE(rc))
+                    return rc;
+                break;
+            }
             default:
                 fprintf(stderr, "Unrecognised option: -%c\n", optopt);
                 return -1;

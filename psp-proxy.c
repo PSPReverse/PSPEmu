@@ -25,6 +25,7 @@
 #include <common/types.h>
 #include <common/cdefs.h>
 #include <psp/ccp.h>
+#include <x86/x86-stub.h>
 
 #include <os/file.h>
 #include <os/lock.h>
@@ -157,6 +158,8 @@ typedef struct PSPPROXYINT
     PPSPPROXYX86ICE             pX86IcesHead;
     /** CCP proxy data if enabled. */
     PSPPROXYCCP                 CcpProxy;
+    /** Flag whether the x86 stub was loaded and enabled successfully. */
+    bool                        fX86StubRunning;
 } PSPPROXYINT;
 
 
@@ -1245,15 +1248,278 @@ static void pspProxyMemWtX86Trace(X86PADDR offX86Abs, const char *pszDevId, X86P
 
 
 /**
+ * Enables all x86 cores.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance.
+ */
+static int pspProxyX86IceStubCoresEnable(PPSPPROXYINT pThis)
+{
+    int rc = STS_INF_SUCCESS;
+    for (uint32_t i = 0; i < pThis->pCfg->pCpuProfile->cAddrProxyBlockedSmn && STS_SUCCESS(rc); i++)
+    {
+        PCPSPPROXYADDRBLOCKEDDESC pBlockedDesc = &pThis->pCfg->pCpuProfile->paAddrProxyBlockedSmn[i];
+
+        if (pBlockedDesc->fProxyFeat & PSPPROXY_ADDR_BLOCKED_FEAT_F_NO_X86_RELEASE)
+        {
+            uint32_t fX86BspEnable = 0;
+            rc = PSPProxyCtxPspSmnRead(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, pBlockedDesc->AddrStart.u.SmnAddr, sizeof(fX86BspEnable), &fX86BspEnable);
+            if (STS_SUCCESS(rc))
+            {
+                fX86BspEnable |= BIT(31);
+                rc = PSPProxyCtxPspSmnWrite(pThis->hPspProxyCtx, 0 /*idCcdTgt*/, pBlockedDesc->AddrStart.u.SmnAddr, sizeof(fX86BspEnable), &fX86BspEnable);
+            }
+        }
+    }
+
+    return rc;
+}
+
+
+/**
+ * Tries to load and and execute the x86 stub.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance.
+ */
+static int pspProxyX86IceStubLoad(PPSPPROXYINT pThis)
+{
+    void *pvX86Stub = NULL;
+    size_t cbX86Stub = 0;
+    int rc = OSFileLoadAll(pThis->pCfg->pszX86StubFilename, &pvX86Stub, &cbX86Stub);
+    if (STS_SUCCESS(rc))
+    {
+        /*
+         * Calculate the load address from the given UEFI start address and size so we end
+         * up in the last 64K segment which gets mapped to 0xffff0000 using the CS shadow base
+         * (programmed by the ABL stages).
+         */
+        X86PADDR PhysX86AddrStart = (pThis->pCfg->PhysX86AddrUefiStart + pThis->pCfg->cbUefi) - cbX86Stub;
+        rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86AddrStart, pvX86Stub, cbX86Stub);
+        if (STS_SUCCESS(rc))
+        {
+            /* Release the BSP. */
+            rc = pspProxyX86IceStubCoresEnable(pThis);
+            if (STS_SUCCESS(rc))
+            {
+                /* Wait for the magic to appear at the mailbox address. */
+                do
+                {
+                    uint32_t u32MbxMagic = 0;
+                    rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, X86_STUB_MBX_START, &u32MbxMagic, sizeof(u32MbxMagic));
+                    if (   STS_SUCCESS(rc)
+                        && u32MbxMagic == X86STUB_MBX_MAGIC_READY)
+                        break;
+
+                    /** @todo Maybe sleep? */
+                } while (STS_SUCCESS(rc));
+
+                if (STS_SUCCESS(rc))
+                {
+                    pThis->fX86StubRunning = true;
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_PROXY,
+                                            "The x86 stub was loaded and enabled successfully", rc);
+                }
+                else
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspProxyX86IceStubLoad(): Waiting for the x86 stub to engage failed with %d", rc);
+            }
+            else
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspProxyX86IceStubLoad(): Enabling the x86 cores failed with %d", rc);
+        }
+        else
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                    "pspProxyX86IceStubLoad(): Writing the stub to %#llx (%zu) failed with %d", PhysX86AddrStart, cbX86Stub, rc);
+
+        OSFileLoadAllFree(pvX86Stub, cbX86Stub);
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyX86IceStubLoad() failed with %d", rc);
+
+    return rc;
+}
+
+
+/**
+ * Lets the x86 stub process the given mailbox.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance.
+ * @param   pMbx                    The mailbox to process.
+ */
+static int pspProxyX86IceStubMbxProcess(PPSPPROXYINT pThis, PX86STUBMBX pMbx)
+{
+    /*
+     * Write the mailbox without the magic in the header first to make sure everything hit DRAM.
+     * before the stub sees the appropriate magic.
+     */
+    pMbx->u32MagicReqResp = X86STUB_MBX_MAGIC_READY;
+    int rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, X86_STUB_MBX_START, pMbx, sizeof(*pMbx));
+    if (STS_SUCCESS(rc))
+    {
+        uint32_t u32Magic = X86STUB_MBX_MAGIC_REQ;
+        rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, X86_STUB_MBX_START, &u32Magic, sizeof(u32Magic));
+        if (STS_SUCCESS(rc))
+        {
+            /* Wait for the x86 stub to finish processing. */
+            /** @todo timeout */
+            do
+            {
+                rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, X86_STUB_MBX_START, &u32Magic, sizeof(u32Magic));
+            } while (   STS_SUCCESS(rc)
+                     && u32Magic != X86STUB_MBX_MAGIC_READY);
+
+            if (STS_SUCCESS(rc))
+            {
+                /* Read the mailbox back. */
+                rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, X86_STUB_MBX_START, pMbx, sizeof(*pMbx));
+                if (STS_FAILURE(rc))
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspProxyX86IceStubMbxProcess(): Reading mailbox back failed with %d", rc);
+            }
+            else
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspProxyX86IceStubMbxProcess(): Waiting for x86 stub to finish processing failed with %d", rc);
+        }
+        else
+            PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                    "pspProxyX86IceStubMbxProcess(): Writing mailbox magic failed with %d", rc);
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                "pspProxyX86IceStubMbxProcess(): Writing mailbox body failed with %d", rc);
+
+    return rc;
+}
+
+
+/**
+ * Reads from the given I/O port using the x86 stub access path.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance.
+ * @param   IoPort                  The I/O port to read from.
+ * @param   cbRead                  How much to read.
+ * @param   pvVal                   Where to store the read data.
+ */
+static int pspProxyX86IceStubIoPortRead(PPSPPROXYINT pThis, uint16_t IoPort, size_t cbRead, void *pvVal)
+{
+    int rc = STS_INF_SUCCESS;
+
+    if (!pThis->fX86StubRunning)
+        rc = pspProxyX86IceStubLoad(pThis);
+
+    if (STS_SUCCESS(rc))
+    {
+        X86STUBMBX Mbx = { 0 };
+        Mbx.enmReq             = X86STUBMBXREQ_IOPORT_READ;
+        Mbx.u.IoPort.u32IoPort = IoPort;
+        Mbx.u.IoPort.cbAccess  = cbRead;
+
+        rc = pspProxyX86IceStubMbxProcess(pThis, &Mbx);
+        if (STS_SUCCESS(rc))
+        {
+            switch (cbRead)
+            {
+                case 1:
+                {
+                    *(uint8_t *)pvVal = (uint8_t)Mbx.u.IoPort.u32Val;
+                    break;
+                }
+                case 2:
+                {
+                    *(uint16_t *)pvVal = (uint16_t)Mbx.u.IoPort.u32Val;
+                    break;
+                }
+                case 4:
+                {
+                    *(uint32_t *)pvVal = Mbx.u.IoPort.u32Val;
+                    break;
+                }
+                default:
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspProxyX86IceStubIoPortRead(): Invalid read size given %zu\n", cbRead);
+                    rc = STS_ERR_INVALID_PARAMETER;
+                    break;
+            }
+        }
+    }
+
+    return rc;
+}
+
+
+/**
+ * Writes to the given I/O port using the x86 stub access path.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance.
+ * @param   IoPort                  The I/O port to read from.
+ * @param   cbWrite                 How much to write.
+ * @param   pvVal                   The data to write.
+ */
+static int pspProxyX86IceStubIoPortWrite(PPSPPROXYINT pThis, uint16_t IoPort, size_t cbWrite, const void *pvVal)
+{
+    int rc = STS_INF_SUCCESS;
+
+    if (!pThis->fX86StubRunning)
+        rc = pspProxyX86IceStubLoad(pThis);
+
+    if (STS_SUCCESS(rc))
+    {
+        X86STUBMBX Mbx = { 0 };
+        Mbx.enmReq             = X86STUBMBXREQ_IOPORT_WRITE;
+        Mbx.u.IoPort.u32IoPort = IoPort;
+        Mbx.u.IoPort.cbAccess  = cbWrite;
+
+        switch (cbWrite)
+        {
+            case 1:
+            {
+                Mbx.u.IoPort.u32Val = *(uint8_t *)pvVal;
+                break;
+            }
+            case 2:
+            {
+                Mbx.u.IoPort.u32Val = *(uint16_t *)pvVal;
+                break;
+            }
+            case 4:
+            {
+                Mbx.u.IoPort.u32Val =  *(uint32_t *)pvVal;
+                break;
+            }
+            default:
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspProxyX86IceStubIoPortWrite(): Invalid write size given %zu\n", cbWrite);
+                rc = STS_ERR_INVALID_PARAMETER;
+                break;
+        }
+
+        if (STS_SUCCESS(rc))
+            rc = pspProxyX86IceStubMbxProcess(pThis, &Mbx);
+    }
+
+    return rc;
+}
+
+
+/**
  * @copydoc{FNPSPX86ICEIOPORTREAD, X86 ICE bridge I/O port read callback.}
  */
 static int pspProxyX86IceIoPortRead(PSPX86ICE hX86Ice, uint16_t IoPort, size_t cbRead, void *pvVal, void *pvUser)
 {
     PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
     PPSPPROXYINT pThis = pX86IceRec->pThis;
+    int rc = STS_INF_SUCCESS;
 
     pspProxyLock(pThis);
-    int rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, 0xfffdfc000000 + IoPort, cbRead, pvVal);
+    if (pThis->pCfg->pszX86StubFilename)
+        rc = pspProxyX86IceStubIoPortRead(pThis, IoPort, cbRead, pvVal);
+    else /* This is the fallback and doesn't seem to work always. */
+        rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, 0xfffdfc000000 + IoPort, cbRead, pvVal);
     pspProxyUnlock(pThis);
 
     if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
@@ -1265,6 +1531,9 @@ static int pspProxyX86IceIoPortRead(PSPX86ICE hX86Ice, uint16_t IoPort, size_t c
     else if (STS_FAILURE(rc))
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
                                 "pspProxyX86IceIoPortRead() failed with %d", rc);
+
+    PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86_ICE_IOPORT,
+                             "X86 I/O Port", IoPort, pvVal, cbRead);
     return rc;
 }
 
@@ -1276,9 +1545,16 @@ static int pspProxyX86IceIoPortWrite(PSPX86ICE hX86Ice, uint16_t IoPort, size_t 
 {
     PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
     PPSPPROXYINT pThis = pX86IceRec->pThis;
+    int rc = STS_INF_SUCCESS;
+
+    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86_ICE_IOPORT,
+                              "X86 I/O Port", IoPort, pvVal, cbWrite);
 
     pspProxyLock(pThis);
-    int rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, 0xfffdfc000000 + IoPort, cbWrite, pvVal);
+    if (pThis->pCfg->pszX86StubFilename)
+        rc = pspProxyX86IceStubIoPortWrite(pThis, IoPort, cbWrite, pvVal);
+    else /* This is the fallback and doesn't seem to work always. */
+        rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, 0xfffdfc000000 + IoPort, cbWrite, pvVal);
     pspProxyUnlock(pThis);
 
     if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
@@ -1306,7 +1582,14 @@ static int pspProxyX86IceMemRead(PSPX86ICE hX86Ice, X86PADDR PhysX86Addr, PSPX86
     if (enmMemType == PSPX86ICEMEMTYPE_RAM)
         rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
     else if (enmMemType == PSPX86ICEMEMTYPE_MMIO)
+    {
         rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, PhysX86Addr, cbRead, pvVal);
+        if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
+        {
+            memset(pvVal, 0xff, cbRead);
+            rc = STS_INF_SUCCESS; /** @todo Leave entry in trace log. */
+        }
+    }
     else if (enmMemType == PSPX86ICEMEMTYPE_UNKNOWN)
     {
         /*
@@ -1334,7 +1617,11 @@ static int pspProxyX86IceMemRead(PSPX86ICE hX86Ice, X86PADDR PhysX86Addr, PSPX86
 
     if (STS_FAILURE(rc))
         PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
-                                "pspProxyX86IceMemRead() failed with %d", rc);
+                                "pspProxyX86IceMemRead(%p, %#llx, %u, %zu, %p, %p) failed with %d",
+                                hX86Ice, PhysX86Addr, enmMemType, cbRead, pvVal, pvUser, rc);
+
+    PSPEmuTraceEvtAddDevRead(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86_ICE_MMIO,
+                             "X86 MMIO/MEM", PhysX86Addr, pvVal, cbRead);
     return rc;
 }
 
@@ -1347,6 +1634,9 @@ static int pspProxyX86IceMemWrite(PSPX86ICE hX86Ice, X86PADDR PhysX86Addr, PSPX8
     PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
     PPSPPROXYINT pThis = pX86IceRec->pThis;
     int rc = STS_INF_SUCCESS;
+
+    PSPEmuTraceEvtAddDevWrite(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86_ICE_MMIO,
+                              "X86 MMIO/MEM", PhysX86Addr, pvVal, cbWrite);
 
     pspProxyLock(pThis);
     if (enmMemType == PSPX86ICEMEMTYPE_RAM)
@@ -2051,12 +2341,17 @@ int PSPProxyCreate(PPSPPROXY phProxy, PPSPEMUCFG pCfg)
     PPSPPROXYINT pThis = (PPSPPROXYINT)calloc(1, sizeof(*pThis));
     if (pThis)
     {
-        pThis->pCfg         = pCfg;
-        pThis->pCcdsHead    = NULL;
-        pThis->pX86IcesHead = NULL;
-        pThis->fProxyFeat   = 0;
+        pThis->pCfg            = pCfg;
+        pThis->pCcdsHead       = NULL;
+        pThis->pX86IcesHead    = NULL;
+        pThis->fProxyFeat      = 0;
+        pThis->fX86StubRunning = false;
 
-        if (pCfg->fProxyBlockX86CoreRelease)
+        /*
+         * If the x86 stub is going to be used cores won't be released until the first
+         * access from the ICE bridge.
+         */
+        if (pCfg->fProxyBlockX86CoreRelease || pCfg->pszX86StubFilename)
             pThis->fProxyFeat |= PSPPROXY_ADDR_BLOCKED_FEAT_F_NO_X86_RELEASE;
         if (!strncmp(pCfg->pszPspProxyAddr, "serial://", sizeof("serial://") - 1))
             pThis->fProxyFeat |= PSPPROXY_ADDR_BLOCKED_FEAT_F_X86_UART;

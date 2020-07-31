@@ -305,6 +305,16 @@ typedef struct PSPEMUCFG
     PSPDBGHLP               hDbgHlp;
     /** Trace config descriptors. */
     PPSPEMUCFGTRACECFGDESC  paTraceCfg;
+
+    /** @name x86 stub related config items.
+     * @{*/
+    /** Filename of the x86 stub to load. */
+    const char              *pszX86StubFilename;
+    /** Load address of the UEFI image. */
+    X86PADDR                PhysX86AddrUefiStart;
+    /** size of the UEFI image in bytes. */
+    size_t                  cbUefi;
+    /** @} */
 } PSPEMUCFG;
 /** Pointer to a PSPEmu config. */
 typedef PSPEMUCFG *PPSPEMUCFG;
