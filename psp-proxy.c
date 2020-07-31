@@ -1507,6 +1507,117 @@ static int pspProxyX86IceStubIoPortWrite(PPSPPROXYINT pThis, uint16_t IoPort, si
 
 
 /**
+ * Reads from the given physical memory address using the x86 stub access path.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance.
+ * @param   PhysX86Addr             The address to read from.
+ * @param   cbRead                  How much to read.
+ * @param   pvVal                   Where to store the read data.
+ */
+static int pspProxyX86IceStubMemRead(PPSPPROXYINT pThis, X86PADDR PhysX86Addr, size_t cbRead, void *pvVal)
+{
+    int rc = STS_INF_SUCCESS;
+
+    if (!pThis->fX86StubRunning)
+        rc = pspProxyX86IceStubLoad(pThis);
+
+    if (STS_SUCCESS(rc))
+    {
+        X86STUBMBX Mbx = { 0 };
+        Mbx.enmReq             = X86STUBMBXREQ_MEM32_READ;
+        Mbx.u.Mem32.u32MemAddr = (uint32_t)PhysX86Addr;
+        Mbx.u.Mem32.cbAccess   = cbRead;
+
+        rc = pspProxyX86IceStubMbxProcess(pThis, &Mbx);
+        if (STS_SUCCESS(rc))
+        {
+            switch (cbRead)
+            {
+                case 1:
+                {
+                    *(uint8_t *)pvVal = (uint8_t)Mbx.u.Mem32.u32Val;
+                    break;
+                }
+                case 2:
+                {
+                    *(uint16_t *)pvVal = (uint16_t)Mbx.u.Mem32.u32Val;
+                    break;
+                }
+                case 4:
+                {
+                    *(uint32_t *)pvVal = Mbx.u.Mem32.u32Val;
+                    break;
+                }
+                default:
+                    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                            "pspProxyX86IceStubMemRead(): Invalid read size given %zu\n", cbRead);
+                    rc = STS_ERR_INVALID_PARAMETER;
+                    break;
+            }
+        }
+    }
+
+    return rc;
+}
+
+
+/**
+ * Writes to the given physical memory address using the x86 stub access path.
+ *
+ * @returns Status code.
+ * @param   pThis                   The proxy instance.
+ * @param   PhysX86Addr             The address to write to.
+ * @param   cbWrite                 How much to write.
+ * @param   pvVal                   The data to write.
+ */
+static int pspProxyX86IceStubMemWrite(PPSPPROXYINT pThis, X86PADDR PhysX86Addr, size_t cbWrite, const void *pvVal)
+{
+    int rc = STS_INF_SUCCESS;
+
+    if (!pThis->fX86StubRunning)
+        rc = pspProxyX86IceStubLoad(pThis);
+
+    if (STS_SUCCESS(rc))
+    {
+        X86STUBMBX Mbx = { 0 };
+        Mbx.enmReq             = X86STUBMBXREQ_MEM32_WRITE;
+        Mbx.u.Mem32.u32MemAddr = (uint32_t)PhysX86Addr;
+        Mbx.u.Mem32.cbAccess   = cbWrite;
+
+        switch (cbWrite)
+        {
+            case 1:
+            {
+                Mbx.u.Mem32.u32Val = *(uint8_t *)pvVal;
+                break;
+            }
+            case 2:
+            {
+                Mbx.u.Mem32.u32Val = *(uint16_t *)pvVal;
+                break;
+            }
+            case 4:
+            {
+                Mbx.u.Mem32.u32Val =  *(uint32_t *)pvVal;
+                break;
+            }
+            default:
+                PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_PROXY,
+                                        "pspProxyX86IceStubMemWrite(): Invalid write size given %zu\n", cbWrite);
+                rc = STS_ERR_INVALID_PARAMETER;
+                break;
+        }
+
+        if (STS_SUCCESS(rc))
+            rc = pspProxyX86IceStubMbxProcess(pThis, &Mbx);
+    }
+
+    return rc;
+}
+
+
+/**
  * @copydoc{FNPSPX86ICEIOPORTREAD, X86 ICE bridge I/O port read callback.}
  */
 static int pspProxyX86IceIoPortRead(PSPX86ICE hX86Ice, uint16_t IoPort, size_t cbRead, void *pvVal, void *pvUser)
@@ -1579,40 +1690,48 @@ static int pspProxyX86IceMemRead(PSPX86ICE hX86Ice, X86PADDR PhysX86Addr, PSPX86
     int rc = STS_INF_SUCCESS;
 
     pspProxyLock(pThis);
-    if (enmMemType == PSPX86ICEMEMTYPE_RAM)
-        rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
-    else if (enmMemType == PSPX86ICEMEMTYPE_MMIO)
+    if (   pThis->pCfg->pszX86StubFilename
+        && cbRead <= sizeof(uint32_t))
+        rc = pspProxyX86IceStubMemRead(pThis, PhysX86Addr, cbRead, pvVal);
+    else
     {
-        rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, PhysX86Addr, cbRead, pvVal);
-        if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
-        {
-            memset(pvVal, 0xff, cbRead);
-            rc = STS_INF_SUCCESS; /** @todo Leave entry in trace log. */
-        }
-    }
-    else if (enmMemType == PSPX86ICEMEMTYPE_UNKNOWN)
-    {
-        /*
-         * These are kinda tricky as the wrong type will cause a data abort exception in the stub.
-         * Most of them can be recovered from but sometimes the stub will jsut hang requiring manual
-         * workarounds...
-         *
-         * For now we assume every access > 4 bytes or with an odd byte count, except 1, to be RAM. For the others we
-         * try MMIO first and resort to RAM if the stub returns an error.
-         */
-        if (   cbRead > 4
-            || (   (cbRead & 1)
-                && cbRead != 1))
+        /* Fallback using the PSP but we might not be able to acccess everything. */
+
+        if (enmMemType == PSPX86ICEMEMTYPE_RAM)
             rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
-        else
+        else if (enmMemType == PSPX86ICEMEMTYPE_MMIO)
         {
             rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, PhysX86Addr, cbRead, pvVal);
             if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
-                rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
+            {
+                memset(pvVal, 0xff, cbRead);
+                rc = STS_INF_SUCCESS; /** @todo Leave entry in trace log. */
+            }
         }
+        else if (enmMemType == PSPX86ICEMEMTYPE_UNKNOWN)
+        {
+            /*
+             * These are kinda tricky as the wrong type will cause a data abort exception in the stub.
+             * Most of them can be recovered from but sometimes the stub will jsut hang requiring manual
+             * workarounds...
+             *
+             * For now we assume every access > 4 bytes or with an odd byte count, except 1, to be RAM. For the others we
+             * try MMIO first and resort to RAM if the stub returns an error.
+             */
+            if (   cbRead > 4
+                || (   (cbRead & 1)
+                    && cbRead != 1))
+                rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
+            else
+            {
+                rc = PSPProxyCtxPspX86MmioRead(pThis->hPspProxyCtx, PhysX86Addr, cbRead, pvVal);
+                if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
+                    rc = PSPProxyCtxPspX86MemRead(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbRead);
+            }
+        }
+        else
+            rc = STS_ERR_NOT_FOUND;
     }
-    else
-        rc = STS_ERR_NOT_FOUND;
     pspProxyUnlock(pThis);
 
     if (STS_FAILURE(rc))
@@ -1639,26 +1758,31 @@ static int pspProxyX86IceMemWrite(PSPX86ICE hX86Ice, X86PADDR PhysX86Addr, PSPX8
                               "X86 MMIO/MEM", PhysX86Addr, pvVal, cbWrite);
 
     pspProxyLock(pThis);
-    if (enmMemType == PSPX86ICEMEMTYPE_RAM)
-        rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
-    else if (enmMemType == PSPX86ICEMEMTYPE_MMIO)
-        rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, PhysX86Addr, cbWrite, pvVal);
-    else if (enmMemType == PSPX86ICEMEMTYPE_UNKNOWN)
-    {
-        /* See the note in pspProxyX86IceMemRead() about the memory types. */
-        if (   cbWrite > 4
-            || (   (cbWrite & 1)
-                && cbWrite != 1))
-            rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
-        else
-        {
-            rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, PhysX86Addr, cbWrite, pvVal);
-            if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
-                rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
-        }
-    }
+    if (pThis->pCfg->pszX86StubFilename)
+        rc = pspProxyX86IceStubMemWrite(pThis, PhysX86Addr, cbWrite, pvVal);
     else
-        rc = STS_ERR_NOT_FOUND;
+    {
+        if (enmMemType == PSPX86ICEMEMTYPE_RAM)
+            rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
+        else if (enmMemType == PSPX86ICEMEMTYPE_MMIO)
+            rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, PhysX86Addr, cbWrite, pvVal);
+        else if (enmMemType == PSPX86ICEMEMTYPE_UNKNOWN)
+        {
+            /* See the note in pspProxyX86IceMemRead() about the memory types. */
+            if (   cbWrite > 4
+                || (   (cbWrite & 1)
+                    && cbWrite != 1))
+                rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
+            else
+            {
+                rc = PSPProxyCtxPspX86MmioWrite(pThis->hPspProxyCtx, PhysX86Addr, cbWrite, pvVal);
+                if (rc == STS_ERR_PSP_PROXY_REQ_COMPLETED_WITH_ERROR)
+                    rc = PSPProxyCtxPspX86MemWrite(pThis->hPspProxyCtx, PhysX86Addr, pvVal, cbWrite);
+            }
+        }
+        else
+            rc = STS_ERR_NOT_FOUND;
+    }
     pspProxyUnlock(pThis);
 
     if (STS_FAILURE(rc))
