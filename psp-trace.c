@@ -243,7 +243,8 @@ static const char *g_apszOrigin2Str[] =
     "CORE",
     "IRQ",
     "X86_ICE_MMIO",
-    "X86_ICE_IOPORT"
+    "X86_ICE_IOPORT",
+    "X86_ICE_MSR"
 };
 
 
