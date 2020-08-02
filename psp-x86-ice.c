@@ -102,6 +102,12 @@ typedef struct PSPX86ICEINT
     PFNPSPX86ICEMEMWRITE            pfnMemWrite;
     /** Opaque user data to pass to the memory read/write handlers. */
     void                            *pvUserMemRw;
+    /** MSR read handler. */
+    PFNPSPX86ICEMSRREAD             pfnMsrRead;
+    /** MSR write handler. */
+    PFNPSPX86ICEMSRWRITE            pfnMsrWrite;
+    /** Opaque user data to pass to the MSR read/write handlers. */
+    void                            *pvUserMsrRw;
 } PSPX86ICEINT;
 /** Pointer to the internal x86 ICE instance data. */
 typedef PSPX86ICEINT *PPSPX86ICEINT;
@@ -205,6 +211,118 @@ static void pspX86IceSerialIceRxReset(PPSPX86SERIALICERX pRx)
 
 
 /**
+ * Encode the given value as an ASCII hexecimal number with the given number of bytes.
+ *
+ * @returns Nothing.
+ * @param   pbDst                   Where to store the encoded number.
+ * @param   u64Val                  The value to encode.
+ * @param   cb                      Size of the value in bytes (maximum 8).
+ */
+static inline void pspX86IceSerialIceEncodeN(uint8_t *pbDst, uint64_t u64Val, size_t cb)
+{
+    uint8_t *pbCur = pbDst + cb * 2 - 1;
+
+    for (uint32_t i = 0; i < cb; i++)
+    {
+        *pbCur-- = s_abHexToChr[u64Val & 0xf];
+        *pbCur-- = s_abHexToChr[(u64Val >> 4) & 0xf];
+        u64Val >>= 8;
+    }
+}
+
+
+/**
+ * Encodes a given 32bit binary as a hexadecimal ASCII number.
+ *
+ * @returns nothing.
+ * @param   pbDst                   Where to store the encoded number.
+ * @param   u32Val                  The value to encode.
+ */
+static inline void pspX86IceSerialIceEncodeU32(uint8_t *pbDst, uint32_t u32Val)
+{
+    pspX86IceSerialIceEncodeN(pbDst, u32Val, sizeof(u32Val));
+}
+
+
+/**
+ * Receives a 32bit value encoded as ASCII from the given TCP connection.
+ *
+ * @returns Status code.
+ * @param   hTcpCon                 The TCP connection.
+ * @param   pu32Val                 Where to store the 32bit value on success.
+ */
+static int pspX86IceSerialIceRecvU32(OSTCPCON hTcpCon, uint32_t *pu32Val)
+{
+    int rc = STS_INF_SUCCESS;
+
+    *pu32Val = 0;
+
+    for (uint32_t i = 0; i < sizeof(*pu32Val) && STS_SUCCESS(rc); i++)
+    {
+        uint8_t abByte[2] = { 0 };
+        rc = OSTcpConnectionRead(hTcpCon, &abByte[0], sizeof(abByte), NULL /*pcbRead*/);
+        if (STS_SUCCESS(rc))
+        {
+            *pu32Val <<= 8;
+            *pu32Val |=   (pspX86IceSerialIceHexToNibble(abByte[0]) << 4)
+                        | pspX86IceSerialIceHexToNibble(abByte[1]);
+        }
+    }
+
+    return rc;
+}
+
+
+/**
+ * Receives and skips an ASCII dot from the given TCP connection.
+ *
+ * @returns Status code.
+ * @param   hTcpCon                 The TCP connection.
+ */
+static int pspX86IceSerialIceRecvSkipDot(OSTCPCON hTcpCon)
+{
+    uint8_t bRx = 0;
+    int rc = OSTcpConnectionRead(hTcpCon, &bRx, sizeof(bRx), NULL /*pcbRead*/);
+    if (   STS_SUCCESS(rc)
+        && bRx != '.')
+        rc = STS_ERR_INVALID_PARAMETER;
+
+    return rc;
+}
+
+
+/**
+ * Receives and skips an ASCII equal sign from the given TCP connection.
+ *
+ * @returns Status code.
+ * @param   hTcpCon                 The TCP connection.
+ */
+static int pspX86IceSerialIceRecvSkipEqual(OSTCPCON hTcpCon)
+{
+    uint8_t bRx = 0;
+    int rc = OSTcpConnectionRead(hTcpCon, &bRx, sizeof(bRx), NULL /*pcbRead*/);
+    if (   STS_SUCCESS(rc)
+        && bRx != '=')
+        rc = STS_ERR_INVALID_PARAMETER;
+
+    return rc;
+}
+
+
+/**
+ * Sends the marker that the bridge is ready to accept a new command.
+ *
+ * @returns Status code.
+ * @param   hTcpCon                 The TCP connection to send to.
+ */
+static int pspX86IceSerialIceRdySend(OSTCPCON hTcpCon)
+{
+    uint8_t achReady[3] = { '\r', '\n', '>' };
+    return OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
+}
+
+
+/**
  * Processes the fully received command.
  *
  * @returns Status code.
@@ -300,22 +418,13 @@ static int pspX86IceSerialIceProcess(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx
         }
 
         uint8_t abResp[16] = { 0 };
-        for (uint32_t i = 0; i < pRx->cb * 2; i += 2)
-        {
-            abResp[i]     = s_abHexToChr[(u64Read >> 4) & 0xf];
-            abResp[i + 1] = s_abHexToChr[u64Read & 0xf];
-            u64Read >>= 8;
-        }
-
+        pspX86IceSerialIceEncodeN(&abResp[0], u64Read, pRx->cb);
         rc = OSTcpConnectionWrite(hTcpCon, &abResp[0], pRx->cb * 2, NULL /*pcbWritten*/);
     }
 
     /* Send new readiness symbol. */
     if (STS_SUCCESS(rc))
-    {
-        uint8_t achReady[3] = { '\r', '\n', '>' };
-        rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
-    }
+        rc = pspX86IceSerialIceRdySend(hTcpCon);
 
     /* Reset state machine to start anew. */
     pspX86IceSerialIceRxReset(pRx);
@@ -406,10 +515,80 @@ static int pspX86IceSerialIceBinXfer(PPSPX86ICEINT pThis, OSTCPCON hTcpCon)
             }
         }
 
-        uint8_t achReady[3] = { '\r', '\n', '>' };
-        rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
+        rc = pspX86IceSerialIceRdySend(hTcpCon);
     }
 
+    return rc;
+}
+
+
+/**
+ * Processes a MSR request.
+ *
+ * @returns Status code.
+ * @param   pThis                   The x86 ICE instance.
+ * @param   hTcpCon                 The TCP connection to read from.
+ * @param   pRx                     The receiving state (for reading the read/write flag and resetting the state).
+ */
+static int pspX86IceSerialIceMsrProcess(PPSPX86ICEINT pThis, OSTCPCON hTcpCon, PPSPX86SERIALICERX pRx)
+{
+    OSLockAcquire(pThis->hLock);
+    PFNPSPX86ICEMSRREAD  pfnMsrRead = pThis->pfnMsrRead;
+    PFNPSPX86ICEMSRWRITE pfnMsrWrite = pThis->pfnMsrWrite;
+    void *pvUserMsrRw = pThis->pvUserMsrRw;
+    OSLockRelease(pThis->hLock);
+
+    /* Receive the MSR to access. */
+    uint32_t idMsr = 0;
+    uint32_t idKey = 0;
+    int rc = pspX86IceSerialIceRecvU32(hTcpCon, &idMsr);
+    if (STS_SUCCESS(rc))
+        rc = pspX86IceSerialIceRecvSkipDot(hTcpCon);
+    if (STS_SUCCESS(rc))
+        rc = pspX86IceSerialIceRecvU32(hTcpCon, &idKey);
+    if (STS_SUCCESS(rc))
+    {
+        if (pRx->fRead)
+        {
+            uint64_t u64Val = 0;
+
+            /* Read and send data. */
+            rc = pfnMsrRead(pThis, idMsr, idKey, &u64Val, pvUserMsrRw);
+            if (STS_SUCCESS(rc))
+            {
+                uint8_t abResp[sizeof(u64Val) * 2 + 1] = { 0 };
+                pspX86IceSerialIceEncodeU32(&abResp[0], (uint32_t)(u64Val >> 32));
+                abResp[sizeof(uint32_t) * 2] = '.';
+                pspX86IceSerialIceEncodeU32(&abResp[sizeof(uint32_t) * 2 + 1], (uint32_t)u64Val);
+                rc = OSTcpConnectionWrite(hTcpCon, &abResp[0], sizeof(abResp), NULL /*pcbWritten*/);
+            }
+        }
+        else
+        {
+            /* Receive the data. */
+            rc = pspX86IceSerialIceRecvSkipEqual(hTcpCon);
+            if (STS_SUCCESS(rc))
+            {
+                uint32_t u32ValHigh = 0;
+                uint32_t u32ValLow = 0;
+
+                rc = pspX86IceSerialIceRecvU32(hTcpCon, &u32ValHigh);
+                if (STS_SUCCESS(rc))
+                    rc = pspX86IceSerialIceRecvSkipDot(hTcpCon);
+                if (STS_SUCCESS(rc))
+                    rc = pspX86IceSerialIceRecvU32(hTcpCon, &u32ValLow);
+                if (STS_SUCCESS(rc))
+                    rc = pfnMsrWrite(pThis, idMsr, idKey, (((uint64_t)u32ValHigh) << 32) | u32ValLow, pvUserMsrRw);
+            }
+        }
+    }
+
+    /* Send new readiness symbol. */
+    if (STS_SUCCESS(rc))
+        rc = pspX86IceSerialIceRdySend(hTcpCon);
+
+    /* Reset state machine to start anew. */
+    pspX86IceSerialIceRxReset(pRx);
     return rc;
 }
 
@@ -446,10 +625,7 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                         uint8_t bResp = '1';
                         rc = OSTcpConnectionWrite(hTcpCon, &bResp, sizeof(bResp), NULL /*pcbWritten*/);
                         if (STS_SUCCESS(rc))
-                        {
-                            uint8_t achReady[3] = { '\r', '\n', '>' };
-                            rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
-                        }
+                            rc = pspX86IceSerialIceRdySend(hTcpCon);
 
                         /* Reset state machine to start anew. */
                         pspX86IceSerialIceRxReset(pRx);
@@ -467,6 +643,8 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                     pRx->enmState = PSPX86SERIALICERXSTATE_TYPE; /* Doesn't matter in error case. */
                     break;
                 case PSPX86SERIALICERXSTATE_TYPE:
+                    pRx->enmState = PSPX86SERIALICERXSTATE_ADDR; /* Doesn't matter in error case. */
+
                     if (bRx == 'i')
                     {
                         pRx->fIoPort = true;
@@ -489,9 +667,10 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                         pRx->fIoPort    = false;
                         pRx->cbAddr     = 16;
                     }
+                    else if (bRx == 'c')
+                        rc = pspX86IceSerialIceMsrProcess(pThis, hTcpCon, pRx);
                     else
                         rc = STS_ERR_INVALID_PARAMETER;
-                    pRx->enmState = PSPX86SERIALICERXSTATE_ADDR; /* Doesn't matter in error case. */
                     break;
                 case PSPX86SERIALICERXSTATE_ADDR:
                 {
@@ -585,8 +764,7 @@ static int pspX86IceNetIoThrd(OSTHREAD hThread, void *pvUser)
                 /** @todo Log error but continue. */
 
                 /* Send the data to indicate readiness. */
-                uint8_t achReady[3] = { '\r', '\n', '>' };
-                rc = OSTcpConnectionWrite(hTcpCon, &achReady[0], sizeof(achReady), NULL /*pcbWritten*/);
+                rc = pspX86IceSerialIceRdySend(hTcpCon);
                 if (STS_FAILURE(rc))
                 {
                     /* Log error, close connection and continue. */
@@ -699,6 +877,20 @@ int PSPX86IceMemRwHandlerSet(PSPX86ICE hX86Ice, PFNPSPX86ICEMEMREAD pfnMemRead, 
     pThis->pfnMemRead   = pfnMemRead;
     pThis->pfnMemWrite  = pfnMemWrite;
     pThis->pvUserMemRw  = pvUser;
+    OSLockRelease(pThis->hLock);
+
+    return STS_INF_SUCCESS;
+}
+
+
+int PSPX86IceMsrRwHandlerSet(PSPX86ICE hX86Ice, PFNPSPX86ICEMSRREAD pfnMsrRead, PFNPSPX86ICEMSRWRITE pfnMsrWrite, void *pvUser)
+{
+    PPSPX86ICEINT pThis = hX86Ice;
+
+    OSLockAcquire(pThis->hLock);
+    pThis->pfnMsrRead   = pfnMsrRead;
+    pThis->pfnMsrWrite  = pfnMsrWrite;
+    pThis->pvUserMsrRw  = pvUser;
     OSLockRelease(pThis->hLock);
 
     return STS_INF_SUCCESS;

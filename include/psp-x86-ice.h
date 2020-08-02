@@ -108,6 +108,36 @@ typedef FNPSPX86ICEMEMWRITE *PFNPSPX86ICEMEMWRITE;
 
 
 /**
+ * x86 MSR read handler.
+ *
+ * @returns Status code.
+ * @param   hX86Ice                 The X86 ICE instance triggering the callback.
+ * @param   idMsr                   The MSR to read.
+ * @param   idKey                   The key to use ((was?) required on for some MSRs on some older AMD CPUs)
+ * @param   pu64Val                 Where to store the read value.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
+typedef int (FNPSPX86ICEMSRREAD)(PSPX86ICE hX86Ice, uint32_t idMsr, uint32_t idKey, uint64_t *pu64Val, void *pvUser);
+/** x86 MSR read handler pointer. */
+typedef FNPSPX86ICEMSRREAD *PFNPSPX86ICEMSRREAD;
+
+
+/**
+ * x86 MSR write handler.
+ *
+ * @returns Status code.
+ * @param   hX86Ice                 The X86 ICE instance triggering the callback.
+ * @param   idMsr                   The MSR to write.
+ * @param   idKey                   The key to use ((was?) required on for some MSRs on some older AMD CPUs)
+ * @param   u64Val                  The value to write.
+ * @param   pvUser                  Opaque user data passed during registration.
+ */
+typedef int (FNPSPX86ICEMSRWRITE)(PSPX86ICE hX86Ice, uint32_t idMsr, uint32_t idKey, uint64_t u64Val, void *pvUser);
+/** x86 MSR write handler pointer. */
+typedef FNPSPX86ICEMSRWRITE *PFNPSPX86ICEMSRWRITE;
+
+
+/**
  * Creates a new x86 ICE instance.
  *
  * @returns Status code.
@@ -148,5 +178,17 @@ int PSPX86IceIoPortRwHandlerSet(PSPX86ICE hX86Ice, PFNPSPX86ICEIOPORTREAD pfnIoP
  * @param   pvUser                  Opaque user data passed in the callbacks.
  */
 int PSPX86IceMemRwHandlerSet(PSPX86ICE hX86Ice, PFNPSPX86ICEMEMREAD pfnMemRead, PFNPSPX86ICEMEMWRITE pfnMemWrite, void *pvUser);
+
+
+/**
+ * Sets the given MSR read/write handlers which get called for a matching request.
+ *
+ * @returns Status code.
+ * @param   hX86Ice                 The x86 ICE instance handle.
+ * @param   pfnMsrRead              The read handler to set.
+ * @param   pfnMsrWrite             The write handler to set.
+ * @param   pvUser                  Opaque user data passed in the callbacks.
+ */
+int PSPX86IceMsrRwHandlerSet(PSPX86ICE hX86Ice, PFNPSPX86ICEMSRREAD pfnMsrRead, PFNPSPX86ICEMSRWRITE pfnMsrWrite, void *pvUser);
 
 #endif /* !INCLUDED_psp_x86_ice_h */
