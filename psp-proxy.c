@@ -1793,6 +1793,91 @@ static int pspProxyX86IceMemWrite(PSPX86ICE hX86Ice, X86PADDR PhysX86Addr, PSPX8
 
 
 /**
+ * @copydoc{FNPSPX86ICEMEMREAD, X86 ICE bridge MSR read callback.}
+ */
+static int pspProxyX86IceMsrRead(PSPX86ICE hX86Ice, uint32_t idMsr, uint32_t idKey, uint64_t *pu64Val, void *pvUser)
+{
+    PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
+    PPSPPROXYINT pThis = pX86IceRec->pThis;
+    int rc = STS_INF_SUCCESS;
+
+    if (pThis->pCfg->pszX86StubFilename)
+    {
+        pspProxyLock(pThis);
+
+        if (!pThis->fX86StubRunning)
+            rc = pspProxyX86IceStubLoad(pThis);
+
+        if (STS_SUCCESS(rc))
+        {
+            X86STUBMBX Mbx = { 0 };
+            Mbx.enmReq      = X86STUBMBXREQ_MSR_READ;
+            Mbx.u.Msr.idMsr = idMsr;
+            Mbx.u.Msr.idKey = idKey;
+
+            rc = pspProxyX86IceStubMbxProcess(pThis, &Mbx);
+            if (STS_SUCCESS(rc))
+                *pu64Val = Mbx.u.Msr.u64Val;
+        }
+        pspProxyUnlock(pThis);
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_X86_ICE_MSR,
+                                "pspProxyX86IceMsrRead() x86 stub not available, MSR reading not possible!\n");
+
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_X86_ICE_MSR,
+                                "pspProxyX86IceMsrRead() failed with %d", rc);
+
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86_ICE_MSR,
+                            "MSR READ %#x -> %#llx\n", idMsr, *pu64Val);
+    return rc;
+}
+
+
+/**
+ * @copydoc{FNPSPX86ICEMSRWRITE, X86 ICE bridge MSR write callback.}
+ */
+static int pspProxyX86IceMsrWrite(PSPX86ICE hX86Ice, uint32_t idMsr, uint32_t idKey, uint64_t u64Val, void *pvUser)
+{
+    PPSPPROXYX86ICE pX86IceRec = (PPSPPROXYX86ICE)pvUser;
+    PPSPPROXYINT pThis = pX86IceRec->pThis;
+    int rc = STS_INF_SUCCESS;
+
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_INFO, PSPTRACEEVTORIGIN_X86_ICE_MSR,
+                            "MSR WRITE %#x -> %#llx\n", idMsr, u64Val);
+
+    if (pThis->pCfg->pszX86StubFilename)
+    {
+        pspProxyLock(pThis);
+
+        if (!pThis->fX86StubRunning)
+            rc = pspProxyX86IceStubLoad(pThis);
+
+        if (STS_SUCCESS(rc))
+        {
+            X86STUBMBX Mbx = { 0 };
+            Mbx.enmReq       = X86STUBMBXREQ_MSR_WRITE;
+            Mbx.u.Msr.idMsr  = idMsr;
+            Mbx.u.Msr.idKey  = idKey;
+            Mbx.u.Msr.u64Val = u64Val;
+
+            rc = pspProxyX86IceStubMbxProcess(pThis, &Mbx);
+        }
+        pspProxyUnlock(pThis);
+    }
+    else
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_X86_ICE_MSR,
+                                "pspProxyX86IceMsrWrite() x86 stub not available, MSR writing not possible!\n");
+
+    if (STS_FAILURE(rc))
+        PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_FATAL_ERROR, PSPTRACEEVTORIGIN_X86_ICE_MSR,
+                                "pspProxyX86IceMsrWrite() failed with %d", rc);
+    return rc;
+}
+
+
+/**
  * Registers configured write through regions with the given I/O manager.
  *
  * @returns Status code.
@@ -2628,6 +2713,8 @@ int PSPProxyX86IceRegister(PSPPROXY hProxy, PSPX86ICE hX86Ice)
         rc = PSPX86IceIoPortRwHandlerSet(hX86Ice, pspProxyX86IceIoPortRead, pspProxyX86IceIoPortWrite, pX86IceRec);
         if (STS_SUCCESS(rc))
             rc = PSPX86IceMemRwHandlerSet(hX86Ice, pspProxyX86IceMemRead, pspProxyX86IceMemWrite, pX86IceRec);
+        if (STS_SUCCESS(rc))
+            rc = PSPX86IceMsrRwHandlerSet(hX86Ice, pspProxyX86IceMsrRead, pspProxyX86IceMsrWrite, pX86IceRec);
         if (STS_SUCCESS(rc))
         {
             pspProxyLock(pThis);
