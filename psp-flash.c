@@ -150,15 +150,16 @@ static bool pspFlashFsFetVerify(PPSPFFSINT pThis, PCPSPFFSFET pFet)
         || !pspFlashAddrToPtr(pThis, pFet->FfsAddrUsb3Rom, NULL /*pcbValid*/))
         return false;
 
-    /* Check that the first PSP directory points to what looks like a PSP direcotry. */
+    /* Check that the PSP directory pointer points to what looks like a PSP direcotry. */
     size_t cbDirMax;
-    PCPSPFFSDIRHDR pDir = (PCPSPFFSDIRHDR)pspFlashAddrToPtr(pThis, pFet->FfsAddrPspDir, &cbDirMax);
+    PCPSPFFSDIRHDR pDir = (PCPSPFFSDIRHDR)pspFlashAddrToPtr(pThis, pFet->FfsAddrPspOrComboDir, &cbDirMax);
     if (   !pDir
         || cbDirMax < sizeof(PCPSPFFSDIRHDR))
         return false;
 
     /* Check directory magic. */
-    if (pDir->u32Magic != PSP_FFS_PSP_DIR_HDR_MAGIC)
+    if (   pDir->u32Magic != PSP_FFS_PSP_DIR_HDR_MAGIC
+        && pDir->u32Magic != PSP_FFS_PSP_DIR_HDR_MAGIC_COMBO)
         return false;
 
     /** @todo Check remaining directory pointers. */
