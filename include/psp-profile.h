@@ -254,5 +254,13 @@ PCPSPPROFILE PSPProfilePspGetById(const char *pszId);
  */
 PCPSPAMDCPUPROFILE PSPProfileAmdCpuGetById(const char *pszId);
 
+
+/**
+ * Gets the default AMD CPU profile.
+ *
+ * @returns Pointer to the AMD CPU profile if found, NULL if not found.
+ */
+PCPSPAMDCPUPROFILE PSPProfileAmdCpuGetDefault(void);
+
 #endif /* !INCLUDED_psp_profile_h */
 

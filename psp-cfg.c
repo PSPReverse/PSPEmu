@@ -909,7 +909,7 @@ void PSPCfgInit(PPSPEMUCFG pCfg)
     pCfg->pszPspProxyAddr       = NULL;
     pCfg->PspAddrProxyTrustedOsHandover = 0;
     pCfg->pszTraceLog           = NULL;
-    pCfg->pCpuProfile           = NULL;
+    pCfg->pCpuProfile           = PSPProfileAmdCpuGetDefault();
     pCfg->pPspProfile           = NULL;
     pCfg->enmAcpiState          = PSPEMUACPISTATE_S5;
     pCfg->pszUartRemoteAddr     = NULL;
@@ -1194,6 +1194,9 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
                 return -1;
         }
     }
+
+    if (!pCfg->pPspProfile) /* Can be overwritten with a dedicated PSP profile argument. */
+        pCfg->pPspProfile = pCfg->pCpuProfile->pPspProfile;
 
     int rc = pspCfgVerify(pCfg);
     if (   STS_SUCCESS(rc)

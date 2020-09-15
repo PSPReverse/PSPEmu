@@ -43,6 +43,7 @@
 
 
 /* CPU profiles get included here.*/
+#include "profiles/amd-cpu-zen-synthetic.h"
 #include "profiles/amd-cpu-ryzen7-1800x.h"
 
 
@@ -66,6 +67,7 @@ static PCPSPPROFILE g_aPspProfiles[] =
  */
 static PCPSPAMDCPUPROFILE g_aCpuProfiles[] =
 {
+    &g_AmdCpu_Zen_Synthetic,
     &g_AmdCpu_Ryzen7_1800X
 };
 
@@ -95,5 +97,11 @@ PCPSPAMDCPUPROFILE PSPProfileAmdCpuGetById(const char *pszId)
     }
 
     return NULL;
+}
+
+
+PCPSPAMDCPUPROFILE PSPProfileAmdCpuGetDefault(void)
+{
+    return &g_AmdCpu_Zen_Synthetic;
 }
 
