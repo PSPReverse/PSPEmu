@@ -27,6 +27,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
@@ -223,6 +224,21 @@ int OSTcpConnectionPoll(OSTCPCON hTcpCon, uint32_t fEvt, uint32_t *pfEvtsRecv, u
     else
         rc = STS_ERR_INVALID_PARAMETER;
 
+    return rc;
+}
+
+
+int OSTcpConnectionPeek(OSTCPCON hTcpCon, size_t *pcbRead)
+{
+    POSTCPCONINT pThis = hTcpCon;
+
+    int cbAvail = 0;
+    int rc = STS_INF_SUCCESS;
+    int rcPsx = ioctl(hTcpCon->iFdSock, FIONREAD, &cbAvail);
+    if (rcPsx)
+        rc = STS_ERR_NOT_FOUND; /** @todo Better status code. */
+
+    *pcbRead = cbAvail;
     return rc;
 }
 

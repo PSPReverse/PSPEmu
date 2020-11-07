@@ -114,6 +114,16 @@ int OSTcpConnectionPoll(OSTCPCON hTcpCon, uint32_t fEvt, uint32_t *pfEvtsRecv, u
 
 
 /**
+ * Peeks for the amount of data available for immediate reading.
+ *
+ * @returns Status code.
+ * @param   hTcpCon                 The TCP connection.
+ * @param   pcbRead                 Where to store the amount of bytes available for reading.
+ */
+int OSTcpConnectionPeek(OSTCPCON hTcpCon, size_t *pcbRead);
+
+
+/**
  * Creates a TCP server instance listening on the given port.
  *
  * @returns Status code.
