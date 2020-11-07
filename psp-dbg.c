@@ -17,25 +17,17 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-
-#include <poll.h>
-#include <sys/ioctl.h>
 
 #include <libgdbstub.h>
 
 #include <common/types.h>
 #include <common/cdefs.h>
 #include <common/status.h>
+
+#include <os/tcp.h>
 
 #include <psp-dbg.h>
 #include <psp-cov.h>
@@ -109,10 +101,10 @@ typedef struct PSPDBGINT
     GDBSTUBCTX              hGdbStubCtx;
     /** Debug helper module handle. */
     PSPDBGHLP               hDbgHlp;
-    /** The listening socket. */
-    int                     iFdListening;
+    /** The TCP server instance. */
+    OSTCPSRV                hTcpSrv;
     /** The socket for the current GDB connection. */
-    int                     iFdGdbCon;
+    OSTCPCON                hTcpCon;
     /** Flag whether the core is currently running. */
     bool                    fCoreRunning;
     /** Flag whether we are currently singel stepping (to avoid triggering breakpoints). */
@@ -1591,9 +1583,9 @@ static size_t pspDbgStubIoIfPeek(GDBSTUBCTX hGdbStubCtx, void *pvUser)
     (void)hGdbStubCtx;
 
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
-    int cbAvail = 0;
-    int rc = ioctl(pThis->iFdGdbCon, FIONREAD, &cbAvail);
-    if (rc)
+    size_t cbAvail = 0;
+    int rc = OSTcpConnectionPeek(pThis->hTcpCon, &cbAvail);
+    if (STS_FAILURE(rc))
         return 0;
 
     return cbAvail;
@@ -1605,20 +1597,18 @@ static int pspDbgStubIoIfRead(GDBSTUBCTX hGdbStubCtx, void *pvUser, void *pvDst,
     (void)hGdbStubCtx;
 
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
-    ssize_t cbRet = recv(pThis->iFdGdbCon, pvDst, cbRead, MSG_DONTWAIT);
-    if (cbRet > 0)
-    {
-        *pcbRead = cbRead;
-        return GDBSTUB_INF_SUCCESS;
-    }
-
-    if (!cbRet)
+    size_t cbThisRead = 0;
+    int rc = OSTcpConnectionRead(pThis->hTcpCon, pvDst, cbRead, &cbThisRead);
+    if (rc == STS_ERR_NOT_FOUND /** @todo */)
         return GDBSTUB_ERR_PEER_DISCONNECTED;
+    if (STS_FAILURE(rc))
+        return GDBSTUB_ERR_INTERNAL_ERROR;
 
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
+    if (!cbThisRead)
         return GDBSTUB_INF_TRY_AGAIN;
 
-    return GDBSTUB_ERR_INTERNAL_ERROR; /** @todo Better status codes for the individual errors. */
+    *pcbRead = cbThisRead;
+    return GDBSTUB_INF_SUCCESS;
 }
 
 
@@ -1627,11 +1617,7 @@ static int pspDbgStubIoIfWrite(GDBSTUBCTX hGdbStubCtx, void *pvUser, const void 
     (void)hGdbStubCtx;
 
     PPSPDBGINT pThis = (PPSPDBGINT)pvUser;
-    ssize_t cbRet = send(pThis->iFdGdbCon, pvPkt, cbPkt, 0);
-    if (cbRet == cbPkt)
-        return GDBSTUB_INF_SUCCESS;
-
-    return GDBSTUB_ERR_INTERNAL_ERROR; /** @todo Better status codes for the individual errors. */
+    return OSTcpConnectionWrite(pThis->hTcpCon, pvPkt, cbPkt, NULL /*pcbWritten*/);
 }
 
 
@@ -1659,19 +1645,16 @@ const GDBSTUBIOIF g_PspDbgGdbStubIoIf =
  */
 static int pspEmuDbgWaitForGdbConnection(PPSPDBGINT pThis)
 {
-    int rc = 0;
-    int rcPsx = listen(pThis->iFdListening, 1);
-    if (!rcPsx)
+    OSTCPCON hTcpCon;
+    int rc = OSTcpServerConnectionWaitFor(pThis->hTcpSrv, &hTcpCon, UINT32_MAX /*cMsWait*/);
+    if (STS_SUCCESS(rc))
     {
-        pThis->iFdGdbCon = accept(pThis->iFdListening, (struct sockaddr *)NULL, NULL);
-        if (pThis->iFdGdbCon == -1)
-        {
-            pThis->iFdGdbCon = 0;
-            rc = -1;
-        }
+        /* Disable Nagle. */
+        rc = OSTcpConnectionSendCoalescingSet(hTcpCon, false);
+        if (STS_FAILURE(rc))
+            rc = STS_INF_SUCCESS; /** @todo Log error */
+        pThis->hTcpCon = hTcpCon;
     }
-    else
-        rc = -1;
 
     return rc;
 }
@@ -1686,34 +1669,27 @@ static int pspEmuDbgWaitForGdbConnection(PPSPDBGINT pThis)
 static int pspEmuDbgRunloopCoreNotRunning(PPSPDBGINT pThis)
 {
     /* Poll for data and feed it to the GDB stub, which will execute requests. */
-    int rc = 0;
-    struct pollfd PollFd;
-
-    PollFd.fd      = pThis->iFdGdbCon;
-    PollFd.events  = POLLIN | POLLHUP | POLLERR;
+    int rc = STS_INF_SUCCESS;
 
     /* Run the GDB stub runloop once to sync on the target state. */
     int rcGdbStub = GDBStubCtxRun(pThis->hGdbStubCtx);
     if (   rcGdbStub != GDBSTUB_INF_SUCCESS
         && rcGdbStub != GDBSTUB_INF_TRY_AGAIN)
-        rc = -1;
+        rc = STS_ERR_GENERAL_ERROR;
 
     while (   !pThis->fCoreRunning
-           && !rc)
+           && !STS_SUCCESS(rc))
     {
-        PollFd.revents = 0;
-
-        int rcPsx = poll(&PollFd, 1, INT32_MAX);
-        if (rcPsx == 1)
+        uint32_t fEvtsRecv = 0;
+        rc = OSTcpConnectionPoll(pThis->hTcpCon, OSTCP_POLL_F_READ | OSTCP_POLL_F_ERROR, &fEvtsRecv, UINT32_MAX /*cMsWait*/);
+        if (STS_SUCCESS(rc))
         {
             /* Run the GDB stub runloop until it returns. */
             rcGdbStub = GDBStubCtxRun(pThis->hGdbStubCtx);
             if (   rcGdbStub != GDBSTUB_INF_SUCCESS
                 && rcGdbStub != GDBSTUB_INF_TRY_AGAIN)
-                rc = -1;
+                rc = STS_ERR_GENERAL_ERROR;
         }
-        if (rcPsx == -1)
-            rc = -1;
     }
 
     return rc;
@@ -1729,12 +1705,7 @@ static int pspEmuDbgRunloopCoreNotRunning(PPSPDBGINT pThis)
 static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
 {
     /* Poll for data and feed it to the GDB stub, which will execute requests. */
-    int rc = 0;
-    struct pollfd PollFd;
-
-    PollFd.fd      = pThis->iFdGdbCon;
-    PollFd.events  = POLLIN | POLLHUP | POLLERR;
-    PollFd.revents = 0;
+    int rc = STS_INF_SUCCESS;
 
     while (   pThis->fCoreRunning
            && STS_SUCCESS(rc))
@@ -1752,8 +1723,9 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
         rc = PSPEmuCoreExecRun(hPspCore, pThis->fCoreExecRun, pThis->cInsnsStep != 0 ? pThis->cInsnsStep : 1, PSPEMU_CORE_EXEC_INDEFINITE);
         if (STS_SUCCESS(rc) || rc == STS_INF_PSP_EMU_CORE_INSN_WFI_REACHED)
         {
-            int rcPsx = poll(&PollFd, 1, 0);
-            if (rcPsx == 1)
+            uint32_t fEvtsRecv = 0;
+            rc = OSTcpConnectionPoll(pThis->hTcpCon, OSTCP_POLL_F_READ | OSTCP_POLL_F_ERROR, &fEvtsRecv, 0 /*cMsWait*/);
+            if (STS_SUCCESS(rc))
             {
                 /* Run the GDB stub runloop until it returns. */
                 int rcGdbStub = GDBStubCtxRun(pThis->hGdbStubCtx);
@@ -1761,8 +1733,6 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
                     && rcGdbStub != GDBSTUB_INF_TRY_AGAIN)
                     rc = -1;
             }
-            if (rcPsx == -1)
-                rc = STS_ERR_GENERAL_ERROR;
         }
         else
             PSPEmuCoreStateDump(hPspCore, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
@@ -1780,7 +1750,8 @@ int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR 
     if (pThis)
     {
         pThis->hDbgHlp          = hDbgHlp;
-        pThis->iFdGdbCon        = 0;
+        pThis->hTcpSrv          = NULL;
+        pThis->hTcpCon          = NULL;
         pThis->fCoreRunning     = false;
         pThis->fCoreExecRun     = PSPEMU_CORE_EXEC_F_DEFAULT;
         pThis->pTpsHead         = NULL;
@@ -1796,31 +1767,14 @@ int PSPEmuDbgCreate(PPSPDBG phDbg, uint16_t uPort, uint32_t cInsnsStep, PSPADDR 
         int rcGdbStub = GDBStubCtxCreate(&pThis->hGdbStubCtx, &g_PspDbgGdbStubIoIf, &g_PspDbgGdbStubIf, pThis);
         if (rcGdbStub == GDBSTUB_INF_SUCCESS)
         {
-            struct sockaddr_in SockAddr;
-
-            pThis->iFdListening = socket(AF_INET, SOCK_STREAM, 0);
-            if (pThis->iFdListening > -1)
+            rc = OSTcpServerCreate(&pThis->hTcpSrv, uPort);
+            if (STS_SUCCESS(rc))
             {
-                memset(&SockAddr, 0, sizeof(SockAddr));
-
-                SockAddr.sin_family      = AF_INET;
-                SockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-                SockAddr.sin_port        = htons(uPort);
-                int rcPsx = bind(pThis->iFdListening, (struct sockaddr *)&SockAddr, sizeof(SockAddr));
-                if (!rcPsx)
-                {
-                    if (hDbgHlp)
-                        PSPEmuDbgHlpRetain(hDbgHlp);
-                    *phDbg = pThis;
-                    return 0;
-                }
-                else
-                    rc = -1;
-
-                close(pThis->iFdListening);
+                if (hDbgHlp)
+                    PSPEmuDbgHlpRetain(hDbgHlp);
+                *phDbg = pThis;
+                return STS_INF_SUCCESS;
             }
-            else
-                rc = -1;
 
             GDBStubCtxDestroy(pThis->hGdbStubCtx);
         }
@@ -1842,12 +1796,12 @@ int PSPEmuDbgDestroy(PSPDBG hDbg)
 
     if (pThis->hDbgHlp)
         PSPEmuDbgHlpRelease(pThis->hDbgHlp);
-    if (pThis->iFdGdbCon != 0)
-        close(pThis->iFdGdbCon);
-    close(pThis->iFdListening);
+    if (pThis->hTcpCon)
+        OSTcpConnectionClose(pThis->hTcpCon, true /*fShutdown*/);
+    OSTcpServerDestroy(pThis->hTcpSrv);
     GDBStubCtxDestroy(pThis->hGdbStubCtx);
     free(pThis);
-    return 0;
+    return STS_INF_SUCCESS;
 }
 
 
@@ -1876,7 +1830,7 @@ int PSPEmuDbgRunloop(PSPDBG hDbg)
     {
         /* Wait until we get a connection. */
         while (   !rc
-               && pThis->iFdGdbCon == 0)
+               && !pThis->hTcpCon)
             rc = pspEmuDbgWaitForGdbConnection(pThis);
 
         if (!pThis->fCoreRunning)
