@@ -82,7 +82,7 @@ int PSPBrspGenerate(PPSPROMSVCPG pBrsp, PCPSPEMUCFG pCfg, uint32_t idCcd, uint32
             pBrsp->Fields.u32BootMode = 2;
 
         PSPFFS hFfs = NULL;
-        rc = PSPFlashFsCreate(&hFfs, pCfg->pPspProfile->enmMicroArch, pCfg->pvFlashRom, pCfg->cbFlashRom);
+        rc = PSPFlashFsCreate(&hFfs, pCfg->pPspProfile->u32PspOnChipBlVersion, pCfg->pvFlashRom, pCfg->cbFlashRom);
         if (STS_SUCCESS(rc))
         {
             /* Load the merged PSP directory into the BRSP. */

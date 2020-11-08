@@ -98,7 +98,7 @@ static int pspFlashFsInit(PPSPFFSINT pThis, const void *pvFlash, size_t cbFlash)
             pThis->FfsAddrMask = 0xffffff;
             break;
         case 32 * _1M:
-            pThis->FfsAddrMask = 0x1ffffff;
+            pThis->FfsAddrMask = 0xffffff;
             break;
         default:
             rc = STS_ERR_BUFFER_OVERFLOW; /** @todo Designated status code. */
@@ -305,10 +305,10 @@ static bool pspFlashFsPspDirComboVerify(PPSPFFSINT pThis, PCPSPFFSDIRHDR pDirHdr
  * @param   pThis                   The flash filesystem instance.
  * @param   pComboDirHdr            The combo directory header.
  * @param   cbDirMax                Maximum size of the combo directory in bytes.
- * @param   enmMicroArch            The micro architecture to load the directories for.
+ * @param   idPsp                   The PSP identification value to load the directories for.
  */
 static int pspFlashFsPspDirComboLoad(PPSPFFSINT pThis, PCPSPFFSDIRHDR pComboDirHdr, size_t cbDirMax,
-                                     PSPEMUMICROARCH enmMicroArch)
+                                     uint32_t idPsp)
 {
     int rc = STS_INF_SUCCESS;
 
@@ -316,19 +316,30 @@ static int pspFlashFsPspDirComboLoad(PPSPFFSINT pThis, PCPSPFFSDIRHDR pComboDirH
     {
         PCPSPFFSCOMBODIR pComboDir = (PCPSPFFSCOMBODIR)pComboDirHdr;
 
-        /** @todo Selection strategy based on micro architecture. */
-        PSPFFSADDR FfsAddrPspDir = pComboDir->aEntries[0].FfsAddrPspDir;
-
-        PCPSPFFSDIR pDirL1 = (PCPSPFFSDIR)pspFlashAddrToPtr(pThis, FfsAddrPspDir, &cbDirMax);
-        if (pDirL1->Hdr.u32Magic == PSP_FFS_PSP_DIR_HDR_MAGIC)
+        /* Check for the entry matching the given identification value. */
+        rc = STS_ERR_NOT_FOUND;
+        for (uint32_t i = 0; i < pComboDir->Hdr.cEntries; i++)
         {
-            if (pspFlashFsPspDirVerify(pThis, pDirL1, cbDirMax, false /*fL2*/))
-                pThis->pPspDirL1 = pDirL1;
-            else
-                rc = STS_ERR_BUFFER_OVERFLOW; /** @todo Designated status code. */
+            if ((pComboDir->aEntries[i].idPsp & 0xffffff00) == (idPsp & 0xffffff00))
+            {
+                PSPFFSADDR FfsAddrPspDir = pComboDir->aEntries[0].FfsAddrPspDir;
+
+                PCPSPFFSDIR pDirL1 = (PCPSPFFSDIR)pspFlashAddrToPtr(pThis, FfsAddrPspDir, &cbDirMax);
+                if (pDirL1->Hdr.u32Magic == PSP_FFS_PSP_DIR_HDR_MAGIC)
+                {
+                    if (pspFlashFsPspDirVerify(pThis, pDirL1, cbDirMax, false /*fL2*/))
+                    {
+                        pThis->pPspDirL1 = pDirL1;
+                        rc = STS_INF_SUCCESS;
+                    }
+                    else
+                        rc = STS_ERR_BUFFER_OVERFLOW; /** @todo Designated status code. */
+                }
+                else
+                    rc = STS_ERR_NOT_FOUND;
+                break;
+            }
         }
-        else
-            rc = STS_ERR_NOT_FOUND;
     }
     else
         rc = STS_ERR_BUFFER_OVERFLOW;
@@ -342,9 +353,9 @@ static int pspFlashFsPspDirComboLoad(PPSPFFSINT pThis, PCPSPFFSDIRHDR pComboDirH
  *
  * @returns Status code.
  * @param   pThis                   The flash filesystem instance.
- * @param   enmMicroArch            The micro architecture to load the directories for.
+ * @param   idPsp                   The PSP identification value to load the directories for.
  */
-static int pspFlashFsPspDirLoad(PPSPFFSINT pThis, PSPEMUMICROARCH enmMicroArch)
+static int pspFlashFsPspDirLoad(PPSPFFSINT pThis, uint32_t idPsp)
 {
     /* This requires a valid FET. */
     if (!pThis->pFet)
@@ -362,7 +373,7 @@ static int pspFlashFsPspDirLoad(PPSPFFSINT pThis, PSPEMUMICROARCH enmMicroArch)
             rc = STS_ERR_BUFFER_OVERFLOW; /** @todo Designated status code. */
     }
     else if (pDirL1->Hdr.u32Magic == PSP_FFS_PSP_DIR_HDR_MAGIC_COMBO)
-        rc = pspFlashFsPspDirComboLoad(pThis, &pDirL1->Hdr, cbDirMax, enmMicroArch);
+        rc = pspFlashFsPspDirComboLoad(pThis, &pDirL1->Hdr, cbDirMax, idPsp);
     else
         rc = STS_ERR_NOT_FOUND;
 
@@ -441,7 +452,7 @@ static int pspFlashFsQueryEntry(PPSPFFSINT pThis, PSPFFSDIRENTRYTYPE enmEntry, c
 }
 
 
-int PSPFlashFsCreate(PPSPFFS phFfs, PSPEMUMICROARCH enmMicroArch, const void *pvFlash, size_t cbFlash)
+int PSPFlashFsCreate(PPSPFFS phFfs, uint32_t idPsp, const void *pvFlash, size_t cbFlash)
 {
     int rc = STS_INF_SUCCESS;
     PPSPFFSINT pThis = calloc(1, sizeof(*pThis));
@@ -453,7 +464,7 @@ int PSPFlashFsCreate(PPSPFFS phFfs, PSPEMUMICROARCH enmMicroArch, const void *pv
             rc = pspFlashFsFetFind(pThis);
             if (STS_SUCCESS(rc))
             {
-                rc = pspFlashFsPspDirLoad(pThis, enmMicroArch);
+                rc = pspFlashFsPspDirLoad(pThis, idPsp);
                 if (STS_SUCCESS(rc))
                 {
                     *phFfs = pThis;

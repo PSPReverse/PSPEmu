@@ -36,6 +36,8 @@ typedef enum PSPEMUMICROARCH
     PSPEMUMICROARCH_ZEN_PLUS,
     /* Zen2 */
     PSPEMUMICROARCH_ZEN2,
+    /* Zen3 */
+    PSPEMUMICROARCH_ZEN3,
     /** 32bit hack. */
     PSPEMUMICROARCH_32BIT_HACK = 0x7fffffff
 } PSPEMUMICROARCH;
@@ -173,10 +175,15 @@ typedef struct PSPPROFILE
     const char                      *pszDesc;
     /** The micro architecture we are emulating. */
     PSPEMUMICROARCH                 enmMicroArch;
+    /** The PSP version(?) value the on chip bootloader is writing into PSPPROFILE::PspAddrMmioVersion,
+     * used to load the proper directories from the flash image when starting with the off chip bootloader. */
+    uint32_t                        u32PspOnChipBlVersion;
     /** SRAM size in bytes. */
     size_t                          cbSram;
     /** Physical address of the BRSP in SRAM. */
     PSPPADDR                        PspAddrBrsp;
+    /** Location of the PSP Version(?) register written to by the on chip BL (and read by it and maybe others). */
+    PSPPADDR                        PspAddrMmioVersion;
     /** Location of the status port. */
     PSPPADDR                        PspAddrMmioSts;
     /** Location where the flash starts in SMN. */

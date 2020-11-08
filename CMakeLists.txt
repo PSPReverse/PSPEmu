@@ -46,6 +46,7 @@ add_executable(PSPEmu
                       psp-dev-iomux.c
                       psp-dev-rtc.c
                       psp-dev-lpc.c
+                      psp-dev-version.c
                       psp-dev-x86-uart.c
                       psp-dev-x86-mem.c
                       psp-dev-mmio-unknown.c

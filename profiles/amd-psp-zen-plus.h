@@ -32,10 +32,14 @@ static const PSPPROFILE g_PspProfileZenPlus =
     "PSP profile for a standard Zen+ based CPU",
     /** enmMicroArch */
     PSPEMUMICROARCH_ZEN_PLUS,
+    /** u32PspOnChipBlVersion */
+    0xbc090072,
     /** cbSram. */
     _256K,
     /** PspAddrBrsp */
     0x3f000,
+    /** PspAddrMmioVersion */
+    0x0320004c,
     /** PspAddrMmioSts */
     0x032000f0,
     /** SmnAddrFlashStart */

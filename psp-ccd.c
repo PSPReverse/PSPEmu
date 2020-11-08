@@ -216,6 +216,7 @@ static PCPSPDEVREG g_apDevs[] =
     &g_DevRegRtc,
     &g_DevRegLpc,
     &g_DevRegSmnUnk,
+    &g_DevRegMmioVersion,
     &g_DevRegX86Unk,
     &g_DevRegX86Uart,
     &g_DevRegX86Mem,
@@ -690,7 +691,7 @@ static int pspEmuCcdMemReset(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
             }
 
             PSPFFS hFfs = NULL;
-            rc = PSPFlashFsCreate(&hFfs, pCfg->pPspProfile->enmMicroArch, pCfg->pvFlashRom, pCfg->cbFlashRom);
+            rc = PSPFlashFsCreate(&hFfs, pCfg->pPspProfile->u32PspOnChipBlVersion, pCfg->pvFlashRom, pCfg->cbFlashRom);
             if (STS_SUCCESS(rc))
             {
                 /** @todo Signature checking, zlib decompression, etc. */
@@ -795,6 +796,13 @@ static int pspEmuCcdExecEnvInit(PPSPCCDINT pThis, PCPSPEMUCFG pCfg)
         case PSPEMUMODE_SYSTEM:
         {
             PspAddrStartExec = 0x100;
+            /*
+             * Sets the version register value to the selected profile (the on chip bootloader is
+             * doing that normally).
+             */
+            rc = PSPEmuIoMgrPspAddrWrite(pThis->hIoMgr, pCfg->pPspProfile->PspAddrMmioVersion,
+                                         &pCfg->pPspProfile->u32PspOnChipBlVersion,
+                                         sizeof(pCfg->pPspProfile->u32PspOnChipBlVersion));
             break;
         }
         case PSPEMUMODE_TRUSTED_OS:

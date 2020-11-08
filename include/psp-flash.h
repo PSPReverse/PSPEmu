@@ -38,11 +38,11 @@ typedef PSPFFS *PPSPFFS;
  *
  * @returns Status code.
  * @param   phFfs                   Where to store the handle to the filesystem instance on success.
- * @param   enmMicroArch            The micro architecture the flash filesystem will be used with (to select the proper directories).
+ * @param   idPsp                   The PSP identification value to load the correct directories from any combo directory.
  * @param   pvFlash                 The start of the flash region.
  * @param   cbFlash                 Size of the flash region.
  */
-int PSPFlashFsCreate(PPSPFFS phFfs, PSPEMUMICROARCH enmMicroArch, const void *pvFlash, size_t cbFlash);
+int PSPFlashFsCreate(PPSPFFS phFfs, uint32_t idPsp, const void *pvFlash, size_t cbFlash);
 
 
 /**
