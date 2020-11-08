@@ -33,7 +33,7 @@ static const PSPPROFILE g_PspProfileZen2 =
     /** enmMicroArch */
     PSPEMUMICROARCH_ZEN2,
     /** u32PspOnChipBlVersion */
-    0xbc090072,
+    0xbc0b0552,
     /** cbSram. */
     320 * _1K,
     /** PspAddrBrsp */
