@@ -40,11 +40,13 @@
 #include "profiles/amd-psp-zen.h"
 #include "profiles/amd-psp-zen-plus.h"
 #include "profiles/amd-psp-zen-2.h"
+#include "profiles/amd-psp-zen-3.h"
 
 
 /* CPU profiles get included here.*/
 #include "profiles/amd-cpu-zen-synthetic.h"
 #include "profiles/amd-cpu-ryzen7-1800x.h"
+#include "profiles/amd-cpu-ryzen5-5600x.h"
 
 
 /*********************************************************************************************************************************
@@ -58,7 +60,8 @@ static PCPSPPROFILE g_aPspProfiles[] =
 {
     &g_PspProfileZen,
     &g_PspProfileZenPlus,
-    &g_PspProfileZen2
+    &g_PspProfileZen2,
+    &g_PspProfileZen3
 };
 
 
@@ -68,7 +71,8 @@ static PCPSPPROFILE g_aPspProfiles[] =
 static PCPSPAMDCPUPROFILE g_aCpuProfiles[] =
 {
     &g_AmdCpu_Zen_Synthetic,
-    &g_AmdCpu_Ryzen7_1800X
+    &g_AmdCpu_Ryzen7_1800X,
+    &g_AmdCpu_Ryzen5_5600X
 };
 
 
