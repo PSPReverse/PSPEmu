@@ -252,20 +252,26 @@ int OSTcpServerCreate(POSTCPSRV phTcpSrv, uint16_t uPort)
         pThis->iFdSrv = socket(AF_INET, SOCK_STREAM, 0);
         if (pThis->iFdSrv > -1)
         {
-            struct sockaddr_in SockAddr;
+            int one = 1;
+            int rcPsx = setsockopt(pThis->iFdSrv, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+            if (!rcPsx) {
+                struct sockaddr_in SockAddr;
 
-            memset(&SockAddr, 0, sizeof(SockAddr));
-            SockAddr.sin_family      = AF_INET;
-            SockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-            SockAddr.sin_port        = htons(uPort);
-            int rcPsx = bind(pThis->iFdSrv, (struct sockaddr *)&SockAddr, sizeof(SockAddr));
-            if (!rcPsx)
-            {
-                rcPsx = listen(pThis->iFdSrv, 1);
+                memset(&SockAddr, 0, sizeof(SockAddr));
+                SockAddr.sin_family      = AF_INET;
+                SockAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+                SockAddr.sin_port        = htons(uPort);
+                rcPsx = bind(pThis->iFdSrv, (struct sockaddr *)&SockAddr, sizeof(SockAddr));
                 if (!rcPsx)
                 {
-                    *phTcpSrv = pThis;
-                    return STS_INF_SUCCESS;
+                    rcPsx = listen(pThis->iFdSrv, 1);
+                    if (!rcPsx)
+                    {
+                        *phTcpSrv = pThis;
+                        return STS_INF_SUCCESS;
+                    }
+                    else
+                        rc = STS_ERR_INVALID_PARAMETER; /** @todo Status code. */
                 }
                 else
                     rc = STS_ERR_INVALID_PARAMETER; /** @todo Status code. */
