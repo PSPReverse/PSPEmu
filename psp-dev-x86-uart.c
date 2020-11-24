@@ -313,7 +313,7 @@ static int pspDevX86UartInit(PPSPDEV pDev)
                 }
             }
             else
-                printf("UART: Creating server on port %u failed with %d\n", pDev->pCfg->pszUartRemoteAddr, rc);
+                printf("UART: Creating server on port %s failed with %d\n", pDev->pCfg->pszUartRemoteAddr, rc);
         }
     }
 
