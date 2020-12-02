@@ -1733,6 +1733,8 @@ static int pspEmuDbgRunloopCoreRunning(PPSPDBGINT pThis)
                     && rcGdbStub != GDBSTUB_INF_TRY_AGAIN)
                     rc = -1;
             }
+            else if (rc == STS_ERR_NOT_FOUND) /** @todo Indicates timeout. */
+                rc = STS_INF_SUCCESS;
         }
         else
             PSPEmuCoreStateDump(hPspCore, PSPEMU_CORE_STATE_DUMP_F_DEFAULT, 0 /*cInsns*/);
