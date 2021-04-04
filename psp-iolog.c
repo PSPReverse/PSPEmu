@@ -185,7 +185,7 @@ static int pspEmuIoLogWrEvtAdd(PPSPIOLOGWRINT pThis, PCPSPIOLOGEVT pEvt, const v
     size_t cbWritten = fwrite(pEvt, sizeof(*pEvt), 1, pThis->pFile);
     if (cbWritten == 1)
     {
-        cbWritten == fwrite(pvData, cbData, 1, pThis->pFile);
+        cbWritten = fwrite(pvData, cbData, 1, pThis->pFile);
         if (cbWritten != 1)
             rc = STS_ERR_GENERAL_ERROR;
     }
