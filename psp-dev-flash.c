@@ -39,6 +39,10 @@ typedef struct PSPDEVFLASH
     PSPIOMREGIONHANDLE          hSmn;
     /** SMN region handle to the control interface living at 0x2dc4000. */
     PSPIOMREGIONHANDLE          hSmnCtrl;
+    /** SMN region handle to the bank control interface living at 0x2dc405c for Zen2+ systems. */
+    PSPIOMREGIONHANDLE          hSmnBankCtrl;
+    /** The currently selected flash bank (16MB chunks). */
+    uint32_t                    uBank;
     /** SPI flash trace file if configured. */
     FILE                        *pSpiFlashTrace;
     /** Start timestamp. */
@@ -52,13 +56,29 @@ typedef struct PSPDEVFLASH
 typedef PSPDEVFLASH *PPSPDEVFLASH;
 
 
+static uint32_t pspDevFlashGetBankedOffset(PPSPDEVFLASH pThis, SMNADDR offSmn)
+{
+    if (pThis->uBank * 16 * _1M < pThis->pDev->pCfg->cbFlashRom)
+        return offSmn + pThis->uBank * 16 * _1M;
+
+    return offSmn;
+}
+
+
+static void *pspDevFlashGetBankedStart(PPSPDEVFLASH pThis, SMNADDR offSmn)
+{
+
+    return (uint8_t *)pThis->pDev->pCfg->pvFlashRom + pspDevFlashGetBankedOffset(pThis, offSmn);
+}
+
 
 static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pvUser)
 {
     PPSPDEVFLASH pThis = (PPSPDEVFLASH)pvUser;
+    const uint8_t *pbFlash = (const uint8_t *)pspDevFlashGetBankedStart(pThis, offSmn);
 
-    if (offSmn + cbRead <= pThis->pDev->pCfg->cbFlashRom)
-        memcpy(pvDst, (uint8_t *)pThis->pDev->pCfg->pvFlashRom + offSmn, cbRead);
+    if (offSmn + cbRead <= 16 * _1M)
+        memcpy(pvDst, pbFlash, cbRead);
     else
         printf("%s: ATTEMPTED out of bounds read from offSmn=%#x cbRead=%zu -> IGNORED\n", __FUNCTION__, offSmn, cbRead);
 
@@ -66,6 +86,7 @@ static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pv
     if (pThis->pSpiFlashTrace)
     {
         /* Generate a new packet ID and read command if the last access isn't adjacent to this one. */
+        uint32_t offFlash = pspDevFlashGetBankedOffset(pThis, offSmn);
         uint64_t tsCmd = OSTimeTsGetNano() - pThis->tsStart;
         uint64_t tsCmdSec = tsCmd / (1000 * 1000 * 1000);
         uint64_t tsCmdNs = tsCmd % (1000 * 1000 * 1000);
@@ -73,22 +94,20 @@ static void pspDevFlashRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pv
         if (offSmn != pThis->offAccLast)
         {
             pThis->idPacket++;
-            int cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x03,0xFF\n",
+            int cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%llu,0x03,0xFF\n",
                                      tsCmdSec, tsCmdNs++, pThis->idPacket);
-            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x%02x,0xFF\n",
-                                     tsCmdSec, tsCmdNs++, pThis->idPacket, (offSmn >> 16) & 0xff);
-            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x%02x,0xFF\n",
-                                     tsCmdSec, tsCmdNs++, pThis->idPacket, (offSmn >> 8) & 0xff);
-            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x%02x,0xFF\n",
-                                     tsCmdSec, tsCmdNs++, pThis->idPacket, offSmn & 0xff);
+            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%llu,0x%02x,0xFF\n",
+                                     tsCmdSec, tsCmdNs++, pThis->idPacket, (offFlash >> 16) & 0xff);
+            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%llu,0x%02x,0xFF\n",
+                                     tsCmdSec, tsCmdNs++, pThis->idPacket, (offFlash >> 8) & 0xff);
+            cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%llu,0x%02x,0xFF\n",
+                                     tsCmdSec, tsCmdNs++, pThis->idPacket, offFlash & 0xff);
         }
 
         pThis->offAccLast = offSmn + cbRead;
-
-        uint8_t *pbFlash = (uint8_t *)pThis->pDev->pCfg->pvFlashRom + offSmn;
         while (cbRead)
         {
-            int cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%u,0x00,0x%02x\n",
+            int cchWritten = fprintf(pThis->pSpiFlashTrace, "%llu.%llu000000,%llu,0x00,0x%02x\n",
                                      tsCmdSec, tsCmdNs++, pThis->idPacket, *pbFlash);
             pbFlash++;
             cbRead--;
@@ -102,8 +121,8 @@ static void pspDevFlashWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, 
 {
     PPSPDEVFLASH pThis = (PPSPDEVFLASH)pvUser;
 
-    if (offSmn + cbWrite <= pThis->pDev->pCfg->cbFlashRom)
-        memcpy((uint8_t *)pThis->pDev->pCfg->pvFlashRom + offSmn, pvVal, cbWrite);
+    if (offSmn + cbWrite <= 16 * _1M)
+        memcpy(pspDevFlashGetBankedStart(pThis, offSmn), pvVal, cbWrite);
     else
         printf("%s: ATTEMPTED out of bounds write from offSmn=%#x cbWrite=%zu -> IGNORED\n", __FUNCTION__, offSmn, cbWrite);
 }
@@ -126,22 +145,44 @@ static void pspDevFlashSpiCtrlWrite(SMNADDR offSmn, size_t cbWrite, const void *
 }
 
 
+static void pspDevFlashSpiBankCtrlRead(SMNADDR offSmn, size_t cbRead, void *pvDst, void *pvUser)
+{
+    PPSPDEVFLASH pThis = (PPSPDEVFLASH)pvUser;
+
+    *(uint32_t *)pvDst = pThis->uBank;
+}
+
+
+static void pspDevFlashSpiBankCtrlWrite(SMNADDR offSmn, size_t cbWrite, const void *pvVal, void *pvUser)
+{
+    PPSPDEVFLASH pThis = (PPSPDEVFLASH)pvUser;
+
+    pThis->uBank = *(uint32_t *)pvVal & 0xff;
+}
+
+
 static int pspDevFlashInit(PPSPDEV pDev)
 {
     PPSPDEVFLASH pThis = (PPSPDEVFLASH)&pDev->abInstance[0];
 
     pThis->pDev       = pDev;
+    pThis->uBank      = 0;
     pThis->offAccLast = UINT32_MAX - 1;
     pThis->idPacket   = 0;
 
     SMNADDR SmnAddrFlash = pDev->pCfg->pPspProfile->SmnAddrFlashStart;
-    int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrFlash, pDev->pCfg->cbFlashRom,
+    int rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, SmnAddrFlash, 16 * _1M,
                                     pspDevFlashRead, pspDevFlashWrite, pThis,
                                     "SPI flash", &pThis->hSmn);
     if (!rc)
         rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x2dc4000, 0x20,
                                     pspDevFlashSpiCtrlRead, pspDevFlashSpiCtrlWrite, pThis,
                                     "SPI Control", &pThis->hSmnCtrl);
+    if (   !rc
+        && pDev->pCfg->pPspProfile->enmMicroArch >= PSPEMUMICROARCH_ZEN2)
+        rc = PSPEmuIoMgrSmnRegister(pDev->hIoMgr, 0x2dc405c, 4,
+                                    pspDevFlashSpiBankCtrlRead, pspDevFlashSpiBankCtrlWrite, pThis,
+                                    "SPI Bank Ctrl", &pThis->hSmnBankCtrl);
     if (   !rc
         && pDev->pCfg->pszSpiFlashTrace)
     {
