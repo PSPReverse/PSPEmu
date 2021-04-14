@@ -863,9 +863,9 @@ static void pspDevCcpDumpEccNumber(char *pszBuf, size_t cbBuf, PCCCP5ECCNUM pNum
     const uint64_t *pu64Num = (const uint64_t *)pNum;
 
     snprintf(pszBuf, cbBuf,
-        "0x%016lx_%016lx_%016lx_%016lx"
-        "_%016lx_%016lx_%016lx_%016lx"
-        "_%016lx",
+        "0x%016llx_%016llx_%016llx_%016llx"
+        "_%016llx_%016llx_%016llx_%016llx"
+        "_%016llx",
         pu64Num[8], pu64Num[7], pu64Num[6], pu64Num[5],
         pu64Num[4], pu64Num[3], pu64Num[2], pu64Num[1],
         pu64Num[0]
@@ -1531,6 +1531,22 @@ static int pspDevCcpReqZlibProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uF
 
 
 /**
+ * Logs an error returned by openssl for an RSA operation.
+ *
+ * @returns nothing.
+ * @param   pszOrigin           Where the error came from.
+ */
+static void pspDevCcpReqRsaProcessLogOsslError(const char *pszOrigin)
+{
+    char szErr[_1K];
+    ERR_error_string_n(ERR_get_error(), &szErr[0], sizeof(szErr));
+    PSPEmuTraceEvtAddString(NULL, PSPTRACEEVTSEVERITY_ERROR, PSPTRACEEVTORIGIN_CCP,
+                            "CCP: RSA operation failed at %s -> Openssl returned \"%s\")!\n",
+                            pszOrigin, szErr);
+}
+
+
+/**
  * Processes a RSA request.
  *
  * @returns Status code.
@@ -1560,7 +1576,7 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
         if (!rc)
         {
             bool fFreeBignums = true;
-            BIGNUM *pExp = BN_lebin2bn(&abExp[0], uSz / 2, NULL);
+            BIGNUM *pExp = BN_lebin2bn(&abExp[0], uSz, NULL);
             RSA *pRsaPubKey = RSA_new();
             if (pExp && pRsaPubKey)
             {
@@ -1570,8 +1586,8 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                 if (!rc)
                 {
                     /*
-                     * The source buffer contains the modulus as a 2048bit integer in little endian format
-                     * followed by the message the process (why the modulus is not part of the key buffer
+                     * The source buffer contains the modulus as a big integer in little endian format
+                     * followed by the message to process (why the modulus is not part of the key buffer
                      * remains a mystery).
                      */
                     uint8_t abData[1024];
@@ -1584,22 +1600,31 @@ static int pspDevCcpReqRsaProcess(PPSPDEVCCP pThis, PCCCP5REQ pReq, uint32_t uFu
                         {
                             uint8_t abResult[512];
 
-                            RSA_set0_key(pRsaPubKey, pMod, pExp, NULL);
-
-                            /* The RSA public key structure has taken over the memory and freeing it will free the exponent and modulus as well. */
-                            fFreeBignums = false;
-
-                            /* Need to convert to little endian format. */
-                            pspDevCcpReverseBuf(&abData[uSz], pReq->cbSrc / 2);
-                            size_t cbEnc = RSA_public_encrypt(pReq->cbSrc / 2, &abData[uSz], &abResult[0], pRsaPubKey, RSA_NO_PADDING);
-                            if (cbEnc == uSz)
+                            if (RSA_set0_key(pRsaPubKey, pMod, pExp, NULL))
                             {
-                                /* Need to swap endianess of result buffer as well. */
-                                pspDevCcpReverseBuf(&abResult[0], uSz);
-                                rc = pspDevCcpXferCtxWrite(&XferCtx, &abResult[0], uSz, NULL);
+                                /* The RSA public key structure has taken over the memory and freeing it will free the exponent and modulus as well. */
+                                fFreeBignums = false;
+
+                                /* Need to convert to little endian format. */
+                                pspDevCcpReverseBuf(&abData[uSz], pReq->cbSrc / 2);
+                                size_t cbEnc = RSA_public_encrypt(pReq->cbSrc / 2, &abData[uSz], &abResult[0], pRsaPubKey, RSA_NO_PADDING);
+                                if (cbEnc == uSz)
+                                {
+                                    /* Need to swap endianess of result buffer as well. */
+                                    pspDevCcpReverseBuf(&abResult[0], uSz);
+                                    rc = pspDevCcpXferCtxWrite(&XferCtx, &abResult[0], uSz, NULL);
+                                }
+                                else
+                                {
+                                    pspDevCcpReqRsaProcessLogOsslError("RSA_public_encrypt()");
+                                    rc = -1;
+                                }
                             }
                             else
+                            {
+                                pspDevCcpReqRsaProcessLogOsslError("RSA_set0_key()");
                                 rc = -1;
+                            }
 
                             if (fFreeBignums)
                                 BN_clear_free(pMod);
@@ -2029,6 +2054,8 @@ static void pspDevCcpQueueRunMaybe(PPSPDEVCCP pThis, PCCPQUEUE pQueue)
             int rc = PSPEmuIoMgrPspAddrRead(pThis->pDev->hIoMgr, u32ReqHead, &Req, sizeof(Req));
             if (!rc)
             {
+                u32ReqHead += sizeof(Req);
+
                 pspDevCcpDumpReq(&Req, u32ReqHead);
                 rc = pspDevCcpReqProcess(pThis, &Req);
                 if (!rc)
@@ -2050,8 +2077,6 @@ static void pspDevCcpQueueRunMaybe(PPSPDEVCCP pThis, PCCPQUEUE pQueue)
                 pQueue->u32RegIsts |= CCP_V5_Q_REG_ISTS_ERROR;
                 break;
             }
-
-            u32ReqHead += sizeof(Req);
         }
 
         /* Set halt bit again. */
