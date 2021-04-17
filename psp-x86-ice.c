@@ -729,6 +729,11 @@ static int pspX86IceSerialIceRecv(PPSPX86ICEINT pThis, PPSPX86SERIALICERX pRx, O
                         rc = pspX86IceSerialIceProcess(pThis, pRx, hTcpCon);
                     break;
                 }
+                case PSPX86SERIALICERXSTATE_INVALID:
+                case PSPX86SERIALICERXSTATE_32BIT_HACK:
+                default:
+                    rc = STS_ERR_INVALID_PARAMETER;
+                    break;
             }
         }
         else

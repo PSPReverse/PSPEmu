@@ -49,7 +49,7 @@ int PSPEmuDisasm(char *pchDst, size_t cch, uint32_t cInsnsDisasm, uint8_t *pbCod
 
         while (i < cInsn)
         {
-            size_t cchWritten = snprintf(pszDst, cchLeft, "%#08x:    %s\t\t%s\n",
+            size_t cchWritten = snprintf(pszDst, cchLeft, "%#08llx:    %s\t\t%s\n",
                                          paInsn[i].address, paInsn[i].mnemonic,
                                          paInsn[i].op_str);
             if (cchWritten >= cchLeft)

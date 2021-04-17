@@ -371,7 +371,7 @@ static void pspEmuIoMgrX86MappingFetch(X86PADDR offX86Mem, size_t cbFetch, void 
 
     int rc = PSPProxyCtxPspMemRead(pMapping->pThis->hProxyCtx, pMapping->PspAddrProxyBase + (uint32_t)offX86Mem, pvDst, cbFetch);
     if (rc)
-        printf("Fetching memory content from %#lx failed with %rc\n", pMapping->PspAddrProxyBase + (uint32_t)offX86Mem, rc);
+        printf("Fetching memory content from %#x failed with %d\n", pMapping->PspAddrProxyBase + (uint32_t)offX86Mem, rc);
 }
 
 
@@ -393,7 +393,7 @@ static int pspEmuSvcX86MemMapWorker(PPSPSVCINT pThis, uint32_t u32PhysX86AddrLow
     X86PADDR PhysX86AddrBase = (PhysX86Addr & ~(_64M - 1));
     uint32_t offStart = PhysX86Addr - PhysX86AddrBase;
     size_t cbMapping = (PhysX86AddrBase + _64M) - PhysX86Addr;
-    printf("Mapping x86 address %#lx (64MB aligned base %#lx, memory target %u)\n", PhysX86Addr, PhysX86AddrBase, uMemType);
+    printf("Mapping x86 address %#llx (64MB aligned base %#llx, memory target %u)\n", PhysX86Addr, PhysX86AddrBase, uMemType);
 
     /* Search for a free mapping slot (unlike the real off chip bootloader we treat all slots equal). */
     PPSPSVCX86MAPPING pMapping = NULL;
@@ -470,7 +470,7 @@ static int pspEmuSvcX86MemMapWorker(PPSPSVCINT pThis, uint32_t u32PhysX86AddrLow
             }
         }
         else
-            printf("Mapping %#lx on the proxied PSP failed with rc=%d PspAddrProxyMap=%#x\n", rc, PspAddrProxyMap);
+            printf("Mapping %#llx on the proxied PSP failed with rc=%d PspAddrProxyMap=%#x\n", PhysX86Addr, rc, PspAddrProxyMap);
     }
     else
     {
@@ -582,7 +582,7 @@ static bool pspEmuSvcX86MemUnmap(PSPCORE hCore, uint32_t idxSyscall, uint32_t fF
                     /* Deregister the mapping. */
                     rc = PSPEmuIoMgrDeregister(pMapping->hIoMgrRegion);
                     if (rc)
-                        printf("Deregistering the x86 memory region failed with %d\n");
+                        printf("Deregistering the x86 memory region failed with %d\n", rc);
 
                     /* Clear the mapping slot. */
                     pMapping->PhysX86AddrBase  = NIL_X86PADDR;
@@ -609,12 +609,14 @@ static bool pspEmuSvcX86CopyToPsp(PSPCORE hCore, uint32_t idxSyscall, uint32_t f
 {
 #if 0
 #endif
+    return true;
 }
 
 static bool pspEmuSvcX86CopyFromPsp(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
 {
 #if 0
 #endif
+    return true;
 }
 
 
@@ -940,6 +942,7 @@ static bool pspEmuSvc0x35Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
 
     uc_reg_write(uc, UC_ARM_REG_R0, &uSts);
 #endif
+    return true;
 }
 
 static bool pspEmuSvc0x36Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
@@ -1032,6 +1035,7 @@ static bool pspEmuSvc0x36Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
     free(pvTmp);
     uc_reg_write(uc, UC_ARM_REG_R0, &uSts);
 #endif
+    return true;
 }
 
 static bool pspEmuSvcInvalidateMemory(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
@@ -1164,6 +1168,7 @@ static bool pspEmuSvc0x38Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
 
     uc_reg_write(uc, UC_ARM_REG_R0, &uSts);
 #endif
+    return true;
 }
 
 static bool pspEmuSvcRng(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
@@ -1254,6 +1259,7 @@ static bool pspEmuSvcQuerySaveStateRegion(PSPCORE hCore, uint32_t idxSyscall, ui
 
     uc_reg_write(uc, UC_ARM_REG_R0, &uStateRegionAddr);
 #endif
+    return true;
 }
 
 static bool pspEmuSvc0x41Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
@@ -1391,6 +1397,7 @@ static bool pspEmuSvc0x41Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
 
     uc_reg_write(uc, UC_ARM_REG_R0, &uSts);
 #endif
+    return true;
 }
 
 static bool pspEmuSvc0x42Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)
@@ -1426,6 +1433,7 @@ static bool pspEmuSvc0x42Unk(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags
 
     uc_reg_write(uc, UC_ARM_REG_R0, &uSts);
 #endif
+    return true;
 }
 
 static bool pspEmuSvcQuerySmmRegion(PSPCORE hCore, uint32_t idxSyscall, uint32_t fFlags, void *pvUser)

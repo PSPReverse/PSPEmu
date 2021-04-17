@@ -1926,6 +1926,10 @@ static int pspProxyCcdMemWriteThroughRegister(PPSPPROXYCCD pCcdRec, PSPIOM hIoMg
                                                  &pCcdRec->ahIoTpWt[i]);
                 break;
             }
+            case PSPADDRSPACE_INVALID:
+            case PSPADDRSPACE_32BIT_HACK:
+            default:
+                rc = STS_ERR_INVALID_PARAMETER;
         }
     }
 

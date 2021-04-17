@@ -119,7 +119,7 @@ static bool pspEmuCovBbRangeIsCovered(PPSPCOVINT pThis, PSPADDR PspAddr, size_t 
  * @param   PspAddr                 The address to start at.
  * @param   cbBb                    Size of the basic block.
  */
-static bool pspEmuCovBbRangeSet(PPSPCOVINT pThis, PSPADDR PspAddr, size_t cbBb)
+static void pspEmuCovBbRangeSet(PPSPCOVINT pThis, PSPADDR PspAddr, size_t cbBb)
 {
     uint32_t idxBit = (PspAddr - pThis->PspAddrBegin) / 2;
     uint32_t idxByte = idxBit / 8;

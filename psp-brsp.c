@@ -202,8 +202,8 @@ int PSPBrspDump(PPSPROMSVCPG pBrsp)
                i, pCoreInfo->idCore);
     }
 
-    printf("abUnknown3[0..5]:                   %#x %#x %#x %#x %#x\n"
-           "abUnknown3[6..11]:                  %#x %#x %#x %#x %#x\n"
+    printf("abUnknown3[0..5]:                   %#x %#x %#x %#x %#x %#x\n"
+           "abUnknown3[6..11]:                  %#x %#x %#x %#x %#x %#x\n"
            "idPhysDie:                          %u\n"
            "idSocket:                           %u\n"
            "u8PkgType:                          %#x\n"

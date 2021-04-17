@@ -464,14 +464,16 @@ static const char *pspDbgPgTblWalkStsToStr(PSPCOREPGTBLWALKSTS enmPgTblWalk)
 {
     switch (enmPgTblWalk)
     {
-        case PSPCOREPGTBLWALKSTS_INVALID:
-            return "INVALID";
         case PSPCOREPGTBLWALKSTS_NO_MMU:
             return "NO_MMU";
         case PSPCOREPGTBLWALKSTS_L1:
             return "L1";
         case PSPCOREPGTBLWALKSTS_L2:
             return "L2";
+        case PSPCOREPGTBLWALKSTS_INVALID:
+        case PSPCOREPGTBLWALKSTS_32BIT_HACK:
+        default:
+            return "INVALID";
     }
 
     return "<UNKNOWN>";
@@ -543,6 +545,7 @@ static int pspDbgOutHlpPrintf(PCPSPDBGOUTHLP pHlp, const char *pszFmt, ...)
         rc = STS_ERR_INVALID_PARAMETER; /** @todo Better status code. */
 
     va_end(VaArgs);
+    return rc;
 }
 
 

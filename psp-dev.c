@@ -21,6 +21,7 @@
 
 #include <common/types.h>
 #include <common/cdefs.h>
+#include <common/status.h>
 
 #include <psp-dev.h>
 
@@ -41,13 +42,13 @@ int PSPEmuDevCreate(PSPIOM hIoMgr, PCPSPDEVREG pDevReg, PCPSPDEVIF pDevIf, PCPSP
         if (!rc)
         {
             *ppDev = pDev;
-            return 0;
+            return STS_INF_SUCCESS;
         }
 
         free(pDev);
     }
     else
-        rc = -1;
+        rc = STS_ERR_NO_MEMORY;
 
     return rc;
 }
@@ -56,5 +57,7 @@ int PSPEmuDevDestroy(PPSPDEV pDev)
 {
     pDev->pReg->pfnDestruct(pDev);
     free(pDev);
+
+    return STS_INF_SUCCESS;
 }
 

@@ -456,7 +456,7 @@ static SMNADDR pspEmuIomGetSmnAddrFromSlotAndOffset(PPSPIOMINT pThis, PSPADDR of
     if (idxSlot < ELEMENTS(pThis->aSmnAddrBaseSlots))
         return pThis->aSmnAddrBaseSlots[idxSlot] | offSlot;
     else
-        printf("ERROR: SMN slot index out of range (is %u, max is %u)\n", idxSlot, ELEMENTS(pThis->aSmnAddrBaseSlots));
+        printf("ERROR: SMN slot index out of range (is %u, max is %lu)\n", idxSlot, ELEMENTS(pThis->aSmnAddrBaseSlots));
 
     return 0;
 }
@@ -1799,7 +1799,7 @@ static bool pspEmuIoMgrAddrIsMmio(PPSPIOMINT pThis, PSPADDR PspAddr, PPSPIOMREGI
 static bool pspEmuIoMgrAddrIsX86(PPSPIOMINT pThis, PSPADDR PspAddr, PPSPIOMX86MAPCTRLSLOT *ppX86MapSlot,
                                  PPSPIOMREGIONHANDLEINT *ppRegion, X86PADDR *pPhysX86Addr)
 {
-    if (PspAddr >= 0x04000000 && PspAddr < 0x04000000 * ELEMENTS(pThis->aX86MapCtrlSlots) * 64 * _1M)
+    if (PspAddr >= 0x04000000 && PspAddr < 0x04000000 + ELEMENTS(pThis->aX86MapCtrlSlots) * 64 * _1M)
     {
         /* Get the mapping slot. */
         PspAddr -= 0x04000000;

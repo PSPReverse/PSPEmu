@@ -439,7 +439,7 @@ static const char *pspEmuTraceEvtDumpPrefixCreate(PPSPTRACEINT pThis, char *pszB
 
     /** @todo This should probably be redone properly someday... */
     /* Trace ID. */
-    int rcStr = snprintf(pszCur, cchLeft, "%08u ", pEvt->idTraceEvt);
+    int rcStr = snprintf(pszCur, cchLeft, "%08llu ", pEvt->idTraceEvt);
     if (   rcStr < 0
         || rcStr >= cchLeft)
         return NULL;
@@ -450,7 +450,7 @@ static const char *pspEmuTraceEvtDumpPrefixCreate(PPSPTRACEINT pThis, char *pszB
     /* Timestamp if configured. */
     if (fFlags & PSPEMU_TRACE_F_TIMESTAMPS)
     {
-        rcStr = snprintf(pszCur, cchLeft, "%16u ", pEvt->tsTraceEvtNs);
+        rcStr = snprintf(pszCur, cchLeft, "%16llu ", pEvt->tsTraceEvtNs);
         if (   rcStr < 0
             || rcStr >= cchLeft)
             return NULL;
@@ -563,7 +563,7 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
         {
             PPSPTRACEEVTDEVXFER pDevXfer = (PPSPTRACEEVTDEVXFER)&pEvt->abContent[0];
 
-            rcStr = snprintf(pszCur, cchLeft, "%sDEV %s %-32s %#16lx %u",
+            rcStr = snprintf(pszCur, cchLeft, "%sDEV %s %-32s %#16llx %zu",
                              pszPrefix,
                              pDevXfer->fRead ? "READ " : "WRITE",
                              pDevXfer->pszDevId,
@@ -601,7 +601,7 @@ static int pspEmuTraceEvtDump(PPSPTRACEINT pThis, uint32_t fFlags, PCPSPTRACEEVT
                         return -1;
                 }
 
-                rcStr = snprintf(pszCur, cchLeft, " 0x%.*lx", pDevXfer->cbXfer * 2, uVal);
+                rcStr = snprintf(pszCur, cchLeft, " 0x%.*llx", (int)pDevXfer->cbXfer * 2, uVal);
                 if (   rcStr < 0
                     || rcStr >= cchLeft)
                     return -1;
@@ -988,7 +988,7 @@ int PSPEmuTraceEvtAddStringV(PSPTRACE hTrace, PSPTRACEEVTSEVERITY enmSeverity, P
     {
         OSLockAcquire(pThis->hLock);
 
-        uint8_t szTmp[_4K]; /** @todo Maybe allocate scratch buffer if this turns to be too small (or fix your damn log strings...). */
+        char szTmp[_4K]; /** @todo Maybe allocate scratch buffer if this turns to be too small (or fix your damn log strings...). */
         bzero(&szTmp[0], sizeof(szTmp));
         int rcStr = vsnprintf(&szTmp[0], sizeof(szTmp), pszFmt, hArgs);
         if (rcStr > 0)

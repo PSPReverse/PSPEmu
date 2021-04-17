@@ -38,11 +38,11 @@ typedef PSPDEVUNK *PPSPDEVUNK;
 
 static void pspDevX86UnkMmioRead(X86PADDR offMmio, size_t cbRead, void *pvVal, void *pvUser)
 {
-    printf("%s: offMmio=%#x cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
+    printf("%s: offMmio=%#llx cbRead=%zu\n", __FUNCTION__, offMmio, cbRead);
 
     if (cbRead != sizeof(uint8_t))
     {
-        printf("%s: Unsupported read size cbRead=%zu\n", cbRead);
+        printf("%s: Unsupported read size cbRead=%zu\n", __FUNCTION__, cbRead);
         return;
     }
 

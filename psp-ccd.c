@@ -1055,7 +1055,7 @@ void PSPEmuCcdDestroy(PSPCCD hCcd)
         if (rc)
             printf("Dumping the coverage trace to %s failed with %d\n", pThis->pCfg->pszCovTrace, rc);
         else
-            printf("Dumped the coverage trace successfully to %s\n", pThis->pCfg->pszCovTrace, rc);
+            printf("Dumped the coverage trace successfully to %s\n", pThis->pCfg->pszCovTrace);
         PSPEmuCovDestroy(pThis->hCov);
         pThis->hCov = NULL;
     }
