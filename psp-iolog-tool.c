@@ -161,7 +161,7 @@ static void pspIoLogToolRegMapDump(PCPSPREGMAP pRegMap, uint32_t cbAddr, const c
     for (uint32_t i = 0; i < pRegMap->cRegs; i++)
     {
         PCPSPREG pReg = &pRegMap->paRegs[i];
-        printf("    0x%0*llx    %12u    READS: %8u    WRITES: %8u    LWPC: 0x%08x    LWIOID: %012u    LRPC: 0x%08x    LRIOID: %012u\n",
+        printf("    0x%0*llx    %12zu    READS: %8llu    WRITES: %8llu    LWPC: 0x%08x    LWIOID: %012u    LRPC: 0x%08x    LRIOID: %012u\n",
                cbAddr * 2, pReg->uAddr, pReg->cbReg, pReg->cReads, pReg->cWrites, pReg->PspAddrPcWriteLast, pReg->idxIoEvtWriteLast,
                pReg->PspAddrPcReadLast, pReg->idxIoEvtReadLast);
     }
@@ -451,16 +451,25 @@ static void pspIoLogToolEvtDump(PCPSPIOLOGRDREVT pIoEvt)
             pszAddrSpace = "SMN     ";
             break;
         case PSPADDRSPACE_PSP:
+        case PSPADDRSPACE_PSP_MMIO:
             uAddr = pIoEvt->u.PspAddrMmio;
             pszAddrSpace = "PSP/MMIO";
             break;
         case PSPADDRSPACE_X86:
+        case PSPADDRSPACE_X86_MMIO:
             uAddr = pIoEvt->u.PhysX86Addr;
             pszAddrSpace = "X86     ";
             break;
+        case PSPADDRSPACE_INVALID:
+        case PSPADDRSPACE_PSP_MEM:
+        case PSPADDRSPACE_X86_MEM:
+        default:
+            uAddr = 0;
+            pszAddrSpace = "INVALID ";
+            break;
     }
 
-    fprintf(stdout, "%02u 0x%08lx %s %16s %#16lx %u",
+    fprintf(stdout, "%02u 0x%08x %s %16s %#16llx %zu",
             pIoEvt->idCcd,
             pIoEvt->PspAddrPc,
             pszAddrSpace,
@@ -492,7 +501,7 @@ static void pspIoLogToolEvtDump(PCPSPIOLOGRDREVT pIoEvt)
                 return;
         }
 
-        fprintf(stdout, " 0x%.*lx", pIoEvt->cbAcc * 2, uVal);
+        fprintf(stdout, " 0x%.*llx", (int)pIoEvt->cbAcc * 2, uVal);
     }
 
     fprintf(stdout, "\n");
@@ -560,19 +569,30 @@ static int pspIoLogToolRegMap(PSPIOLOGRDR hIoLogRdr)
                     pRegMap = &RegMapSmn;
                     break;
                 case PSPADDRSPACE_PSP:
+                case PSPADDRSPACE_PSP_MMIO:
                     uAddr = pIoEvt->u.PspAddrMmio;
                     pRegMap = &RegMapMmio;
                     break;
                 case PSPADDRSPACE_X86:
+                case PSPADDRSPACE_X86_MMIO:
                     uAddr = pIoEvt->u.PhysX86Addr;
                     pRegMap = &RegMapX86;
                     break;
+                case PSPADDRSPACE_INVALID:
+                case PSPADDRSPACE_PSP_MEM:
+                case PSPADDRSPACE_X86_MEM:
+                default:
+                    rc = STS_ERR_INVALID_PARAMETER;
+                    break;
             }
 
-            rc = pspIoLoToolRegMapAdd(pRegMap, uAddr, pIoEvt->fWrite, pIoEvt->cbAcc, idxIoEvt,
-                                      pIoEvt->PspAddrPc);
-            PSPEmuIoLogRdrEvtFree(hIoLogRdr, pIoEvt);
-            idxIoEvt++;
+            if (STS_SUCCESS(rc))
+            {
+                rc = pspIoLoToolRegMapAdd(pRegMap, uAddr, pIoEvt->fWrite, pIoEvt->cbAcc, idxIoEvt,
+                                          pIoEvt->PspAddrPc);
+                PSPEmuIoLogRdrEvtFree(hIoLogRdr, pIoEvt);
+                idxIoEvt++;
+            }
         }
         else
             fprintf(stderr, "Reading I/O event failed with %d\n", rc);
@@ -652,6 +672,9 @@ int main(int argc, char *argv[])
                 break;
             case IOLOGTOOLMODE_REG_MAP:
                 rc = pspIoLogToolRegMap(hIoLogRdr);
+                break;
+            case IOLOGTOOLMODE_INVALID:
+                fprintf(stderr, "Internal tool error\n");
                 break;
         }
 
