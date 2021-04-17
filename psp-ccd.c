@@ -222,10 +222,7 @@ static PCPSPDEVREG g_apDevs[] =
     &g_DevRegX86Mem,
 
     /* Special CCD device. */
-    &g_DevRegCcd,
-
-    /* Special device only present for debugging and not existing on real hardware. */
-    &g_DevRegTest,
+    &g_DevRegCcd
 };
 
 
