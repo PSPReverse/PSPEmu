@@ -32,6 +32,8 @@
 #include <common/cdefs.h>
 #include <common/status.h>
 
+#include <uefi/capsule.h>
+
 #include <os/file.h>
 
 #include <psp-cfg.h>
@@ -94,6 +96,7 @@ static struct option g_aOptions[] =
 {
     {"emulation-mode",               required_argument, 0, 'm'},
     {"flash-rom",                    required_argument, 0, 'f'},
+    {"flash-no-strip-capsule-hdr",   no_argument,     0, 'h'},
     {"on-chip-bl",                   required_argument, 0, 'o'},
     {"boot-rom-svc-page",            required_argument, 0, 's'},
     {"boot-rom-svc-page-dont-alter", no_argument,       0, 'n'},
@@ -148,6 +151,7 @@ static const PSPCFGARG g_aCfgArgsGeneral[] =
     {"psp-profile",                  'a', "<id>",                             "Selects the given PSP profile for emulation"},
     {"cpu-profile",                  'c', "<id>",                             "Selects the given CPU profile for emulation (optional)"},
     {"flash-rom",                    'f', "<path/to/flash/rom>",              "The flash image to use for emulation"},
+    {"flash-no-strip-capsule-hdr",   'h', NULL,                               "Don't strip the UEFI capsule header if detected (Use with care)"},
     {"on-chip-bl",                   'o', "<path/to/on-chip-bl/binary>",      "The on-chip BL binary to use when starting emulation from the on-chip BL"},
     {"boot-rom-svc-page",            's', "<path/to/boot/rom/svc/page>",      "The boot ROM service page to load when starting with the off-chip BL or later"},
     {"boot-rom-svc-page-dont-alter", 'n', NULL,                               "Don't alter the boot ROM service page to match the emulated system"},
@@ -948,9 +952,9 @@ void PSPCfgFree(PPSPEMUCFG pCfg)
         && pCfg->cbOnChipBl)
         OSFileLoadAllFree(pCfg->pvOnChipBl, pCfg->cbOnChipBl);
 
-    if (   pCfg->pvFlashRom
-        && pCfg->cbFlashRom)
-        OSFileLoadAllFree(pCfg->pvFlashRom, pCfg->cbFlashRom);
+    if (   pCfg->pvFlashRomRaw
+        && pCfg->cbFlashRomRaw)
+        OSFileLoadAllFree(pCfg->pvFlashRomRaw, pCfg->cbFlashRomRaw);
 
     if (   pCfg->pvBinLoad
         && pCfg->cbBinLoad)
@@ -986,14 +990,14 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
 {
     int ch = 0;
     int idxOption = 0;
+    bool fStripCapsuleHdr = true;
 
     PSPCfgInit(pCfg);
 
-    while ((ch = getopt_long (cArgs, (char * const *)papszArgs, "hpbr8N:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:W:e:IA", &g_aOptions[0], &idxOption)) != -1)
+    while ((ch = getopt_long (cArgs, (char * const *)papszArgs, "Hhpbr8N:m:f:o:d:s:x:a:c:u:S:C:O:D:E:V:U:P:T:M:R:L:Y:W:e:IA", &g_aOptions[0], &idxOption)) != -1)
     {
         switch (ch)
         {
-            case 'h':
             case 'H':
                 PSPCfgHelp(papszArgs[0], true /*fVerbose*/);
                 exit(0);
@@ -1016,6 +1020,9 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
                 break;
             case 'f':
                 pCfg->pszPathFlashRom = optarg;
+                break;
+            case 'h':
+                fStripCapsuleHdr = false;
                 break;
             case 's':
                 pCfg->pszPathBootRomSvcPage = optarg;
@@ -1209,9 +1216,29 @@ int PSPCfgParse(PPSPEMUCFG pCfg, int cArgs, const char * const *papszArgs)
 
     if (STS_SUCCESS(rc))
     {
-        rc = OSFileLoadAll(pCfg->pszPathFlashRom, &pCfg->pvFlashRom, &pCfg->cbFlashRom);
-        if (rc)
+        rc = OSFileLoadAll(pCfg->pszPathFlashRom, &pCfg->pvFlashRomRaw, &pCfg->cbFlashRomRaw);
+        if (STS_FAILURE(rc))
             fprintf(stderr, "Loading the flash ROM failed with %d\n", rc);
+        else
+        {
+            pCfg->pvFlashRom = pCfg->pvFlashRomRaw;
+            pCfg->cbFlashRom = pCfg->cbFlashRomRaw;
+
+            if (   fStripCapsuleHdr
+                && pCfg->cbFlashRomRaw >= sizeof(UEFICAPSULEHEADER))
+            {
+                /* Try to detect the capsule header and remove it if present. */
+                uint8_t abCapsuleGuid[] = EFI2_CAPSULE_GUID;
+                PCUEFICAPSULEHEADER pCapHdr = (PCUEFICAPSULEHEADER)pCfg->pvFlashRomRaw;
+
+                if (   !memcmp(&pCapHdr->abCapsuleGuid[0], &abCapsuleGuid[0], sizeof(abCapsuleGuid))
+                    && pCapHdr->cbCapsuleHdr <= pCfg->cbFlashRomRaw)
+                {
+                    pCfg->pvFlashRom = (uint8_t *)pCfg->pvFlashRomRaw + pCapHdr->cbCapsuleHdr;
+                    pCfg->cbFlashRom = pCfg->cbFlashRomRaw - pCapHdr->cbCapsuleHdr;
+                }
+            }
+        }
     }
 
     if (   STS_SUCCESS(rc)

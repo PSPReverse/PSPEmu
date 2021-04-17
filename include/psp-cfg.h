@@ -248,6 +248,10 @@ typedef struct PSPEMUCFG
     void                    *pvFlashRom;
     /** Size of the flash ROM in bytes. */
     size_t                  cbFlashRom;
+    /** Pointer to the raw flash ROM content read form the file (including any UEFI capsule header). */
+    void                    *pvFlashRomRaw;
+    /** Size of the flash ROM image in bytes (including any UEFI capsule header). */
+    size_t                  cbFlashRomRaw;
     /** Pointer to the on chip bootloader ROM content. */
     void                    *pvOnChipBl;
     /** Size of the on chip bootloader ROM in bytes. */
