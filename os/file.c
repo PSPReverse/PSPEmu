@@ -24,6 +24,8 @@
 #include <stdio.h>
 #include <errno.h>
 
+#include <common/status.h>
+
 #include <os/file.h>
 
 
@@ -54,25 +56,25 @@ int OSFileLoadAll(const char *pszFilename, void **ppv, size_t *pcb)
                     {
                         *ppv = pvFw;
                         *pcb = cbFw;
-                        return 0;
+                        return STS_INF_SUCCESS;
                     }
 
                     free(pvFw);
-                    rc = -1;
+                    rc = STS_ERR_INVALID_PARAMETER;
                 }
                 else
-                    rc = -1;
+                    rc = STS_ERR_INVALID_PARAMETER;
             }
             else
-                rc = errno;
+                rc = STS_ERR_INVALID_PARAMETER;
         }
         else
-            rc = errno;
+            rc = STS_ERR_INVALID_PARAMETER;
 
         fclose(pFwFile);
     }
     else
-        rc = errno;
+        rc = STS_ERR_INVALID_PARAMETER;
 
     return rc;
 }
@@ -81,6 +83,6 @@ int OSFileLoadAll(const char *pszFilename, void **ppv, size_t *pcb)
 int OSFileLoadAllFree(void *pv, size_t cb)
 {
     free(pv);
-    return 0;
+    return STS_INF_SUCCESS;
 }
 
